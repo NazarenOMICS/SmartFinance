@@ -22,11 +22,16 @@ router.post("/", async (c) => {
   const extracted_text = formData.get("extracted_text") || null;
   const file = formData.get("file");
 
-  if (!period) return c.json({ error: "period is required" }, 400);
+  if (!period || !/^\d{4}-\d{2}$/.test(period)) return c.json({ error: "period is required in YYYY-MM format" }, 400);
+  if (!account_id) return c.json({ error: "account_id is required" }, 400);
   if (!file && !extracted_text) return c.json({ error: "file or extracted_text is required" }, 400);
 
   const filename = file ? file.name : `manual-${period}.txt`;
   const db = getDb(c.env);
+
+  // Resolve account currency so transactions inherit it (not hardcoded UYU)
+  const account = await db.prepare("SELECT currency FROM accounts WHERE id=?").get(account_id);
+  const accountCurrency = account?.currency || "UYU";
 
   const uploadResult = await db.prepare(
     "INSERT INTO uploads (filename,account_id,period,status) VALUES (?,?,?,'pending')"
@@ -77,8 +82,8 @@ router.post("/", async (c) => {
       else { pendingReview++; }
 
       await db.prepare(
-        "INSERT INTO transactions (fecha,desc_banco,monto,moneda,category_id,account_id,upload_id,dedup_hash) VALUES (?,?,?,'UYU',?,?,?,?)"
-      ).run(tx.fecha, tx.desc_banco, tx.monto, categoryId, account_id, uploadId, dedupHash);
+        "INSERT INTO transactions (fecha,desc_banco,monto,moneda,category_id,account_id,upload_id,dedup_hash) VALUES (?,?,?,?,?,?,?,?)"
+      ).run(tx.fecha, tx.desc_banco, tx.monto, accountCurrency, categoryId, account_id, uploadId, dedupHash);
       newTransactions++;
     }
   }

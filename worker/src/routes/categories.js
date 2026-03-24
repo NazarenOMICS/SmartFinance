@@ -12,7 +12,9 @@ router.post("/", async (c) => {
   const { name, budget = 0, type = "variable", color = null } = await c.req.json();
   if (!name) return c.json({ error: "name is required" }, 400);
   const db = getDb(c.env);
-  const result = await db.prepare("INSERT INTO categories (name,budget,type,color) VALUES (?,?,?,?)").run(name, budget, type, color);
+  const existing = await db.prepare("SELECT id FROM categories WHERE name=? COLLATE NOCASE").get(name.trim());
+  if (existing) return c.json({ error: `Ya existe una categoría con el nombre "${name}"` }, 409);
+  const result = await db.prepare("INSERT INTO categories (name,budget,type,color) VALUES (?,?,?,?)").run(name.trim(), budget, type, color);
   return c.json(await db.prepare("SELECT * FROM categories WHERE id=?").get(result.lastInsertRowid), 201);
 });
 

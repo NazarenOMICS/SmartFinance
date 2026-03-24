@@ -13,10 +13,15 @@ function getMonthSeries(months, endMonth) {
   });
 }
 
+// Net savings = income - expenses (positive = saved money)
 async function monthNet(db, month) {
   const { start, end } = monthWindow(month);
-  const rows = await db.prepare("SELECT monto FROM transactions WHERE fecha >= ? AND fecha < ?").all(start, end);
-  return rows.reduce((sum, row) => sum + row.monto, 0);
+  const row = await db.prepare(
+    `SELECT COALESCE(SUM(CASE WHEN monto > 0 THEN monto ELSE 0 END), 0) AS income,
+            COALESCE(SUM(CASE WHEN monto < 0 THEN ABS(monto) ELSE 0 END), 0) AS expenses
+     FROM transactions WHERE fecha >= ? AND fecha < ?`
+  ).get(start, end);
+  return (row?.income || 0) - (row?.expenses || 0);
 }
 
 function nextMonth(month) {
@@ -27,7 +32,9 @@ function nextMonth(month) {
 
 router.get("/projection", async (c) => {
   const months = Math.max(1, Number(c.req.query("months") || 12));
-  const baseMonth = c.req.query("end") || "2026-03";
+  const now = new Date();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const baseMonth = c.req.query("end") || currentMonth;
   const db = getDb(c.env);
   const settings = await getSettingsObject(c.env);
   const historicalMonths = getMonthSeries(6, baseMonth);

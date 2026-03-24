@@ -16,7 +16,7 @@ router.get("/", async (c) => {
   return c.json(await db.prepare(
     `SELECT i.*,a.name AS account_name FROM installments i
      LEFT JOIN accounts a ON a.id=i.account_id
-     WHERE i.cuota_actual<=i.cantidad_cuotas ORDER BY i.created_at DESC`
+     WHERE i.cuota_actual<i.cantidad_cuotas ORDER BY i.created_at DESC`
   ).all());
 });
 

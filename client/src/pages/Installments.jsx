@@ -56,9 +56,12 @@ export default function Installments({ month }) {
   if (state.loading) return <div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel">Cargando cuotas…</div>;
   if (state.error) return <div className="rounded-[28px] bg-finance-redSoft p-6 text-finance-red shadow-panel">{state.error}</div>;
 
-  const totalMonth = state.commitments[0]?.total || 0;
+  // Find THIS month's commitment (not necessarily the first in the array)
+  const thisMonthCommitment = state.commitments.find((c) => c.month === month);
+  const totalMonth = thisMonthCommitment?.total || 0;
+  // Remaining = cuotas pendientes de pagar (cantidad_cuotas - cuota_actual)
   const remainingDebt = state.installments.reduce(
-    (sum, item) => sum + item.monto_cuota * Math.max(0, item.cantidad_cuotas - item.cuota_actual + 1),
+    (sum, item) => sum + item.monto_cuota * Math.max(0, item.cantidad_cuotas - item.cuota_actual),
     0
   );
 

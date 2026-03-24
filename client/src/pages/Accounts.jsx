@@ -99,7 +99,12 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
           {state.accounts.map((account) => (
             <div key={account.id}>
               <div className="grid grid-cols-[1.4fr_80px_140px_130px_80px] gap-4 py-4">
-                <span className="font-semibold text-finance-ink">{account.name}</span>
+                <input
+                  className="rounded-xl border border-transparent px-2 py-1 font-semibold text-finance-ink hover:border-neutral-200 focus:border-finance-purple focus:outline-none w-full"
+                  defaultValue={account.name}
+                  key={account.name}
+                  onBlur={(e) => { if (e.target.value.trim() && e.target.value !== account.name) api.updateAccount(account.id, { name: e.target.value.trim() }).then(load); }}
+                />
                 <span className="text-neutral-500">{account.currency}</span>
                 <input
                   className="rounded-xl border border-neutral-200 px-3 py-2"
