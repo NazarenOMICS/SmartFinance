@@ -9,7 +9,7 @@ import { fmtMoney } from "../utils";
 
 const chartColors = ["#534AB7", "#1D9E75", "#D85A30", "#378ADD", "#BA7517", "#639922", "#E24B4A", "#888780"];
 
-export default function Dashboard({ month, settings, refreshSettings }) {
+export default function Dashboard({ month, settings, refreshSettings, onNavigate }) {
   const [state, setState] = useState({ loading: true, error: "", summary: null, transactions: [], categories: [], evolution: [] });
 
   async function load() {
@@ -50,6 +50,31 @@ export default function Dashboard({ month, settings, refreshSettings }) {
   }
 
   const { summary } = state;
+
+  // Empty state — no transactions this month
+  if (!state.loading && state.transactions.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-[32px] border border-dashed border-finance-purple/30 bg-white/80 px-8 py-20 text-center shadow-panel">
+        <p className="text-5xl">◱</p>
+        <h2 className="mt-4 font-display text-4xl text-finance-ink">Sin transacciones este mes</h2>
+        <p className="mt-3 max-w-sm text-neutral-500">Subí el PDF de tu resumen bancario o cargá un gasto manualmente para empezar a ver tus finanzas.</p>
+        <div className="mt-8 flex flex-wrap justify-center gap-4">
+          <button
+            onClick={() => onNavigate?.("upload")}
+            className="rounded-full bg-finance-purple px-6 py-3 font-semibold text-white hover:opacity-90 transition"
+          >
+            Subir PDF o imagen
+          </button>
+          <button
+            onClick={() => onNavigate?.("upload")}
+            className="rounded-full border border-neutral-200 bg-white px-6 py-3 font-semibold text-finance-ink hover:bg-neutral-50 transition"
+          >
+            Cargar gasto manual
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

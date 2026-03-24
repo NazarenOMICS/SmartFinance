@@ -49,7 +49,10 @@ router.delete("/:id", async (c) => {
   const existing = await db.prepare("SELECT id FROM accounts WHERE id=?").get(id);
   if (!existing) return c.json({ error: "account not found" }, 404);
   if (force) {
+    // Break FK chain before deleting: transactions→installments→accounts
+    await db.prepare("UPDATE transactions SET installment_id=NULL WHERE account_id=?").run(id);
     await db.prepare("DELETE FROM transactions WHERE account_id=?").run(id);
+    await db.prepare("UPDATE installments SET account_id=NULL WHERE account_id=?").run(id);
   } else {
     const count = await db.prepare("SELECT COUNT(*) AS count FROM transactions WHERE account_id=?").get(id);
     if (count.count > 0) return c.json({ error: `Esta cuenta tiene ${count.count} transacciones. Confirmar borrado forzado.`, tx_count: count.count }, 409);

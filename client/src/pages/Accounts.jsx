@@ -10,7 +10,7 @@ function useConfirm() {
   return { pending, ask, clear };
 }
 
-export default function Accounts({ settings, refreshSettings }) {
+export default function Accounts({ settings, refreshSettings, onAccountDeleted }) {
   const [state, setState] = useState({ loading: true, error: "", accounts: [], consolidated: null });
   const [localBalances, setLocalBalances] = useState({});
   const [newAccount, setNewAccount] = useState({ id: "", name: "", currency: "UYU", balance: "" });
@@ -53,6 +53,7 @@ export default function Accounts({ settings, refreshSettings }) {
       await api.deleteAccount(id, force);
       confirm.clear();
       await load();
+      onAccountDeleted?.();
     } catch (e) {
       if (e.message.includes("transacciones")) {
         setDeleteError({ id, message: e.message });
