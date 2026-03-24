@@ -114,4 +114,13 @@ router.put("/:id", async (c) => {
   return c.json({ transaction: updated, rule: ruleStatus });
 });
 
+router.delete("/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const db = getDb(c.env);
+  const existing = await db.prepare("SELECT id FROM transactions WHERE id = ?").get(id);
+  if (!existing) return c.json({ error: "transaction not found" }, 404);
+  await db.prepare("DELETE FROM transactions WHERE id = ?").run(id);
+  return c.json({ ok: true });
+});
+
 export default router;

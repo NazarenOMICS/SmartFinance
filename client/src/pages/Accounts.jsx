@@ -3,10 +3,19 @@ import { api } from "../api";
 import MetricCard from "../components/MetricCard";
 import { fmtMoney } from "../utils";
 
+function useConfirm() {
+  const [pending, setPending] = useState(null);
+  function ask(id) { setPending(id); }
+  function clear() { setPending(null); }
+  return { pending, ask, clear };
+}
+
 export default function Accounts({ settings, refreshSettings }) {
   const [state, setState] = useState({ loading: true, error: "", accounts: [], consolidated: null });
   const [localBalances, setLocalBalances] = useState({});
   const [newAccount, setNewAccount] = useState({ id: "", name: "", currency: "UYU", balance: "" });
+  const [deleteError, setDeleteError] = useState(null);
+  const confirm = useConfirm();
 
   async function load() {
     setState((prev) => ({ ...prev, loading: true, error: "" }));
@@ -38,6 +47,21 @@ export default function Accounts({ settings, refreshSettings }) {
     await load();
   }
 
+  async function handleDeleteAccount(id, force = false) {
+    setDeleteError(null);
+    try {
+      await api.deleteAccount(id, force);
+      confirm.clear();
+      await load();
+    } catch (e) {
+      if (e.message.includes("transacciones")) {
+        setDeleteError({ id, message: e.message });
+      } else {
+        setDeleteError({ id, message: e.message });
+      }
+    }
+  }
+
   async function handleSetting(key, value) {
     await api.updateSetting(key, value);
     await refreshSettings();
@@ -67,32 +91,52 @@ export default function Accounts({ settings, refreshSettings }) {
       </div>
 
       <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel">
-        <div className="grid grid-cols-[1.4fr_80px_140px_140px] gap-4 border-b border-neutral-100 pb-3 text-xs uppercase tracking-[0.18em] text-neutral-400">
-          <span>Cuenta</span>
-          <span>Moneda</span>
-          <span>Balance</span>
-          <span>Equiv.</span>
+        <div className="grid grid-cols-[1.4fr_80px_140px_130px_80px] gap-4 border-b border-neutral-100 pb-3 text-xs uppercase tracking-[0.18em] text-neutral-400">
+          <span>Cuenta</span><span>Moneda</span><span>Balance</span><span>Equiv.</span><span></span>
         </div>
         <div className="divide-y divide-neutral-100">
           {state.accounts.map((account) => (
-            <div key={account.id} className="grid grid-cols-[1.4fr_80px_140px_140px] gap-4 py-4">
-              <span className="font-semibold text-finance-ink">{account.name}</span>
-              <span className="text-neutral-500">{account.currency}</span>
-              <input
-                className="rounded-xl border border-neutral-200 px-3 py-2"
-                type="number"
-                value={localBalances[account.id] ?? account.balance}
-                onChange={(event) => setLocalBalances((prev) => ({ ...prev, [account.id]: event.target.value }))}
-                onBlur={() => handleBalanceBlur(account.id)}
-              />
-              <span className="font-semibold text-finance-ink">
-                {fmtMoney(
-                  account.currency === "USD" && (settings.display_currency || "UYU") === "UYU"
-                    ? account.balance * Number(settings.exchange_rate_usd_uyu || 1)
-                    : account.balance,
-                  settings.display_currency || account.currency
-                )}
-              </span>
+            <div key={account.id}>
+              <div className="grid grid-cols-[1.4fr_80px_140px_130px_80px] gap-4 py-4">
+                <span className="font-semibold text-finance-ink">{account.name}</span>
+                <span className="text-neutral-500">{account.currency}</span>
+                <input
+                  className="rounded-xl border border-neutral-200 px-3 py-2"
+                  type="number"
+                  value={localBalances[account.id] ?? account.balance}
+                  onChange={(e) => setLocalBalances((prev) => ({ ...prev, [account.id]: e.target.value }))}
+                  onBlur={() => handleBalanceBlur(account.id)}
+                />
+                <span className="font-semibold text-finance-ink">
+                  {fmtMoney(
+                    account.currency === "USD" && (settings.display_currency || "UYU") === "UYU"
+                      ? account.balance * Number(settings.exchange_rate_usd_uyu || 1)
+                      : account.balance,
+                    settings.display_currency || account.currency
+                  )}
+                </span>
+                <button
+                  onClick={() => confirm.pending === account.id ? handleDeleteAccount(account.id) : confirm.ask(account.id)}
+                  className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                    confirm.pending === account.id
+                      ? "bg-finance-red text-white"
+                      : "bg-finance-redSoft text-finance-red hover:bg-finance-red hover:text-white"
+                  }`}
+                >
+                  {confirm.pending === account.id ? "¿Seguro?" : "Borrar"}
+                </button>
+              </div>
+              {deleteError?.id === account.id && (
+                <div className="mb-3 rounded-2xl bg-finance-amberSoft px-4 py-3 text-sm text-finance-ink">
+                  <p>{deleteError.message}</p>
+                  <button
+                    onClick={() => handleDeleteAccount(account.id, true)}
+                    className="mt-2 rounded-full bg-finance-red px-4 py-1.5 text-xs font-semibold text-white"
+                  >
+                    Borrar cuenta y todas sus transacciones
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>

@@ -38,6 +38,12 @@ export const api = {
     }),
   getEvolution: (end, months = 6) => request(`/api/transactions/monthly-evolution?end=${end}&months=${months}`),
   getCategories: () => request("/api/categories"),
+  createCategory: (body) =>
+    request("/api/categories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }),
   updateCategory: (id, body) =>
     request(`/api/categories/${id}`, {
       method: "PUT",
@@ -65,10 +71,14 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
     }),
+  deleteTransaction: (id) =>
+    request(`/api/transactions/${id}`, { method: "DELETE" }),
+  deleteAccount: (id, force = false) =>
+    request(`/api/accounts/${id}${force ? "?force=true" : ""}`, { method: "DELETE" }),
+  deleteCategory: (id) =>
+    request(`/api/categories/${id}`, { method: "DELETE" }),
   deleteRule: (id) =>
-    request(`/api/rules/${id}`, {
-      method: "DELETE"
-    }),
+    request(`/api/rules/${id}`, { method: "DELETE" }),
   getInstallments: () => request("/api/installments"),
   createInstallment: (body) =>
     request("/api/installments", {

@@ -44,11 +44,18 @@ router.put("/:id", async (c) => {
 
 router.delete("/:id", async (c) => {
   const id = c.req.param("id");
+  const force = c.req.query("force") === "true";
   const db = getDb(c.env);
-  const count = await db.prepare("SELECT COUNT(*) AS count FROM transactions WHERE account_id=?").get(id);
-  if (count.count > 0) return c.json({ error: "account has linked transactions" }, 409);
+  const existing = await db.prepare("SELECT id FROM accounts WHERE id=?").get(id);
+  if (!existing) return c.json({ error: "account not found" }, 404);
+  if (force) {
+    await db.prepare("DELETE FROM transactions WHERE account_id=?").run(id);
+  } else {
+    const count = await db.prepare("SELECT COUNT(*) AS count FROM transactions WHERE account_id=?").get(id);
+    if (count.count > 0) return c.json({ error: `Esta cuenta tiene ${count.count} transacciones. Confirmar borrado forzado.`, tx_count: count.count }, 409);
+  }
   await db.prepare("DELETE FROM accounts WHERE id=?").run(id);
-  return new Response(null, { status: 204 });
+  return c.json({ ok: true });
 });
 
 export default router;

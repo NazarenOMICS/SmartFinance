@@ -36,6 +36,11 @@ export default function Dashboard({ month, settings, refreshSettings }) {
     await load();
   }
 
+  async function handleDeleteTransaction(id) {
+    await api.deleteTransaction(id);
+    await load();
+  }
+
   if (state.loading) {
     return <div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel">Cargando dashboard…</div>;
   }
@@ -149,7 +154,7 @@ export default function Dashboard({ month, settings, refreshSettings }) {
         ))}
       </div>
 
-      <TransactionTable transactions={state.transactions} categories={state.categories} onCategorize={handleCategorize} />
+      <TransactionTable transactions={state.transactions} categories={state.categories} onCategorize={handleCategorize} onDelete={handleDeleteTransaction} />
     </div>
   );
 }

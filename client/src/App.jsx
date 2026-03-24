@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 import { api } from "./api";
 import PeriodSelector from "./components/PeriodSelector";
+import Tutorial from "./components/Tutorial";
 import { isoMonth } from "./utils";
 
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -19,10 +20,13 @@ const tabs = [
   { id: "rules", label: "Reglas" }
 ];
 
+const TUTORIAL_KEY = "sf_tutorial_done";
+
 export default function App() {
   const [tab, setTab] = useState("dashboard");
   const [month, setMonth] = useState(isoMonth());
   const [settings, setSettings] = useState({});
+  const [showTutorial, setShowTutorial] = useState(false);
 
   async function refreshSettings() {
     const nextSettings = await api.getSettings();
@@ -31,10 +35,21 @@ export default function App() {
 
   useEffect(() => {
     refreshSettings();
+    // Show tutorial on first visit
+    if (!localStorage.getItem(TUTORIAL_KEY)) {
+      setShowTutorial(true);
+    }
   }, []);
+
+  function closeTutorial() {
+    localStorage.setItem(TUTORIAL_KEY, "1");
+    setShowTutorial(false);
+  }
 
   return (
     <div className="mx-auto min-h-screen max-w-7xl px-4 py-8 md:px-6 lg:px-8">
+      {showTutorial && <Tutorial onClose={closeTutorial} />}
+
       <header className="mb-8 rounded-[36px] border border-white/70 bg-white/80 p-6 shadow-panel backdrop-blur">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -44,7 +59,16 @@ export default function App() {
               PDFs, deduplicación, reglas aprendidas y una vista clara del mes para decidir rápido.
             </p>
           </div>
-          <PeriodSelector month={month} onChange={setMonth} />
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowTutorial(true)}
+              title="Ayuda"
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-500 hover:bg-finance-purpleSoft hover:text-finance-purple transition text-lg font-bold"
+            >
+              ?
+            </button>
+            <PeriodSelector month={month} onChange={setMonth} />
+          </div>
         </div>
         <nav className="mt-6 flex flex-wrap gap-3">
           {tabs.map((item) => (
