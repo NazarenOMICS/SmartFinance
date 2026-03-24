@@ -15,7 +15,7 @@ const uploadRouter = require("./routes/upload");
 const exportRouter = require("./routes/export");
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 const uploadsDir = path.join(__dirname, "..", "uploads");
 
 if (!fs.existsSync(uploadsDir)) {
@@ -24,7 +24,9 @@ if (!fs.existsSync(uploadsDir)) {
 
 seed();
 
-app.use(cors());
+app.use(cors({
+  origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : true
+}));
 app.use(express.json());
 app.use("/uploads", express.static(uploadsDir));
 
