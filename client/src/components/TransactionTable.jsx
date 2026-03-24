@@ -3,9 +3,10 @@ import Badge from "./Badge";
 import CategorySelect from "./CategorySelect";
 import { fmtMoney, shortDate } from "../utils";
 
-export default function TransactionTable({ transactions, categories, onCategorize, onDelete }) {
+export default function TransactionTable({ transactions, categories, onCategorize, onDelete, onUpdateDesc }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [editingCategory, setEditingCategory] = useState(null);
+  const [editingDesc, setEditingDesc] = useState({});
 
   function handleDeleteClick(id) {
     if (confirmDelete === id) {
@@ -45,7 +46,19 @@ export default function TransactionTable({ transactions, categories, onCategoriz
             >
               <span className="text-neutral-500">{shortDate(tx.fecha)}</span>
               <div>
-                <p className="font-medium text-finance-ink">{tx.desc_usuario || tx.desc_banco}</p>
+                <input
+                  className="w-full bg-transparent font-medium text-finance-ink focus:outline-none focus:underline focus:decoration-finance-purple/40 placeholder:text-neutral-400"
+                  value={editingDesc[tx.id] ?? (tx.desc_usuario || tx.desc_banco)}
+                  onChange={(e) => setEditingDesc((prev) => ({ ...prev, [tx.id]: e.target.value }))}
+                  onBlur={(e) => {
+                    const newDesc = e.target.value.trim();
+                    if (newDesc && newDesc !== (tx.desc_usuario || tx.desc_banco)) {
+                      onUpdateDesc?.(tx.id, newDesc);
+                    }
+                    setEditingDesc((prev) => { const next = { ...prev }; delete next[tx.id]; return next; });
+                  }}
+                  title="Clic para editar descripción"
+                />
                 {tx.desc_usuario && tx.desc_usuario !== tx.desc_banco
                   ? <p className="text-xs text-neutral-400 truncate">{tx.desc_banco}</p>
                   : null}

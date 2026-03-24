@@ -43,7 +43,7 @@ export default function Upload({ month }) {
   async function load() {
     setLoading(true);
     try {
-      const [nextAccounts, nextHistory] = await Promise.all([api.getAccounts(), api.getUploads(month)]);
+      const [nextAccounts, nextHistory] = await Promise.all([api.getAccounts(), api.getUploads()]);
       setAccounts(nextAccounts);
       setHistory(nextHistory);
       if (!selectedAccount && nextAccounts.length === 1) setSelectedAccount(nextAccounts[0].id);

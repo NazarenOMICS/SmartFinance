@@ -11,6 +11,7 @@ const chartColors = ["#534AB7", "#1D9E75", "#D85A30", "#378ADD", "#BA7517", "#63
 
 export default function Dashboard({ month, settings, refreshSettings, onNavigate }) {
   const [state, setState] = useState({ loading: true, error: "", summary: null, transactions: [], categories: [], evolution: [] });
+  const [ruleNotice, setRuleNotice] = useState(null);
 
   async function load() {
     setState((prev) => ({ ...prev, loading: true, error: "" }));
@@ -32,12 +33,24 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
   }, [month]);
 
   async function handleCategorize(id, categoryId) {
-    await api.updateTransaction(id, { category_id: Number(categoryId) });
+    const result = await api.updateTransaction(id, { category_id: Number(categoryId) });
+    if (result?.rule?.conflict) {
+      setRuleNotice({ type: "conflict", pattern: result.rule.rule?.pattern });
+      setTimeout(() => setRuleNotice(null), 5000);
+    } else if (result?.rule?.created && result.rule.retro_count > 0) {
+      setRuleNotice({ type: "retro", count: result.rule.retro_count, pattern: result.rule.rule?.pattern });
+      setTimeout(() => setRuleNotice(null), 5000);
+    }
     await load();
   }
 
   async function handleDeleteTransaction(id) {
     await api.deleteTransaction(id);
+    await load();
+  }
+
+  async function handleUpdateDesc(id, desc) {
+    await api.updateTransaction(id, { desc_usuario: desc });
     await load();
   }
 
@@ -78,6 +91,16 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
 
   return (
     <div className="space-y-6">
+      {ruleNotice?.type === "conflict" && (
+        <div className="rounded-2xl bg-finance-amberSoft px-4 py-3 text-sm text-finance-ink">
+          ⚠ Ya existe una regla con patrón <strong>"{ruleNotice.pattern}"</strong> para otra categoría. La transacción fue categorizada pero la regla existente no se modificó.
+        </div>
+      )}
+      {ruleNotice?.type === "retro" && (
+        <div className="rounded-2xl bg-finance-tealSoft px-4 py-3 text-sm text-finance-teal">
+          ✓ Regla <strong>"{ruleNotice.pattern}"</strong> creada y aplicada retroactivamente a {ruleNotice.count} transacciones sin categorizar.
+        </div>
+      )}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Patrimonio total" value={fmtMoney(summary.totals.patrimonio, summary.currency)} tone="text-finance-purple" />
         <MetricCard label="Ingresos del mes" value={fmtMoney(summary.totals.income)} delta={summary.deltas.income} tone="text-finance-teal" />
@@ -174,12 +197,12 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
       </div>
 
       <div className="space-y-3">
-        {summary.budgets.filter((item) => item.budget > 0).map((item) => (
+        {summary.budgets.filter((item) => item.budget > 0 || item.spent > 0).map((item) => (
           <BudgetBar key={item.id} label={item.name} spent={item.spent} budget={item.budget} type={item.type} color={item.color} />
         ))}
       </div>
 
-      <TransactionTable transactions={state.transactions} categories={state.categories} onCategorize={handleCategorize} onDelete={handleDeleteTransaction} />
+      <TransactionTable transactions={state.transactions} categories={state.categories} onCategorize={handleCategorize} onDelete={handleDeleteTransaction} onUpdateDesc={handleUpdateDesc} />
     </div>
   );
 }

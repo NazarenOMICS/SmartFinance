@@ -106,7 +106,7 @@ export const api = {
     }),
   getProjection: (end, months = 12) => request(`/api/savings/projection?end=${end}&months=${months}`),
   getInsights: (month) => request(`/api/savings/insights?month=${month}`),
-  getUploads: (period) => request(`/api/upload?period=${period}`),
+  getUploads: (period) => request(period ? `/api/upload?period=${period}` : "/api/upload"),
   uploadFile: (formData) =>
     request("/api/upload", {
       method: "POST",

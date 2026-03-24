@@ -34,6 +34,7 @@ export async function computeSummary(db, env, month) {
 
   const settings = await getSettingsObject(env);
   const exchangeRate = Number(settings.exchange_rate_usd_uyu || 1);
+  const exchangeRateArs = Number(settings.exchange_rate_ars_uyu || 1);
   const displayCurrency = settings.display_currency || "UYU";
 
   const currentIncome   = current.filter((tx) => tx.monto > 0).reduce((s, tx) => s + tx.monto, 0);
@@ -59,12 +60,19 @@ export async function computeSummary(db, env, month) {
   }));
 
   const accounts = await db.prepare("SELECT * FROM accounts").all();
-  const consolidated = accounts.reduce((sum, acc) => {
-    if (displayCurrency === acc.currency) return sum + acc.balance;
-    if (displayCurrency === "UYU" && acc.currency === "USD") return sum + acc.balance * exchangeRate;
-    if (displayCurrency === "USD" && acc.currency === "UYU") return sum + acc.balance / exchangeRate;
-    return sum + acc.balance;
-  }, 0);
+  const toDisplay = (balance, currency) => {
+    if (currency === displayCurrency) return balance;
+    if (displayCurrency === "UYU") {
+      if (currency === "USD") return balance * exchangeRate;
+      if (currency === "ARS") return balance * exchangeRateArs;
+    }
+    if (displayCurrency === "USD") {
+      if (currency === "UYU") return balance / exchangeRate;
+      if (currency === "ARS") return (balance * exchangeRateArs) / exchangeRate;
+    }
+    return balance;
+  };
+  const consolidated = accounts.reduce((sum, acc) => sum + toDisplay(acc.balance, acc.currency), 0);
 
   const installmentsMonth = current.filter((tx) => tx.es_cuota).reduce((s, tx) => s + Math.abs(tx.monto), 0);
 

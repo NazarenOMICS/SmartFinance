@@ -80,4 +80,5 @@ INSERT OR IGNORE INTO settings (key, value) VALUES ('display_currency', 'UYU');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('savings_initial', '50000');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('savings_goal', '200000');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('savings_currency', 'UYU');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('exchange_rate_ars_uyu', '0.045');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('parsing_patterns', '["^(\\\\d{1,2}[\\\\/\\\\-]\\\\d{1,2}(?:[\\\\/\\\\-]\\\\d{2,4})?)\\\\s+(.+?)\\\\s+([\\\\-]?\\\\$?\\\\s?[\\\\d.,]+(?:\\\\.\\\\d{2})?)\\\\s*$"]');

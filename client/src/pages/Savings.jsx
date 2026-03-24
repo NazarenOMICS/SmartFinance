@@ -74,11 +74,17 @@ export default function Savings({ month, settings, refreshSettings }) {
         </button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <MetricCard label="Ahorro promedio" value={fmtMoney(projection.average_monthly_savings, projection.currency)} tone="text-finance-teal" />
-        <MetricCard label="Cuotas proyectadas" value={fmtMoney(projection.commitments[0]?.total || 0, projection.currency)} tone="text-finance-amber" />
-        <MetricCard label="Ahorro neto" value={fmtMoney(projection.average_monthly_savings - (projection.commitments[0]?.total || 0), projection.currency)} tone="text-finance-blue" />
-      </div>
+      {(() => {
+        const thisMonthCommitment = projection.commitments.find((c) => c.month === month);
+        const cuotasMes = thisMonthCommitment?.total || 0;
+        return (
+          <div className="grid gap-4 md:grid-cols-3">
+            <MetricCard label="Ahorro promedio mensual" value={fmtMoney(projection.average_monthly_savings, projection.currency)} tone="text-finance-teal" />
+            <MetricCard label={`Cuotas ${month}`} value={fmtMoney(cuotasMes, projection.currency)} tone="text-finance-amber" />
+            <MetricCard label="Ahorro neto estimado" value={fmtMoney(projection.average_monthly_savings - cuotasMes, projection.currency)} tone="text-finance-blue" />
+          </div>
+        );
+      })()}
 
       <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel">
         <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Serie histórica y futura</p>

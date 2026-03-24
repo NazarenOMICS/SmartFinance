@@ -78,14 +78,27 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
         <div className="rounded-[28px] border border-white/70 bg-white/90 p-5 shadow-panel">
           <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Preferencias</p>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <input
-              className="rounded-2xl border border-neutral-200 px-4 py-3"
-              value={settings.exchange_rate_usd_uyu || "42.5"}
-              onChange={(event) => handleSetting("exchange_rate_usd_uyu", event.target.value)}
-            />
-            <select className="rounded-2xl border border-neutral-200 px-4 py-3" value={settings.display_currency || "UYU"} onChange={(event) => handleSetting("display_currency", event.target.value)}>
-              <option value="UYU">UYU</option>
-              <option value="USD">USD</option>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-neutral-400">TC USD/UYU</span>
+              <input
+                type="number"
+                className="rounded-2xl border border-neutral-200 px-4 py-3"
+                value={settings.exchange_rate_usd_uyu || "42.5"}
+                onChange={(e) => { if (Number(e.target.value) > 0) handleSetting("exchange_rate_usd_uyu", e.target.value); }}
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-neutral-400">TC ARS/UYU</span>
+              <input
+                type="number"
+                className="rounded-2xl border border-neutral-200 px-4 py-3"
+                value={settings.exchange_rate_ars_uyu || "0.045"}
+                onChange={(e) => { if (Number(e.target.value) > 0) handleSetting("exchange_rate_ars_uyu", e.target.value); }}
+              />
+            </label>
+            <select className="rounded-2xl border border-neutral-200 px-4 py-3" value={settings.display_currency || "UYU"} onChange={(e) => handleSetting("display_currency", e.target.value)}>
+              <option value="UYU">Mostrar en UYU</option>
+              <option value="USD">Mostrar en USD</option>
             </select>
           </div>
         </div>

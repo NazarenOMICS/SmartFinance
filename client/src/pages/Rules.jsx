@@ -51,9 +51,17 @@ export default function Rules() {
 
   async function handleCreateRule(event) {
     event.preventDefault();
-    await api.createRule({ pattern: ruleForm.pattern, category_id: Number(ruleForm.category_id) });
-    setRuleForm({ pattern: "", category_id: "" });
-    await load();
+    try {
+      const result = await api.createRule({ pattern: ruleForm.pattern, category_id: Number(ruleForm.category_id) });
+      setRuleForm({ pattern: "", category_id: "" });
+      if (result?.retro_count > 0) {
+        setDeleteError(`✓ Regla creada y aplicada retroactivamente a ${result.retro_count} transacciones sin categorizar.`);
+        setTimeout(() => setDeleteError(""), 5000);
+      }
+      await load();
+    } catch (e) {
+      setDeleteError(e.message);
+    }
   }
 
   async function handleDeleteRule(id) {
