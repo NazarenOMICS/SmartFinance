@@ -6,8 +6,9 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "smartfinance"
-database_id = "PLACEHOLDER_RUN_STEP_3"
+database_id = "713df2c2-f8fb-478d-b60e-82439e5b7662"
 
-[[r2_buckets]]
-binding = "UPLOADS"
-bucket_name = "smartfinance-uploads"
+# R2 para almacenar PDFs subidos (opcional - activar en cloudflare.com/r2 primero)
+# [[r2_buckets]]
+# binding = "UPLOADS"
+# bucket_name = "smartfinance-uploads"
