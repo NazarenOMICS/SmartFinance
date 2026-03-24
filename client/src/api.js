@@ -93,7 +93,7 @@ export const api = {
       body: JSON.stringify({ key, value })
     }),
   getProjection: (end, months = 12) => request(`/api/savings/projection?end=${end}&months=${months}`),
-  getInsights: (month) => request(`/api/insights?month=${month}`),
+  getInsights: (month) => request(`/api/savings/insights?month=${month}`),
   getUploads: (period) => request(`/api/upload?period=${period}`),
   uploadFile: (formData) =>
     request("/api/upload", {

@@ -9,7 +9,7 @@ import { fmtMoney } from "../utils";
 
 const chartColors = ["#534AB7", "#1D9E75", "#D85A30", "#378ADD", "#BA7517", "#639922", "#E24B4A", "#888780"];
 
-export default function Dashboard({ month, settings }) {
+export default function Dashboard({ month, settings, refreshSettings }) {
   const [state, setState] = useState({ loading: true, error: "", summary: null, transactions: [], categories: [], evolution: [] });
 
   async function load() {
@@ -63,9 +63,23 @@ export default function Dashboard({ month, settings }) {
               <h2 className="font-display text-3xl text-finance-ink">Gastos por categoría</h2>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <div className="rounded-full bg-finance-cream px-4 py-2 text-sm text-neutral-500">
-                Moneda display: <span className="font-semibold text-finance-ink">{settings.display_currency || "UYU"}</span>
-              </div>
+              <select
+                className="rounded-full border border-neutral-200 bg-finance-cream px-4 py-2 text-sm text-finance-ink"
+                value={settings.display_currency || "UYU"}
+                onChange={async (e) => { await api.updateSetting("display_currency", e.target.value); await refreshSettings(); await load(); }}
+              >
+                <option value="UYU">UYU</option>
+                <option value="USD">USD</option>
+              </select>
+              <input
+                className="w-28 rounded-full border border-neutral-200 bg-finance-cream px-4 py-2 text-sm text-finance-ink"
+                type="number"
+                title="Tipo de cambio USD/UYU"
+                placeholder="TC USD/UYU"
+                defaultValue={settings.exchange_rate_usd_uyu || "42.5"}
+                key={settings.exchange_rate_usd_uyu}
+                onBlur={async (e) => { await api.updateSetting("exchange_rate_usd_uyu", e.target.value); await refreshSettings(); await load(); }}
+              />
               <ExportButton month={month} />
             </div>
           </div>

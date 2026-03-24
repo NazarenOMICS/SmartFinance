@@ -5,6 +5,7 @@ import { fmtMoney } from "../utils";
 
 export default function Installments({ month }) {
   const [state, setState] = useState({ loading: true, error: "", installments: [], commitments: [] });
+  const [localCuotas, setLocalCuotas] = useState({});
   const [accounts, setAccounts] = useState([]);
   const [form, setForm] = useState({ descripcion: "", monto_total: "", cantidad_cuotas: "", account_id: "", start_month: month });
 
@@ -18,6 +19,9 @@ export default function Installments({ month }) {
       ]);
       setAccounts(nextAccounts);
       setState({ loading: false, error: "", installments, commitments });
+      const map = {};
+      installments.forEach((i) => { map[i.id] = String(i.cuota_actual); });
+      setLocalCuotas(map);
     } catch (error) {
       setState((prev) => ({ ...prev, loading: false, error: error.message }));
     }
@@ -79,7 +83,13 @@ export default function Installments({ month }) {
             <div key={item.id} className="grid grid-cols-[1.2fr_120px_120px_120px_140px_80px] gap-4 py-4">
               <span className="font-semibold text-finance-ink">{item.descripcion}</span>
               <span>{fmtMoney(item.monto_total)}</span>
-              <input className="rounded-xl border border-neutral-200 px-3 py-2" type="number" value={item.cuota_actual} onChange={(event) => handleUpdate(item.id, event.target.value)} />
+              <input
+                className="rounded-xl border border-neutral-200 px-3 py-2"
+                type="number"
+                value={localCuotas[item.id] ?? item.cuota_actual}
+                onChange={(event) => setLocalCuotas((prev) => ({ ...prev, [item.id]: event.target.value }))}
+                onBlur={(event) => handleUpdate(item.id, event.target.value)}
+              />
               <span>{fmtMoney(item.monto_cuota)}</span>
               <span className="text-neutral-500">{item.account_name || "—"}</span>
               <button onClick={() => handleDelete(item.id)} className="text-finance-red">

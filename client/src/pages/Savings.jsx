@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Area, AreaChart, Bar, BarChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, Bar, BarChart, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api";
 import MetricCard from "../components/MetricCard";
 import { fmtMoney } from "../utils";
@@ -53,14 +53,23 @@ export default function Savings({ month, settings, refreshSettings }) {
     <div className="space-y-6">
       <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
         <div className="grid gap-4 md:grid-cols-3">
-          <input className="rounded-2xl border border-neutral-200 bg-white px-4 py-3" value={form.savings_initial} onChange={(event) => setForm((prev) => ({ ...prev, savings_initial: event.target.value }))} />
-          <input className="rounded-2xl border border-neutral-200 bg-white px-4 py-3" value={form.savings_goal} onChange={(event) => setForm((prev) => ({ ...prev, savings_goal: event.target.value }))} />
-          <select className="rounded-2xl border border-neutral-200 bg-white px-4 py-3" value={form.savings_currency} onChange={(event) => setForm((prev) => ({ ...prev, savings_currency: event.target.value }))}>
-            <option value="UYU">UYU</option>
-            <option value="USD">USD</option>
-          </select>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs uppercase tracking-[0.18em] text-neutral-400">Capital inicial</span>
+            <input className="rounded-2xl border border-neutral-200 bg-white px-4 py-3" type="number" value={form.savings_initial} onChange={(event) => setForm((prev) => ({ ...prev, savings_initial: event.target.value }))} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs uppercase tracking-[0.18em] text-neutral-400">Objetivo</span>
+            <input className="rounded-2xl border border-neutral-200 bg-white px-4 py-3" type="number" value={form.savings_goal} onChange={(event) => setForm((prev) => ({ ...prev, savings_goal: event.target.value }))} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs uppercase tracking-[0.18em] text-neutral-400">Moneda proyección</span>
+            <select className="rounded-2xl border border-neutral-200 bg-white px-4 py-3" value={form.savings_currency} onChange={(event) => setForm((prev) => ({ ...prev, savings_currency: event.target.value }))}>
+              <option value="UYU">UYU</option>
+              <option value="USD">USD</option>
+            </select>
+          </label>
         </div>
-        <button onClick={handleSave} className="rounded-full bg-finance-purple px-5 py-3 font-semibold text-white">
+        <button onClick={handleSave} className="self-end rounded-full bg-finance-purple px-5 py-3 font-semibold text-white">
           Guardar
         </button>
       </div>
@@ -76,14 +85,14 @@ export default function Savings({ month, settings, refreshSettings }) {
         <h2 className="font-display text-3xl text-finance-ink">Proyección de ahorro</h2>
         <div className="mt-6 h-80">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={projection.series}>
+            <ComposedChart data={projection.series}>
               <XAxis dataKey="month" tick={{ fill: "#737373", fontSize: 12 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: "#737373", fontSize: 12 }} axisLine={false} tickLine={false} />
               <Tooltip formatter={(value) => fmtMoney(value, projection.currency)} />
               <Area type="monotone" dataKey="real" stroke="#1D9E75" fill="#1D9E75" fillOpacity={0.12} strokeWidth={2} />
               <Line type="monotone" dataKey="projected" stroke="#378ADD" strokeWidth={2} strokeDasharray="6 4" dot={false} />
               <Line type="monotone" dataKey="goal" stroke="#BA7517" strokeWidth={1.5} dot={false} />
-            </AreaChart>
+            </ComposedChart>
           </ResponsiveContainer>
         </div>
       </div>

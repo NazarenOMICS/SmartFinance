@@ -3,6 +3,7 @@ import { api } from "../api";
 
 export default function Rules() {
   const [state, setState] = useState({ loading: true, error: "", categories: [], rules: [] });
+  const [localBudgets, setLocalBudgets] = useState({});
   const [form, setForm] = useState({ pattern: "", category_id: "" });
 
   async function load() {
@@ -10,6 +11,9 @@ export default function Rules() {
     try {
       const [categories, rules] = await Promise.all([api.getCategories(), api.getRules()]);
       setState({ loading: false, error: "", categories, rules });
+      const map = {};
+      categories.forEach((c) => { map[c.id] = String(c.budget); });
+      setLocalBudgets(map);
     } catch (error) {
       setState((prev) => ({ ...prev, loading: false, error: error.message }));
     }
@@ -51,7 +55,13 @@ export default function Rules() {
                 <option value="fijo">fijo</option>
                 <option value="variable">variable</option>
               </select>
-              <input className="rounded-2xl border border-neutral-200 px-4 py-3" type="number" value={category.budget} onChange={(event) => updateCategory(category, { budget: Number(event.target.value) })} />
+              <input
+                className="rounded-2xl border border-neutral-200 px-4 py-3"
+                type="number"
+                value={localBudgets[category.id] ?? category.budget}
+                onChange={(event) => setLocalBudgets((prev) => ({ ...prev, [category.id]: event.target.value }))}
+                onBlur={(event) => updateCategory(category, { budget: Number(event.target.value) })}
+              />
             </div>
           ))}
         </div>

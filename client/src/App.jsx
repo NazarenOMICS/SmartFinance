@@ -21,7 +21,7 @@ const tabs = [
 
 export default function App() {
   const [tab, setTab] = useState("dashboard");
-  const [month, setMonth] = useState(isoMonth(new Date("2026-03-23")));
+  const [month, setMonth] = useState(isoMonth());
   const [settings, setSettings] = useState({});
 
   async function refreshSettings() {
@@ -62,7 +62,7 @@ export default function App() {
       </header>
 
       <Suspense fallback={<div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel">Cargando vista…</div>}>
-        {tab === "dashboard" ? <Dashboard month={month} settings={settings} /> : null}
+        {tab === "dashboard" ? <Dashboard month={month} settings={settings} refreshSettings={refreshSettings} /> : null}
         {tab === "upload" ? <Upload month={month} /> : null}
         {tab === "savings" ? <Savings month={month} settings={settings} refreshSettings={refreshSettings} /> : null}
         {tab === "accounts" ? <Accounts settings={settings} refreshSettings={refreshSettings} /> : null}

@@ -5,6 +5,7 @@ import { fmtMoney } from "../utils";
 
 export default function Accounts({ settings, refreshSettings }) {
   const [state, setState] = useState({ loading: true, error: "", accounts: [], consolidated: null });
+  const [localBalances, setLocalBalances] = useState({});
   const [newAccount, setNewAccount] = useState({ id: "", name: "", currency: "UYU", balance: "" });
 
   async function load() {
@@ -12,6 +13,9 @@ export default function Accounts({ settings, refreshSettings }) {
     try {
       const [accounts, consolidated] = await Promise.all([api.getAccounts(), api.getConsolidatedAccounts()]);
       setState({ loading: false, error: "", accounts, consolidated });
+      const map = {};
+      accounts.forEach((a) => { map[a.id] = String(a.balance); });
+      setLocalBalances(map);
     } catch (error) {
       setState((prev) => ({ ...prev, loading: false, error: error.message }));
     }
@@ -21,8 +25,9 @@ export default function Accounts({ settings, refreshSettings }) {
     load();
   }, [settings.display_currency, settings.exchange_rate_usd_uyu]);
 
-  async function handleBalanceChange(id, balance) {
-    await api.updateAccount(id, { balance: Number(balance) });
+  async function handleBalanceBlur(id) {
+    const balance = Number(localBalances[id] ?? 0);
+    await api.updateAccount(id, { balance });
     await load();
   }
 
@@ -76,8 +81,9 @@ export default function Accounts({ settings, refreshSettings }) {
               <input
                 className="rounded-xl border border-neutral-200 px-3 py-2"
                 type="number"
-                value={account.balance}
-                onChange={(event) => handleBalanceChange(account.id, event.target.value)}
+                value={localBalances[account.id] ?? account.balance}
+                onChange={(event) => setLocalBalances((prev) => ({ ...prev, [account.id]: event.target.value }))}
+                onBlur={() => handleBalanceBlur(account.id)}
               />
               <span className="font-semibold text-finance-ink">
                 {fmtMoney(

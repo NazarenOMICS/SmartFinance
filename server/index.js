@@ -38,7 +38,6 @@ app.use("/api/accounts", accountsRouter);
 app.use("/api/rules", rulesRouter);
 app.use("/api/installments", installmentsRouter);
 app.use("/api/savings", savingsRouter);
-app.use("/api", savingsRouter);
 app.use("/api/settings", settingsRouter);
 app.use("/api/upload", uploadRouter);
 app.use("/api/export", exportRouter);
