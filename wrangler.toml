@@ -1,0 +1,13 @@
+name = "smartfinance"
+main = "worker/index.js"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "smartfinance"
+database_id = "PLACEHOLDER_RUN_STEP_3"
+
+[[r2_buckets]]
+binding = "UPLOADS"
+bucket_name = "smartfinance-uploads"
