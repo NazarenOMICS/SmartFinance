@@ -193,8 +193,8 @@ function AppInner() {
   }
 
   useEffect(() => {
-    if (isLoaded && isSignedIn) initApp();
-  }, [isLoaded, isSignedIn]);
+    if (isLoaded && isSignedIn && userId) initApp();
+  }, [isLoaded, isSignedIn, userId]);
 
   useEffect(() => {
     if (onboardStatus === "done") refreshPendingCount();
