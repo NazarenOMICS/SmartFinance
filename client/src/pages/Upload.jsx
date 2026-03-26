@@ -3,6 +3,7 @@ import * as pdfjsLib from "pdfjs-dist";
 import { api } from "../api";
 import { useToast } from "../contexts/ToastContext";
 import CsvImportPanel from "../components/CsvImportPanel";
+import ColumnMapper from "../components/ColumnMapper";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.mjs",
@@ -221,6 +222,65 @@ async function extractPdfText(file) {
   return extractGenericPdfText(rows, false);
 }
 
+// ─── Saved bank formats panel ────────────────────────────────────────────────
+
+function SavedFormats({ onDeleted }) {
+  const { addToast } = useToast();
+  const [formats, setFormats] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.getBankFormats()
+      .then(setFormats)
+      .catch(() => {}) // table may not exist yet on first load
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function handleDelete(key, name) {
+    try {
+      await api.deleteBankFormat(key);
+      setFormats(f => f.filter(x => x.format_key !== key));
+      addToast("success", `Formato "${name || key}" eliminado.`);
+      onDeleted?.();
+    } catch (e) {
+      addToast("error", e.message);
+    }
+  }
+
+  if (!loading && formats.length === 0) return null;
+
+  return (
+    <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
+      <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Formatos de banco guardados</p>
+      <p className="mt-1 text-sm text-neutral-500">Cuando subas archivos de estos bancos, las columnas se detectarán automáticamente.</p>
+      <div className="mt-4 space-y-2">
+        {loading && <p className="text-sm text-neutral-400">Cargando…</p>}
+        {formats.map(fmt => (
+          <div key={fmt.format_key} className="flex items-center justify-between rounded-2xl bg-finance-cream/75 px-4 py-3 dark:bg-neutral-800/75">
+            <div>
+              <p className="font-semibold text-finance-ink dark:text-neutral-100">
+                {fmt.bank_name || "Banco sin nombre"}
+              </p>
+              <p className="text-xs text-neutral-400 font-mono">{fmt.format_key}</p>
+            </div>
+            <button
+              onClick={() => handleDelete(fmt.format_key, fmt.bank_name)}
+              className="rounded-full p-1.5 text-neutral-400 transition hover:bg-red-50 hover:text-finance-red dark:hover:bg-red-900/20"
+              title="Eliminar formato guardado"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 0-1.5.06l.3 7.5a.75.75 0 1 0 1.5-.06l-.3-7.5Zm4.34.06a.75.75 0 1 0-1.5-.06l-.3 7.5a.75.75 0 1 0 1.5.06l.3-7.5Z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
 export default function Upload({ month, onDone }) {
   const { addToast } = useToast();
   const [accounts, setAccounts] = useState([]);
@@ -234,6 +294,8 @@ export default function Upload({ month, onDone }) {
   const [selectedAccount, setSelectedAccount] = useState("");
   const [uploadForm, setUploadForm] = useState({ file: null, period: month });
   const [manualForm, setManualForm] = useState({ fecha: `${month}-01`, desc_banco: "", monto: "", moneda: "UYU" });
+  // ColumnMapper state — shown when server returns needs_mapping:true for a CSV
+  const [columnMapper, setColumnMapper] = useState(null); // null | { columns, sample, formatKey }
 
   async function load() {
     setLoading(true);
@@ -313,6 +375,17 @@ export default function Upload({ month, onDone }) {
 
     try {
       const result = await api.uploadFile(formData);
+
+      // Server couldn't detect the CSV format → show column mapper
+      if (result.needs_mapping) {
+        setColumnMapper({
+          columns:   result.columns,
+          sample:    result.sample,
+          formatKey: result.format_key,
+        });
+        return; // don't show feedback or clear the file yet
+      }
+
       setFeedback(result);
       setUploadForm((prev) => ({ ...prev, file: null }));
       await load();
@@ -348,6 +421,30 @@ export default function Upload({ month, onDone }) {
 
   return (
     <div className="space-y-6">
+      {/* ColumnMapper modal — appears when server can't auto-detect CSV format */}
+      {columnMapper && (
+        <ColumnMapper
+          columns={columnMapper.columns}
+          sample={columnMapper.sample}
+          formatKey={columnMapper.formatKey}
+          accountId={selectedAccount}
+          month={uploadForm.period}
+          onSuccess={(result) => {
+            setColumnMapper(null);
+            setUploadForm((prev) => ({ ...prev, file: null }));
+            load();
+            if (result.created > 0) {
+              addToast("success", `${result.created} transacciones importadas correctamente.`);
+              setTimeout(() => onDone?.(), 2500);
+            } else if (result.duplicates > 0) {
+              addToast("info", `Todas las transacciones ya existían (${result.duplicates} duplicados).`);
+            } else {
+              addToast("warning", "No se importaron transacciones.");
+            }
+          }}
+          onCancel={() => setColumnMapper(null)}
+        />
+      )}
       {/* STEP 1: Account selector */}
       <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
         <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Paso 1 — Cuenta de origen</p>
@@ -530,8 +627,12 @@ export default function Upload({ month, onDone }) {
                 <p className="font-semibold text-finance-ink">{item.filename}</p>
                 <p className="text-sm text-neutral-500">{item.account_name || "Sin cuenta"} · {item.period} · {item.tx_count} transacciones</p>
               </div>
-              <span className="rounded-full bg-finance-tealSoft px-3 py-1 text-sm font-semibold text-finance-teal dark:bg-teal-900/30 dark:text-teal-300">
-                {item.status}
+              <span className={`rounded-full px-3 py-1 text-sm font-semibold ${
+                item.status === "needs_mapping"
+                  ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                  : "bg-finance-tealSoft text-finance-teal dark:bg-teal-900/30 dark:text-teal-300"
+              }`}>
+                {item.status === "needs_mapping" ? "Sin mapeo" : item.status}
               </span>
             </div>
           ))}
@@ -540,6 +641,9 @@ export default function Upload({ month, onDone }) {
           )}
         </div>
       </div>
+
+      {/* Saved bank formats */}
+      <SavedFormats onDeleted={load} />
     </div>
   );
 }
