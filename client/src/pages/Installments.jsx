@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { useToast } from "../contexts/ToastContext";
 import MetricCard from "../components/MetricCard";
 import { fmtMoney } from "../utils";
 
 export default function Installments({ month }) {
+  const { addToast } = useToast();
   const [state, setState] = useState({ loading: true, error: "", installments: [], commitments: [] });
   const [localCuotas, setLocalCuotas] = useState({});
   const [accounts, setAccounts] = useState([]);
@@ -34,18 +36,29 @@ export default function Installments({ month }) {
 
   async function handleCreate(event) {
     event.preventDefault();
-    await api.createInstallment({
-      ...form,
-      monto_total: Number(form.monto_total),
-      cantidad_cuotas: Number(form.cantidad_cuotas)
-    });
-    setForm({ descripcion: "", monto_total: "", cantidad_cuotas: "", account_id: "", start_month: month });
-    await load();
+    try {
+      await api.createInstallment({
+        ...form,
+        monto_total: Number(form.monto_total),
+        cantidad_cuotas: Number(form.cantidad_cuotas)
+      });
+      addToast("success", `Cuota "${form.descripcion}" creada.`);
+      setForm({ descripcion: "", monto_total: "", cantidad_cuotas: "", account_id: "", start_month: month });
+      await load();
+    } catch (e) {
+      addToast("error", e.message);
+    }
   }
 
   async function handleDelete(id) {
-    await api.deleteInstallment(id);
-    await load();
+    const item = state.installments.find((i) => i.id === id);
+    try {
+      await api.deleteInstallment(id);
+      addToast("info", `Cuota "${item?.descripcion}" eliminada.`);
+      await load();
+    } catch (e) {
+      addToast("error", e.message);
+    }
   }
 
   async function handleUpdate(id, cuotaActual) {
@@ -53,8 +66,8 @@ export default function Installments({ month }) {
     await load();
   }
 
-  if (state.loading) return <div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel">Cargando cuotas…</div>;
-  if (state.error) return <div className="rounded-[28px] bg-finance-redSoft p-6 text-finance-red shadow-panel">{state.error}</div>;
+  if (state.loading) return <div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel dark:bg-neutral-900/80">Cargando cuotas…</div>;
+  if (state.error) return <div className="rounded-[28px] bg-finance-redSoft p-6 text-finance-red shadow-panel dark:bg-red-900/30">{state.error}</div>;
 
   // Find THIS month's commitment (not necessarily the first in the array)
   const thisMonthCommitment = state.commitments.find((c) => c.month === month);
@@ -72,8 +85,8 @@ export default function Installments({ month }) {
         <MetricCard label="Deuda restante" value={fmtMoney(remainingDebt)} tone="text-finance-red" />
       </div>
 
-      <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel">
-        <div className="grid grid-cols-[1.2fr_120px_120px_120px_140px_80px] gap-4 border-b border-neutral-100 pb-3 text-xs uppercase tracking-[0.18em] text-neutral-400">
+      <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
+        <div className="grid grid-cols-[1.2fr_120px_120px_120px_140px_80px] gap-4 border-b border-neutral-100 pb-3 text-xs uppercase tracking-[0.18em] text-neutral-400 dark:border-neutral-800">
           <span>Descripción</span>
           <span>Total</span>
           <span>Cuota</span>
@@ -81,13 +94,13 @@ export default function Installments({ month }) {
           <span>Cuenta</span>
           <span>Acción</span>
         </div>
-        <div className="divide-y divide-neutral-100">
+        <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
           {state.installments.map((item) => (
             <div key={item.id} className="grid grid-cols-[1.2fr_120px_120px_120px_140px_80px] gap-4 py-4">
               <span className="font-semibold text-finance-ink">{item.descripcion}</span>
               <span>{fmtMoney(item.monto_total)}</span>
               <input
-                className="rounded-xl border border-neutral-200 px-3 py-2"
+                className="rounded-xl border border-neutral-200 px-3 py-2 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
                 type="number"
                 value={localCuotas[item.id] ?? item.cuota_actual}
                 onChange={(event) => setLocalCuotas((prev) => ({ ...prev, [item.id]: event.target.value }))}
@@ -103,13 +116,13 @@ export default function Installments({ month }) {
         </div>
       </div>
 
-      <form onSubmit={handleCreate} className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel">
+      <form onSubmit={handleCreate} className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
         <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Nueva compra</p>
         <div className="mt-4 grid gap-4 md:grid-cols-[1.2fr_140px_120px_180px_140px_auto]">
-          <input className="rounded-2xl border border-neutral-200 px-4 py-3" placeholder="Descripción" value={form.descripcion} onChange={(event) => setForm((prev) => ({ ...prev, descripcion: event.target.value }))} />
-          <input className="rounded-2xl border border-neutral-200 px-4 py-3" type="number" placeholder="Monto total" value={form.monto_total} onChange={(event) => setForm((prev) => ({ ...prev, monto_total: event.target.value }))} />
-          <input className="rounded-2xl border border-neutral-200 px-4 py-3" type="number" placeholder="Cuotas" value={form.cantidad_cuotas} onChange={(event) => setForm((prev) => ({ ...prev, cantidad_cuotas: event.target.value }))} />
-          <select className="rounded-2xl border border-neutral-200 px-4 py-3" value={form.account_id} onChange={(event) => setForm((prev) => ({ ...prev, account_id: event.target.value }))}>
+          <input className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100" placeholder="Descripción" value={form.descripcion} onChange={(event) => setForm((prev) => ({ ...prev, descripcion: event.target.value }))} />
+          <input className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100" type="number" placeholder="Monto total" value={form.monto_total} onChange={(event) => setForm((prev) => ({ ...prev, monto_total: event.target.value }))} />
+          <input className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100" type="number" placeholder="Cuotas" value={form.cantidad_cuotas} onChange={(event) => setForm((prev) => ({ ...prev, cantidad_cuotas: event.target.value }))} />
+          <select className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100" value={form.account_id} onChange={(event) => setForm((prev) => ({ ...prev, account_id: event.target.value }))}>
             <option value="">Cuenta</option>
             {accounts.map((account) => (
               <option key={account.id} value={account.id}>
@@ -117,7 +130,7 @@ export default function Installments({ month }) {
               </option>
             ))}
           </select>
-          <input className="rounded-2xl border border-neutral-200 px-4 py-3" type="month" value={form.start_month} onChange={(event) => setForm((prev) => ({ ...prev, start_month: event.target.value }))} />
+          <input className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100" type="month" value={form.start_month} onChange={(event) => setForm((prev) => ({ ...prev, start_month: event.target.value }))} />
           <button className="rounded-full bg-finance-purple px-5 py-3 font-semibold text-white">Agregar</button>
         </div>
       </form>

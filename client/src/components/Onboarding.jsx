@@ -13,7 +13,7 @@ function slugify(str) {
 }
 
 export default function Onboarding({ onComplete }) {
-  const [step, setStep] = useState(0); // 0=welcome, 1=account, 2=done
+  const [step, setStep] = useState(0);
   const [form, setForm] = useState({ name: "", currency: "UYU", balance: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -50,7 +50,7 @@ export default function Onboarding({ onComplete }) {
       {/* Progress */}
       <div className="mb-10 flex gap-2">
         {[0, 1, 2].map((i) => (
-          <div key={i} className={`h-1.5 rounded-full transition-all ${i <= step ? "w-10 bg-finance-purple" : "w-4 bg-neutral-200"}`} />
+          <div key={i} className={`h-1.5 rounded-full transition-all ${i <= step ? "w-10 bg-finance-purple" : "w-4 bg-neutral-200 dark:bg-neutral-700"}`} />
         ))}
       </div>
 
@@ -60,7 +60,7 @@ export default function Onboarding({ onComplete }) {
           <p className="text-5xl">◈</p>
           <h1 className="mt-4 font-display text-5xl text-finance-ink">SmartFinance</h1>
           <p className="mt-4 text-lg text-neutral-500">Tu mapa financiero personal. Empezamos desde cero — vos cargás los datos, la app aprende.</p>
-          <ul className="mt-8 space-y-3 text-left text-sm text-neutral-600">
+          <ul className="mt-8 space-y-3 text-left text-sm text-neutral-500">
             {[
               "Subís un PDF o agregás gastos a mano",
               "Categorizás una vez — la app aprende para siempre",
@@ -94,7 +94,9 @@ export default function Onboarding({ onComplete }) {
                 key={preset.idSuffix}
                 onClick={() => applyPreset(preset)}
                 className={`rounded-2xl border-2 px-4 py-3 text-left transition ${
-                  form.name === preset.label ? "border-finance-purple bg-finance-purpleSoft" : "border-neutral-200 bg-white hover:border-finance-purple/40"
+                  form.name === preset.label
+                    ? "border-finance-purple bg-finance-purpleSoft dark:bg-purple-900/30"
+                    : "border-neutral-200 bg-white hover:border-finance-purple/40 dark:border-neutral-700 dark:bg-neutral-800 dark:hover:border-finance-purple/40"
                 }`}
               >
                 <span className="text-xl">{preset.icon}</span>
@@ -107,14 +109,14 @@ export default function Onboarding({ onComplete }) {
           {/* Form */}
           <form onSubmit={handleCreateAccount} className="mt-6 space-y-4">
             <input
-              className="w-full rounded-2xl border border-neutral-200 bg-white px-4 py-3"
+              className="w-full rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-finance-ink dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
               placeholder="Nombre (ej: BROU Caja de Ahorro)"
               value={form.name}
               onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
             />
             <div className="grid grid-cols-2 gap-3">
               <select
-                className="rounded-2xl border border-neutral-200 bg-white px-4 py-3"
+                className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-finance-ink dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
                 value={form.currency}
                 onChange={(e) => setForm((p) => ({ ...p, currency: e.target.value }))}
               >
@@ -123,14 +125,14 @@ export default function Onboarding({ onComplete }) {
                 <option value="ARS">ARS — Pesos AR</option>
               </select>
               <input
-                className="rounded-2xl border border-neutral-200 bg-white px-4 py-3"
+                className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-finance-ink dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
                 type="number"
                 placeholder="Balance actual"
                 value={form.balance}
                 onChange={(e) => setForm((p) => ({ ...p, balance: e.target.value }))}
               />
             </div>
-            {error && <p className="rounded-xl bg-finance-redSoft px-4 py-2 text-sm text-finance-red">{error}</p>}
+            {error && <p className="rounded-xl bg-finance-redSoft px-4 py-2 text-sm text-finance-red dark:bg-red-900/30 dark:text-red-300">{error}</p>}
             <button
               disabled={saving}
               className="w-full rounded-full bg-finance-purple py-4 font-semibold text-white hover:opacity-90 transition disabled:opacity-60"
@@ -153,7 +155,7 @@ export default function Onboarding({ onComplete }) {
           <div className="mt-8 grid gap-4">
             <button
               onClick={() => onComplete("upload")}
-              className="flex items-center gap-4 rounded-[24px] border-2 border-finance-purple bg-finance-purpleSoft px-6 py-5 text-left hover:bg-finance-purple/20 transition"
+              className="flex items-center gap-4 rounded-[24px] border-2 border-finance-purple bg-finance-purpleSoft px-6 py-5 text-left hover:bg-finance-purple/20 transition dark:bg-purple-900/30 dark:hover:bg-purple-900/40"
             >
               <span className="text-3xl">◱</span>
               <div>
@@ -163,7 +165,7 @@ export default function Onboarding({ onComplete }) {
             </button>
             <button
               onClick={() => onComplete("upload")}
-              className="flex items-center gap-4 rounded-[24px] border-2 border-neutral-200 bg-white px-6 py-5 text-left hover:border-finance-purple/40 transition"
+              className="flex items-center gap-4 rounded-[24px] border-2 border-neutral-200 bg-white px-6 py-5 text-left hover:border-finance-purple/40 transition dark:border-neutral-700 dark:bg-neutral-800 dark:hover:border-finance-purple/40"
             >
               <span className="text-3xl">✏</span>
               <div>
@@ -173,7 +175,7 @@ export default function Onboarding({ onComplete }) {
             </button>
             <button
               onClick={() => onComplete("dashboard")}
-              className="text-sm text-neutral-400 hover:text-neutral-600 transition mt-2"
+              className="text-sm text-neutral-400 hover:text-neutral-500 transition mt-2"
             >
               Ir al Dashboard sin cargar nada por ahora
             </button>

@@ -38,17 +38,19 @@ export function monthWindow(month) {
   return { start, end };
 }
 
-export async function getSettingsObject(env) {
-  const rows = await env.DB.prepare("SELECT key, value FROM settings").all();
+export async function getSettingsObject(env, userId = "") {
+  const rows = await env.DB.prepare(
+    "SELECT key, value FROM settings WHERE user_id = ?"
+  ).bind(userId).all();
   return rows.results.reduce((acc, row) => {
     acc[row.key] = row.value;
     return acc;
   }, {});
 }
 
-export async function upsertSetting(env, key, value) {
+export async function upsertSetting(env, key, value, userId = "") {
   return env.DB.prepare(
-    `INSERT INTO settings (key, value) VALUES (?, ?)
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value`
-  ).bind(key, String(value)).run();
+    `INSERT INTO settings (user_id, key, value) VALUES (?, ?, ?)
+     ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value`
+  ).bind(userId, key, String(value)).run();
 }

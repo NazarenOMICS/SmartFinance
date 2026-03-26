@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: "class",
   content: ["./index.html", "./src/**/*.{js,jsx}"],
   theme: {
     extend: {
@@ -21,8 +22,8 @@ export default {
           redSoft: "#FCEBEB",
           gray: "#888780",
           graySoft: "#F1EFE8",
-          ink: "#1B1B28",
-          cream: "#F7F4ED"
+          ink: "rgb(var(--finance-ink-rgb) / <alpha-value>)",
+          cream: "rgb(var(--finance-cream-rgb) / <alpha-value>)"
         },
         surface: "#FFFCF7"
       },

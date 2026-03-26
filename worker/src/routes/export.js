@@ -9,19 +9,20 @@ function csvEscape(value) {
 }
 
 router.get("/csv", async (c) => {
-  const month = c.req.query("month");
+  const userId = c.get("userId");
+  const month  = c.req.query("month");
   if (!month || !/^\d{4}-\d{2}$/.test(month)) return c.json({ error: "month is required in YYYY-MM format" }, 400);
 
   const { start, end } = monthWindow(month);
-  const db = getDb(c.env);
+  const db   = getDb(c.env);
   const rows = await db.prepare(
     `SELECT t.fecha,t.desc_banco,t.desc_usuario,t.monto,t.moneda,
             c.name AS categoria,a.name AS cuenta,c.type AS tipo_gasto,t.es_cuota
      FROM transactions t
      LEFT JOIN categories c ON c.id=t.category_id
      LEFT JOIN accounts a ON a.id=t.account_id
-     WHERE t.fecha>=? AND t.fecha<? ORDER BY t.fecha ASC,t.id ASC`
-  ).all(start, end);
+     WHERE t.user_id=? AND t.fecha>=? AND t.fecha<? ORDER BY t.fecha ASC,t.id ASC`
+  ).all(userId, start, end);
 
   const lines = [
     "fecha,descripcion_banco,descripcion_usuario,monto,moneda,categoria,cuenta,tipo_gasto,es_cuota",

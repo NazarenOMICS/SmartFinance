@@ -46,24 +46,24 @@ export default function Tutorial({ onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-finance-ink/40 backdrop-blur-sm px-4">
-      <div className="w-full max-w-lg rounded-[32px] border border-white/70 bg-white/95 p-8 shadow-2xl">
+      <div className="w-full max-w-lg rounded-[32px] border border-white/70 bg-white/95 p-8 shadow-2xl dark:border-white/10 dark:bg-neutral-900/95">
         {/* Progress dots */}
         <div className="mb-6 flex gap-2">
           {steps.map((_, i) => (
             <button
               key={i}
               onClick={() => setStep(i)}
-              className={`h-2 rounded-full transition-all ${i === step ? "w-8 bg-finance-purple" : "w-2 bg-neutral-200"}`}
+              className={`h-2 rounded-full transition-all ${i === step ? "w-8 bg-finance-purple" : "w-2 bg-neutral-200 dark:bg-neutral-700"}`}
             />
           ))}
         </div>
 
         <p className="text-4xl">{current.icon}</p>
         <h2 className="mt-3 font-display text-3xl text-finance-ink">{current.title}</h2>
-        <p className="mt-4 text-neutral-600 leading-relaxed">{current.body}</p>
+        <p className="mt-4 text-neutral-500 leading-relaxed">{current.body}</p>
 
         {current.tip && (
-          <div className="mt-5 rounded-2xl bg-finance-purpleSoft px-4 py-3 text-sm text-finance-purple">
+          <div className="mt-5 rounded-2xl bg-finance-purpleSoft px-4 py-3 text-sm text-finance-purple dark:bg-purple-900/30 dark:text-purple-300">
             <span className="font-semibold">Tip: </span>{current.tip}
           </div>
         )}
@@ -71,7 +71,7 @@ export default function Tutorial({ onClose }) {
         <div className="mt-8 flex items-center justify-between">
           <button
             onClick={onClose}
-            className="text-sm text-neutral-400 hover:text-neutral-600 transition"
+            className="text-sm text-neutral-400 hover:text-neutral-600 transition dark:hover:text-neutral-300"
           >
             Saltar tutorial
           </button>
@@ -79,7 +79,7 @@ export default function Tutorial({ onClose }) {
             {step > 0 && (
               <button
                 onClick={() => setStep((s) => s - 1)}
-                className="rounded-full border border-neutral-200 px-5 py-2.5 text-sm font-semibold text-finance-ink hover:bg-neutral-50 transition"
+                className="rounded-full border border-neutral-200 px-5 py-2.5 text-sm font-semibold text-finance-ink hover:bg-neutral-50 transition dark:border-neutral-700 dark:hover:bg-neutral-800"
               >
                 Atrás
               </button>

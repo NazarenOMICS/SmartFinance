@@ -8,6 +8,12 @@ binding = "DB"
 database_name = "smartfinance"
 database_id = "713df2c2-f8fb-478d-b60e-82439e5b7662"
 
+# Clerk JWT verification — set to your Clerk JWKS URL
+# Format: https://<your-clerk-domain>/.well-known/jwks.json
+# Find it in: Clerk Dashboard → API Keys → Advanced → JWKS URL
+[vars]
+CLERK_JWKS_URL = "https://internal-salmon-11.clerk.accounts.dev/.well-known/jwks.json"
+
 # R2 para almacenar PDFs subidos (opcional - activar en cloudflare.com/r2 primero)
 # [[r2_buckets]]
 # binding = "UPLOADS"

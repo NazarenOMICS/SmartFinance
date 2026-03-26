@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { useToast } from "../contexts/ToastContext";
 import MetricCard from "../components/MetricCard";
 import { fmtMoney } from "../utils";
 
@@ -11,6 +12,7 @@ function useConfirm() {
 }
 
 export default function Accounts({ settings, refreshSettings, onAccountDeleted }) {
+  const { addToast } = useToast();
   const [state, setState] = useState({ loading: true, error: "", accounts: [], consolidated: null });
   const [localBalances, setLocalBalances] = useState({});
   const [newAccount, setNewAccount] = useState({ id: "", name: "", currency: "UYU", balance: "" });
@@ -42,9 +44,14 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
 
   async function handleCreate(event) {
     event.preventDefault();
-    await api.createAccount({ ...newAccount, balance: Number(newAccount.balance || 0) });
-    setNewAccount({ id: "", name: "", currency: "UYU", balance: "" });
-    await load();
+    try {
+      await api.createAccount({ ...newAccount, balance: Number(newAccount.balance || 0) });
+      addToast("success", `Cuenta "${newAccount.name}" creada.`);
+      setNewAccount({ id: "", name: "", currency: "UYU", balance: "" });
+      await load();
+    } catch (e) {
+      addToast("error", e.message);
+    }
   }
 
   async function handleDeleteAccount(id, force = false) {
@@ -68,21 +75,21 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
     await refreshSettings();
   }
 
-  if (state.loading) return <div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel">Cargando cuentas…</div>;
-  if (state.error) return <div className="rounded-[28px] bg-finance-redSoft p-6 text-finance-red shadow-panel">{state.error}</div>;
+  if (state.loading) return <div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel dark:bg-neutral-900/80">Cargando cuentas…</div>;
+  if (state.error) return <div className="rounded-[28px] bg-finance-redSoft p-6 text-finance-red shadow-panel dark:bg-red-900/30">{state.error}</div>;
 
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2">
         <MetricCard label="Patrimonio consolidado" value={fmtMoney(state.consolidated.total, state.consolidated.currency)} tone="text-finance-purple" />
-        <div className="rounded-[28px] border border-white/70 bg-white/90 p-5 shadow-panel">
+        <div className="rounded-[28px] border border-white/70 bg-white/90 p-5 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
           <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Preferencias</p>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <label className="flex flex-col gap-1">
               <span className="text-xs text-neutral-400">TC USD/UYU</span>
               <input
                 type="number"
-                className="rounded-2xl border border-neutral-200 px-4 py-3"
+                className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
                 value={settings.exchange_rate_usd_uyu || "42.5"}
                 onChange={(e) => { if (Number(e.target.value) > 0) handleSetting("exchange_rate_usd_uyu", e.target.value); }}
               />
@@ -91,12 +98,12 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
               <span className="text-xs text-neutral-400">TC ARS/UYU</span>
               <input
                 type="number"
-                className="rounded-2xl border border-neutral-200 px-4 py-3"
+                className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
                 value={settings.exchange_rate_ars_uyu || "0.045"}
                 onChange={(e) => { if (Number(e.target.value) > 0) handleSetting("exchange_rate_ars_uyu", e.target.value); }}
               />
             </label>
-            <select className="rounded-2xl border border-neutral-200 px-4 py-3" value={settings.display_currency || "UYU"} onChange={(e) => handleSetting("display_currency", e.target.value)}>
+            <select className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100" value={settings.display_currency || "UYU"} onChange={(e) => handleSetting("display_currency", e.target.value)}>
               <option value="UYU">Mostrar en UYU</option>
               <option value="USD">Mostrar en USD</option>
             </select>
@@ -104,23 +111,23 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
         </div>
       </div>
 
-      <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel">
-        <div className="grid grid-cols-[1.4fr_80px_140px_130px_80px] gap-4 border-b border-neutral-100 pb-3 text-xs uppercase tracking-[0.18em] text-neutral-400">
+      <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
+        <div className="grid grid-cols-[1.4fr_80px_140px_130px_80px] gap-4 border-b border-neutral-100 pb-3 text-xs uppercase tracking-[0.18em] text-neutral-400 dark:border-neutral-800">
           <span>Cuenta</span><span>Moneda</span><span>Balance</span><span>Equiv.</span><span></span>
         </div>
-        <div className="divide-y divide-neutral-100">
+        <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
           {state.accounts.map((account) => (
             <div key={account.id}>
               <div className="grid grid-cols-[1.4fr_80px_140px_130px_80px] gap-4 py-4">
                 <input
-                  className="rounded-xl border border-transparent px-2 py-1 font-semibold text-finance-ink hover:border-neutral-200 focus:border-finance-purple focus:outline-none w-full"
+                  className="rounded-xl border border-transparent px-2 py-1 font-semibold text-finance-ink hover:border-neutral-200 focus:border-finance-purple focus:outline-none w-full bg-transparent dark:hover:border-neutral-700"
                   defaultValue={account.name}
                   key={account.name}
                   onBlur={(e) => { if (e.target.value.trim() && e.target.value !== account.name) api.updateAccount(account.id, { name: e.target.value.trim() }).then(load); }}
                 />
                 <span className="text-neutral-500">{account.currency}</span>
                 <input
-                  className="rounded-xl border border-neutral-200 px-3 py-2"
+                  className="rounded-xl border border-neutral-200 px-3 py-2 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
                   type="number"
                   value={localBalances[account.id] ?? account.balance}
                   onChange={(e) => setLocalBalances((prev) => ({ ...prev, [account.id]: e.target.value }))}
@@ -146,7 +153,7 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
                 </button>
               </div>
               {deleteError?.id === account.id && (
-                <div className="mb-3 rounded-2xl bg-finance-amberSoft px-4 py-3 text-sm text-finance-ink">
+                <div className="mb-3 rounded-2xl bg-finance-amberSoft px-4 py-3 text-sm text-finance-ink dark:bg-amber-900/30 dark:text-amber-200">
                   <p>{deleteError.message}</p>
                   <button
                     onClick={() => handleDeleteAccount(account.id, true)}
@@ -161,17 +168,17 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
         </div>
       </div>
 
-      <form onSubmit={handleCreate} className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel">
+      <form onSubmit={handleCreate} className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
         <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Nueva cuenta</p>
         <div className="mt-4 grid gap-4 md:grid-cols-[120px_1fr_100px_140px_auto]">
-          <input className="rounded-2xl border border-neutral-200 px-4 py-3" placeholder="id" value={newAccount.id} onChange={(event) => setNewAccount((prev) => ({ ...prev, id: event.target.value }))} />
-          <input className="rounded-2xl border border-neutral-200 px-4 py-3" placeholder="Nombre" value={newAccount.name} onChange={(event) => setNewAccount((prev) => ({ ...prev, name: event.target.value }))} />
-          <select className="rounded-2xl border border-neutral-200 px-4 py-3" value={newAccount.currency} onChange={(event) => setNewAccount((prev) => ({ ...prev, currency: event.target.value }))}>
+          <input className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100" placeholder="id" value={newAccount.id} onChange={(event) => setNewAccount((prev) => ({ ...prev, id: event.target.value }))} />
+          <input className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100" placeholder="Nombre" value={newAccount.name} onChange={(event) => setNewAccount((prev) => ({ ...prev, name: event.target.value }))} />
+          <select className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100" value={newAccount.currency} onChange={(event) => setNewAccount((prev) => ({ ...prev, currency: event.target.value }))}>
             <option value="UYU">UYU</option>
             <option value="USD">USD</option>
             <option value="ARS">ARS</option>
           </select>
-          <input className="rounded-2xl border border-neutral-200 px-4 py-3" type="number" placeholder="Balance" value={newAccount.balance} onChange={(event) => setNewAccount((prev) => ({ ...prev, balance: event.target.value }))} />
+          <input className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100" type="number" placeholder="Balance" value={newAccount.balance} onChange={(event) => setNewAccount((prev) => ({ ...prev, balance: event.target.value }))} />
           <button className="rounded-full bg-finance-ink px-5 py-3 font-semibold text-white">Agregar</button>
         </div>
       </form>

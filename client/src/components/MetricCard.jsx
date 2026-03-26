@@ -2,7 +2,7 @@ import { fmtPct } from "../utils";
 
 export default function MetricCard({ label, value, delta, tone = "text-finance-ink" }) {
   return (
-    <div className="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-panel">
+    <div className="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-panel dark:border-white/10 dark:bg-neutral-900/85">
       <p className="text-xs uppercase tracking-[0.22em] text-neutral-400">{label}</p>
       <div className="mt-3 flex items-end justify-between gap-3">
         <p className={`font-display text-3xl ${tone}`}>{value}</p>

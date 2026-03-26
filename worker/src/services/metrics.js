@@ -7,17 +7,17 @@ export function previousMonth(month) {
   return `${prevYear}-${String(prevMonth).padStart(2, "0")}`;
 }
 
-export async function getTransactionsForMonth(db, month, extraWhere = "", params = []) {
+export async function getTransactionsForMonth(db, month, userId, extraWhere = "", params = []) {
   const { start, end } = monthWindow(month);
   return db.prepare(
     `SELECT t.*, c.name AS category_name, c.type AS category_type, a.name AS account_name
      FROM transactions t
-     LEFT JOIN categories c ON c.id = t.category_id
-     LEFT JOIN accounts a ON a.id = t.account_id
-     WHERE t.fecha >= ? AND t.fecha < ?
+     LEFT JOIN categories c ON c.id = t.category_id AND c.user_id = t.user_id
+     LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
+     WHERE t.fecha >= ? AND t.fecha < ? AND t.user_id = ?
      ${extraWhere}
      ORDER BY t.fecha ASC, t.id ASC`
-  ).all(start, end, ...params);
+  ).all(start, end, userId, ...params);
 }
 
 function pctDelta(current, previous) {
@@ -25,22 +25,22 @@ function pctDelta(current, previous) {
   return ((current - previous) / previous) * 100;
 }
 
-export async function computeSummary(db, env, month) {
+export async function computeSummary(db, env, month, userId) {
   const [current, previous, categories] = await Promise.all([
-    getTransactionsForMonth(db, month),
-    getTransactionsForMonth(db, previousMonth(month)),
-    db.prepare("SELECT * FROM categories ORDER BY sort_order, id").all()
+    getTransactionsForMonth(db, month, userId),
+    getTransactionsForMonth(db, previousMonth(month), userId),
+    db.prepare("SELECT * FROM categories WHERE user_id = ? ORDER BY sort_order, id").all(userId)
   ]);
 
-  const settings = await getSettingsObject(env);
-  const exchangeRate = Number(settings.exchange_rate_usd_uyu || 1);
-  const exchangeRateArs = Number(settings.exchange_rate_ars_uyu || 1);
+  const settings = await getSettingsObject(env, userId);
+  const exchangeRate    = Number(settings.exchange_rate_usd_uyu || 42.5);
+  const exchangeRateArs = Number(settings.exchange_rate_ars_uyu || 0.045);
   const displayCurrency = settings.display_currency || "UYU";
 
-  const currentIncome   = current.filter((tx) => tx.monto > 0).reduce((s, tx) => s + tx.monto, 0);
-  const currentExpenses = current.filter((tx) => tx.monto < 0).reduce((s, tx) => s + Math.abs(tx.monto), 0);
-  const previousIncome  = previous.filter((tx) => tx.monto > 0).reduce((s, tx) => s + tx.monto, 0);
-  const previousExpenses= previous.filter((tx) => tx.monto < 0).reduce((s, tx) => s + Math.abs(tx.monto), 0);
+  const currentIncome    = current.filter((tx) => tx.monto > 0).reduce((s, tx) => s + tx.monto, 0);
+  const currentExpenses  = current.filter((tx) => tx.monto < 0).reduce((s, tx) => s + Math.abs(tx.monto), 0);
+  const previousIncome   = previous.filter((tx) => tx.monto > 0).reduce((s, tx) => s + tx.monto, 0);
+  const previousExpenses = previous.filter((tx) => tx.monto < 0).reduce((s, tx) => s + Math.abs(tx.monto), 0);
 
   const byCategoryMap = current
     .filter((tx) => tx.monto < 0 && tx.category_name)
@@ -59,7 +59,7 @@ export async function computeSummary(db, env, month) {
     color: cat.color, spent: byCategoryMap[cat.name] || 0
   }));
 
-  const accounts = await db.prepare("SELECT * FROM accounts").all();
+  const accounts = await db.prepare("SELECT * FROM accounts WHERE user_id = ?").all(userId);
   const toDisplay = (balance, currency) => {
     if (currency === displayCurrency) return balance;
     if (displayCurrency === "UYU") {
@@ -88,7 +88,7 @@ export async function computeSummary(db, env, month) {
   };
 }
 
-export async function computeMonthlyEvolution(db, endMonth, months) {
+export async function computeMonthlyEvolution(db, endMonth, months, userId) {
   const [endYear, endMonthNum] = endMonth.split("-").map(Number);
   const series = [];
   for (let offset = months - 1; offset >= 0; offset--) {
@@ -96,7 +96,7 @@ export async function computeMonthlyEvolution(db, endMonth, months) {
     const year = Math.floor(total / 12);
     const monthIndex = (total % 12) + 1;
     const month = `${year}-${String(monthIndex).padStart(2, "0")}`;
-    const tx = await getTransactionsForMonth(db, month);
+    const tx = await getTransactionsForMonth(db, month, userId);
     series.push({
       month,
       ingresos: tx.filter((t) => t.monto > 0).reduce((s, t) => s + t.monto, 0),
@@ -106,8 +106,8 @@ export async function computeMonthlyEvolution(db, endMonth, months) {
   return series;
 }
 
-export async function computeFutureCommitments(db, startMonth, months) {
-  const installments = await db.prepare("SELECT * FROM installments").all();
+export async function computeFutureCommitments(db, startMonth, months, userId) {
+  const installments = await db.prepare("SELECT * FROM installments WHERE user_id = ?").all(userId);
   const [startYear, startMonthNum] = startMonth.split("-").map(Number);
   const result = [];
   for (let offset = 0; offset < months; offset++) {
