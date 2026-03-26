@@ -91,10 +91,8 @@ export function parseCSV(text) {
     const norm = normHeader(lines[i]);
     // Must contain "fecha" (or "date") AND at least one amount-related word
     const hasFecha  = norm.includes("fecha") || norm === "date" || /\bfec\b/.test(norm);
-    const hasAmount = norm.includes("debito") || norm.includes("credito") ||
-                      norm.includes("monto")  || norm.includes("importe") ||
-                      norm.includes("amount") || norm.includes("cargo")   ||
-                      norm.includes("abono");
+    // "dbito"/"crdito" are the garbled forms after Latin-1→UTF-8 + U+FFFD strip
+    const hasAmount = /debito|dbito|credito|crdito|monto|importe|amount|cargo|abono|ingreso|egreso/.test(norm);
     if (hasFecha && hasAmount) { headerIdx = i; break; }
   }
 
