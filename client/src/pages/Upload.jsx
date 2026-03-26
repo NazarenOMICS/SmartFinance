@@ -1,42 +1,237 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import { api } from "../api";
+import { useToast } from "../contexts/ToastContext";
+import CsvImportPanel from "../components/CsvImportPanel";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.mjs",
   import.meta.url
 ).href;
 
+// ─── PDF extraction helpers ───────────────────────────────────────────────────
+
+/** Strip diacritics + lowercase — used to match column header text reliably. */
+function normForDetect(t) {
+  return (t || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // é→e, á→a, ó→o, etc.
+    .trim();
+}
+
+/**
+ * Group PDF text items into visual rows using Y-coordinate proximity.
+ * Items whose Y values are within `tol` PDF points of each other are merged
+ * into the same row. Each row is sorted left→right by X.
+ * Rows are ordered top→bottom (descending PDF Y; PDF Y=0 is the page bottom).
+ */
+function groupItemsByY(items, tol = 4) {
+  const buckets = new Map();
+  for (const item of items) {
+    let key = null;
+    for (const k of buckets.keys()) {
+      if (Math.abs(k - item.y) <= tol) { key = k; break; }
+    }
+    if (key === null) { key = item.y; buckets.set(key, []); }
+    buckets.get(key).push(item);
+  }
+  return [...buckets.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .map(([, row]) => row.sort((a, b) => a.x - b.x));
+}
+
+/** Detect BROU bank statement by looking for "Movimientos" + "Débito" headers. */
+function isBROUPdfRows(rows) {
+  const flat = rows.flat().map(it => normForDetect(it.text)).join(" ");
+  return flat.includes("movimiento") && flat.includes("bito"); // "d[é]bito"
+}
+
+/**
+ * Find the BROU table header row and map column names → X positions.
+ * BROU columns: Fecha | Referencia | Concepto | Descripción | Débito | Crédito | Saldos
+ */
+function findBROUHeader(rows) {
+  for (let i = 0; i < rows.length; i++) {
+    const norms = rows[i].map(it => normForDetect(it.text));
+    if (!norms.some(n => n === "fecha" || n === "date")) continue;
+    if (!norms.some(n => n.includes("debito") || n.endsWith("bito"))) continue;
+
+    const cols = {};
+    for (const it of rows[i]) {
+      const n = normForDetect(it.text);
+      if      (n === "fecha" || n === "date")                   cols.fecha   = it.x;
+      else if (n.includes("referencia") || n === "ref")         cols.ref     = it.x;
+      else if (n.includes("concepto"))                          cols.concept = it.x;
+      else if (n.includes("descripcion"))                       cols.desc    = it.x;
+      else if (n.includes("debito") || n.endsWith("bito"))      cols.debit   = it.x;
+      else if (n.includes("credito") || n.endsWith("dito"))     cols.credit  = it.x;
+      else if (n.includes("saldo"))                             cols.balance = it.x;
+    }
+    return { rowIdx: i, cols };
+  }
+  return null;
+}
+
+/**
+ * Given column boundaries sorted by X, find the column name an item at
+ * position `x` belongs to (nearest column to the item's left).
+ */
+function colForX(x, boundaries) {
+  let best = boundaries[0]?.name ?? "concept";
+  for (const b of boundaries) {
+    if (x >= b.x - 5) best = b.name;
+    else break;
+  }
+  return best;
+}
+
+/**
+ * BROU-specific table extractor.
+ *
+ * For each data row (starts with DD/MM/YYYY):
+ *   - Skips: Referencia and Saldos columns.
+ *   - Collects: Concepto + Descripción → desc_banco.
+ *   - Débito column   → negative amount (expense).
+ *   - Crédito column  → positive amount (income).
+ *
+ * Output: one line per transaction → "DD/MM/YYYY  description  ±amount"
+ * (compatible with tx-extractor Pattern 2 on the server).
+ */
+function extractBROUPdfRows(rows) {
+  const header = findBROUHeader(rows);
+  const lines  = [];
+
+  let boundaries = null;
+  if (header?.cols && Object.keys(header.cols).length >= 3) {
+    boundaries = Object.entries(header.cols)
+      .map(([name, x]) => ({ name, x }))
+      .sort((a, b) => a.x - b.x);
+  }
+
+  for (let ri = 0; ri < rows.length; ri++) {
+    if (header && ri === header.rowIdx) continue;
+    const row = rows[ri];
+    if (!row.length) continue;
+
+    // Data rows start with a date like "23/03/2026" as their own text item
+    if (!/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(row[0].text)) continue;
+
+    const date         = row[0].text;
+    const conceptParts = [];
+    let   debitAmt     = null;
+    let   creditAmt    = null;
+    const floats       = []; // fallback: numeric items when no column map
+
+    for (const it of row.slice(1)) {
+      const text = it.text.trim();
+      if (!text) continue;
+      const isNumeric = /^[-]?[\d,.]+$/.test(text);
+
+      if (boundaries) {
+        const col = colForX(it.x, boundaries);
+        if (col === "balance" || col === "fecha" || col === "ref") continue;
+        if (col === "debit")  { if (isNumeric) debitAmt  = text; continue; }
+        if (col === "credit") { if (isNumeric) creditAmt = text; continue; }
+        conceptParts.push(text); // concept / desc
+      } else {
+        if (isNumeric) floats.push(text);
+        else           conceptParts.push(text);
+      }
+    }
+
+    // Determine signed amount from column or position
+    let amount = null;
+    if (debitAmt !== null) {
+      const n = parseFloat(debitAmt.replace(/,/g, ""));
+      if (Number.isFinite(n)) amount = n > 0 ? -n : n;  // debit → always negative
+    } else if (creditAmt !== null) {
+      const n = parseFloat(creditAmt.replace(/,/g, ""));
+      if (Number.isFinite(n)) amount = Math.abs(n);       // credit → always positive
+    } else if (floats.length >= 2) {
+      // Two trailing numbers on the line: [amount, running-balance] — use first
+      const n = parseFloat(floats[0].replace(/,/g, ""));
+      if (Number.isFinite(n)) amount = n;
+    } else if (floats.length === 1) {
+      const n = parseFloat(floats[0].replace(/,/g, ""));
+      if (Number.isFinite(n)) amount = n;
+    }
+
+    if (amount === null) continue;
+
+    const desc = conceptParts.join(" ").trim();
+    if (!desc) continue;
+
+    lines.push(`${date} ${desc} ${amount}`);
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Generic fallback: concatenate each row's items as plain text.
+ * Strips the trailing running-balance number from BROU-like date rows.
+ */
+function extractGenericPdfText(rows, stripBalance = false) {
+  return rows
+    .map(row => {
+      const line = row.map(it => it.text).join(" ").trim();
+      if (stripBalance && /^\d{1,2}\/\d{1,2}\/\d{4}/.test(line)) {
+        return line.replace(/\s+[\d.,]+\s*$/, "").trim();
+      }
+      return line;
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * Extract text from a PDF file using PDF.js.
+ *
+ * For BROU statements: uses column-aware extraction so debit/credit signs
+ * are resolved from the Débito/Crédito column, not guessed from formatting.
+ *
+ * For other PDFs: generic Y-row grouping.
+ */
 async function extractPdfText(file) {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  let text = "";
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
+
+  const allItems = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page    = await pdf.getPage(p);
     const content = await page.getTextContent();
-    const lineMap = {};
-    content.items.forEach((item) => {
-      const y = Math.round(item.transform[5]);
-      lineMap[y] = (lineMap[y] || "") + item.str + " ";
-    });
-    const lines = Object.keys(lineMap).sort((a, b) => b - a).map((k) => lineMap[k].trim());
-    text += lines.join("\n") + "\n";
+    for (const it of content.items) {
+      const text = it.str.trim();
+      if (text) allItems.push({ text, x: it.transform[4], y: it.transform[5], page: p });
+    }
   }
-  return text;
+
+  const rows = groupItemsByY(allItems, 4);
+
+  // ── BROU column-aware path ─────────────────────────────────────────────────
+  if (isBROUPdfRows(rows)) {
+    const structured = extractBROUPdfRows(rows);
+    if (structured.trim()) return structured;
+    // Column detection produced nothing → generic fallback with balance strip
+    return extractGenericPdfText(rows, true);
+  }
+
+  // ── Generic fallback (Santander, other banks) ──────────────────────────────
+  return extractGenericPdfText(rows, false);
 }
 
-export default function Upload({ month }) {
+export default function Upload({ month, onDone }) {
+  const { addToast } = useToast();
   const [accounts, setAccounts] = useState([]);
   const [history, setHistory] = useState([]);
   const [feedback, setFeedback] = useState(null);
-  const [manualSuccess, setManualSuccess] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [parsing, setParsing] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounter = useRef(0);
 
-  // Account must be selected FIRST — drives both upload and manual forms
   const [selectedAccount, setSelectedAccount] = useState("");
-
   const [uploadForm, setUploadForm] = useState({ file: null, period: month });
   const [manualForm, setManualForm] = useState({ fecha: `${month}-01`, desc_banco: "", monto: "", moneda: "UYU" });
 
@@ -47,9 +242,8 @@ export default function Upload({ month }) {
       setAccounts(nextAccounts);
       setHistory(nextHistory);
       if (!selectedAccount && nextAccounts.length === 1) setSelectedAccount(nextAccounts[0].id);
-      setError("");
     } catch (e) {
-      setError(e.message);
+      addToast("error", e.message);
     } finally {
       setLoading(false);
     }
@@ -61,17 +255,40 @@ export default function Upload({ month }) {
     load();
   }, [month]);
 
-  // Sync manual form currency to the selected account's currency
   useEffect(() => {
     const acc = accounts.find((a) => a.id === selectedAccount);
     if (acc) setManualForm((prev) => ({ ...prev, moneda: acc.currency }));
   }, [selectedAccount, accounts]);
 
+  function handleDragEnter(e) {
+    e.preventDefault();
+    dragCounter.current++;
+    setIsDragging(true);
+  }
+
+  function handleDragLeave(e) {
+    e.preventDefault();
+    dragCounter.current--;
+    if (dragCounter.current === 0) setIsDragging(false);
+  }
+
+  function handleDragOver(e) {
+    e.preventDefault();
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    dragCounter.current = 0;
+    setIsDragging(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (file) setUploadForm((prev) => ({ ...prev, file }));
+  }
+
   async function handleUpload(event) {
     event.preventDefault();
-    if (!selectedAccount) { setError("Primero elegí la cuenta de origen."); return; }
-    if (!uploadForm.file) { setError("Seleccioná un archivo."); return; }
-    setError(""); setFeedback(null);
+    if (!selectedAccount) { addToast("warning", "Primero elegí la cuenta de origen."); return; }
+    if (!uploadForm.file) { addToast("warning", "Seleccioná un archivo."); return; }
+    setFeedback(null);
 
     const formData = new FormData();
     formData.append("account_id", selectedAccount);
@@ -85,7 +302,7 @@ export default function Upload({ month }) {
         formData.append("extracted_text", text);
         formData.append("file", new Blob([file.name], { type: "text/plain" }), file.name);
       } catch (e) {
-        setError(`Error al leer el PDF: ${e.message}`);
+        addToast("error", `Error al leer el PDF: ${e.message}`);
         setParsing(false);
         return;
       }
@@ -99,25 +316,31 @@ export default function Upload({ month }) {
       setFeedback(result);
       setUploadForm((prev) => ({ ...prev, file: null }));
       await load();
+      if (result.new_transactions > 0) {
+        addToast("success", `${result.new_transactions} transacciones nuevas importadas.`);
+        setTimeout(() => onDone?.(), 2500);
+      } else if (result.duplicates_skipped > 0) {
+        addToast("info", `Archivo ya procesado: ${result.duplicates_skipped} duplicados salteados.`);
+      } else {
+        addToast("warning", "No se encontraron transacciones en el archivo.");
+      }
     } catch (e) {
-      setError(e.message);
+      addToast("error", e.message);
     }
   }
 
   async function handleManualSubmit(event) {
     event.preventDefault();
-    if (!selectedAccount) { setError("Primero elegí la cuenta de origen."); return; }
-    if (!manualForm.desc_banco.trim()) { setError("Ingresá una descripción."); return; }
-    if (!manualForm.monto) { setError("Ingresá un monto."); return; }
-    setError("");
+    if (!selectedAccount) { addToast("warning", "Primero elegí la cuenta de origen."); return; }
+    if (!manualForm.desc_banco.trim()) { addToast("warning", "Ingresá una descripción."); return; }
+    if (!manualForm.monto) { addToast("warning", "Ingresá un monto."); return; }
     try {
       await api.createTransaction({ ...manualForm, monto: Number(manualForm.monto), account_id: selectedAccount });
       setManualForm((prev) => ({ ...prev, desc_banco: "", monto: "" }));
-      setManualSuccess(true);
-      setTimeout(() => setManualSuccess(false), 3000);
+      addToast("success", "Transacción guardada correctamente.");
       await load();
     } catch (e) {
-      setError(e.message);
+      addToast("error", e.message);
     }
   }
 
@@ -125,10 +348,8 @@ export default function Upload({ month }) {
 
   return (
     <div className="space-y-6">
-      {error ? <div className="rounded-3xl bg-finance-redSoft p-4 text-finance-red">{error}</div> : null}
-
-      {/* STEP 1: Choose account first */}
-      <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel">
+      {/* STEP 1: Account selector */}
+      <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
         <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Paso 1 — Cuenta de origen</p>
         <p className="mt-1 text-sm text-neutral-500">Seleccioná de qué cuenta vienen los movimientos antes de cargar.</p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
@@ -139,8 +360,8 @@ export default function Upload({ month }) {
               onClick={() => setSelectedAccount(acc.id)}
               className={`rounded-2xl border-2 px-4 py-3 text-left transition ${
                 selectedAccount === acc.id
-                  ? "border-finance-purple bg-finance-purpleSoft"
-                  : "border-neutral-200 hover:border-finance-purple/40"
+                  ? "border-finance-purple bg-finance-purpleSoft dark:bg-purple-900/30"
+                  : "border-neutral-200 hover:border-finance-purple/40 dark:border-neutral-700 dark:hover:border-finance-purple/40"
               }`}
             >
               <p className="font-semibold text-finance-ink">{acc.name}</p>
@@ -150,50 +371,101 @@ export default function Upload({ month }) {
         </div>
       </div>
 
-      {/* STEP 2: Upload or manual — only active once account is selected */}
+      {/* STEP 2: Upload + manual — disabled until account is selected */}
       <div className={`grid gap-6 lg:grid-cols-[1fr_0.95fr] transition-opacity ${!selectedAccount ? "pointer-events-none opacity-40" : ""}`}>
-        {/* Upload PDF */}
-        <form onSubmit={handleUpload} className="rounded-[32px] border border-dashed border-finance-purple/30 bg-white/85 p-6 shadow-panel">
+
+        {/* Upload PDF / drag-and-drop */}
+        <form
+          onSubmit={handleUpload}
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+          className={`rounded-[32px] border-2 border-dashed p-6 shadow-panel transition-colors dark:bg-neutral-900/85 ${
+            isDragging
+              ? "border-finance-purple bg-finance-purpleSoft dark:bg-purple-900/20"
+              : "border-finance-purple/30 bg-white/85 dark:border-finance-purple/20"
+          }`}
+        >
           <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">
             Paso 2a — Subir resumen
             {selectedAccountData ? <span className="ml-2 font-semibold text-finance-purple">({selectedAccountData.name})</span> : null}
           </p>
-          <h2 className="font-display text-3xl text-finance-ink">PDF o imagen</h2>
-          <div className="mt-6 space-y-4">
+          <h2 className="font-display text-3xl text-finance-ink">PDF, CSV o imagen</h2>
+
+          <div className={`mt-6 flex flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-8 text-center transition ${
+            isDragging
+              ? "border-finance-purple bg-white/50 dark:border-finance-purple dark:bg-purple-900/10"
+              : "border-neutral-200 dark:border-neutral-700"
+          }`}>
+            <p className="text-3xl mb-2">{isDragging ? "⬇" : "📄"}</p>
+            <p className="text-sm font-medium text-finance-ink">
+              {isDragging ? "Soltá el archivo aquí" : uploadForm.file ? uploadForm.file.name : "Arrastrá un archivo o clic para elegir"}
+            </p>
+            {uploadForm.file && !isDragging && (
+              <p className="mt-1 text-xs text-neutral-400">{(uploadForm.file.size / 1024).toFixed(0)} KB</p>
+            )}
             <input
               type="file"
               accept=".pdf,image/*,.txt,.csv"
               onChange={(e) => setUploadForm((prev) => ({ ...prev, file: e.target.files?.[0] || null }))}
+              className="mt-3 text-sm"
             />
-            {uploadForm.file?.name.toLowerCase().endsWith(".pdf") && (
+          </div>
+
+          {uploadForm.file?.name.toLowerCase().endsWith(".pdf") && (
+            <div className="mt-3 space-y-1">
               <p className="text-xs text-finance-teal">PDF detectado — el texto se extrae en tu navegador antes de subir.</p>
-            )}
+              <p className="text-xs text-finance-amber">
+                💡 <strong>Tip BROU:</strong> Para mejores resultados descargá el <strong>CSV</strong> desde el portal de BROU (Movimientos → Exportar) en lugar del PDF.
+              </p>
+            </div>
+          )}
+          {uploadForm.file?.name.toLowerCase().endsWith(".csv") && (
+            <p className="mt-3 text-xs text-finance-teal">CSV detectado — se parsea automáticamente. Soporta formato BROU con columnas Débito/Crédito.</p>
+          )}
+
+          <div className="mt-4 flex items-center gap-3">
             <input
               type="month"
               value={uploadForm.period}
               onChange={(e) => setUploadForm((prev) => ({ ...prev, period: e.target.value }))}
-              className="w-full rounded-2xl border border-neutral-200 px-4 py-3"
+              className="flex-1 rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
             />
             <button
               disabled={parsing || !selectedAccount}
-              className="rounded-full bg-finance-purple px-5 py-3 font-semibold text-white disabled:opacity-60"
+              className="rounded-full bg-finance-purple px-5 py-3 font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
             >
-              {parsing ? "Leyendo PDF…" : "Procesar archivo"}
+              {parsing ? "Leyendo PDF…" : "Procesar"}
             </button>
           </div>
-          {feedback ? (
-            <div className="mt-6 rounded-3xl bg-finance-purpleSoft p-4 text-sm text-finance-ink space-y-1">
-              <p className="font-semibold">Procesado correctamente</p>
-              <p>Nuevas: {feedback.new_transactions}</p>
-              <p>Duplicados salteados: {feedback.duplicates_skipped}</p>
-              <p>Auto-categorizadas: {feedback.auto_categorized}</p>
-              <p>Pendientes de categorizar: {feedback.pending_review}</p>
+
+          {feedback && (
+            <div className={`mt-5 rounded-2xl p-4 text-sm space-y-1 ${
+              feedback.new_transactions === 0 && feedback.duplicates_skipped === 0
+                ? "bg-finance-amberSoft text-finance-ink dark:bg-amber-900/30 dark:text-amber-200"
+                : "bg-finance-purpleSoft text-finance-ink dark:bg-purple-900/30 dark:text-purple-200"
+            }`}>
+              {feedback.new_transactions === 0 && feedback.duplicates_skipped === 0 ? (
+                <>
+                  <p className="font-semibold">No se encontraron transacciones</p>
+                  <p className="text-neutral-500 dark:text-amber-300/70">El archivo no pudo parsearse. Intentá cargando las transacciones a mano.</p>
+                </>
+              ) : (
+                <>
+                  <p className="font-semibold">Procesado correctamente</p>
+                  <p>Nuevas: <strong>{feedback.new_transactions}</strong></p>
+                  <p>Duplicados salteados: {feedback.duplicates_skipped}</p>
+                  <p>Auto-categorizadas: {feedback.auto_categorized}</p>
+                  <p>Pendientes de categorizar: {feedback.pending_review}</p>
+                </>
+              )}
             </div>
-          ) : null}
+          )}
         </form>
 
         {/* Manual entry */}
-        <form onSubmit={handleManualSubmit} className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel">
+        <form onSubmit={handleManualSubmit} className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
           <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">
             Paso 2b — Carga manual
             {selectedAccountData ? <span className="ml-2 font-semibold text-finance-purple">({selectedAccountData.name})</span> : null}
@@ -204,7 +476,7 @@ export default function Upload({ month }) {
               type="date"
               value={manualForm.fecha}
               onChange={(e) => setManualForm((p) => ({ ...p, fecha: e.target.value }))}
-              className="rounded-2xl border border-neutral-200 px-4 py-3"
+              className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
               required
             />
             <input
@@ -212,7 +484,7 @@ export default function Upload({ month }) {
               placeholder="Descripción (obligatoria)"
               value={manualForm.desc_banco}
               onChange={(e) => setManualForm((p) => ({ ...p, desc_banco: e.target.value }))}
-              className="rounded-2xl border border-neutral-200 px-4 py-3"
+              className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
               required
             />
             <div className="grid grid-cols-2 gap-3">
@@ -221,45 +493,51 @@ export default function Upload({ month }) {
                 placeholder="Monto (negativo = gasto)"
                 value={manualForm.monto}
                 onChange={(e) => setManualForm((p) => ({ ...p, monto: e.target.value }))}
-                className="rounded-2xl border border-neutral-200 px-4 py-3"
+                className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
                 required
               />
               <select
                 value={manualForm.moneda}
                 onChange={(e) => setManualForm((p) => ({ ...p, moneda: e.target.value }))}
-                className="rounded-2xl border border-neutral-200 px-4 py-3"
+                className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
               >
                 <option value="UYU">UYU</option>
                 <option value="USD">USD</option>
                 <option value="ARS">ARS</option>
               </select>
             </div>
-            <button className="rounded-full bg-finance-ink px-5 py-3 font-semibold text-white">
+            <button className="rounded-full bg-finance-ink px-5 py-3 font-semibold text-white transition hover:opacity-90 dark:bg-white dark:text-finance-ink">
               Guardar transacción
             </button>
-            {manualSuccess && (
-              <p className="rounded-2xl bg-finance-tealSoft px-4 py-3 text-sm font-semibold text-finance-teal text-center">
-                ✓ Transacción guardada correctamente
-              </p>
-            )}
           </div>
         </form>
       </div>
 
+      {/* CSV / paste import */}
+      <CsvImportPanel
+        selectedAccount={selectedAccount}
+        month={uploadForm.period}
+        onImported={() => { load(); onDone?.(); }}
+      />
+
       {/* Upload history */}
-      <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel">
+      <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
         <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Historial de uploads</p>
         <div className="mt-5 space-y-3">
           {history.map((item) => (
-            <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-finance-cream/75 px-4 py-4">
+            <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-finance-cream/75 px-4 py-4 dark:bg-neutral-800/75">
               <div>
                 <p className="font-semibold text-finance-ink">{item.filename}</p>
                 <p className="text-sm text-neutral-500">{item.account_name || "Sin cuenta"} · {item.period} · {item.tx_count} transacciones</p>
               </div>
-              <span className="rounded-full bg-finance-tealSoft px-3 py-1 text-sm font-semibold text-finance-teal">{item.status}</span>
+              <span className="rounded-full bg-finance-tealSoft px-3 py-1 text-sm font-semibold text-finance-teal dark:bg-teal-900/30 dark:text-teal-300">
+                {item.status}
+              </span>
             </div>
           ))}
-          {!loading && history.length === 0 ? <p className="text-neutral-500">No hay uploads para este período.</p> : null}
+          {!loading && history.length === 0 && (
+            <p className="text-neutral-500">No hay uploads todavía.</p>
+          )}
         </div>
       </div>
     </div>

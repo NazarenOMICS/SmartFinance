@@ -3,6 +3,7 @@ import { getDb } from "../db.js";
 import { buildDedupHash } from "../services/dedup.js";
 import { ensureRuleForManualCategorization, findMatchingRule, bumpRule } from "../services/categorizer.js";
 import { computeMonthlyEvolution, computeSummary, getTransactionsForMonth } from "../services/metrics.js";
+import { suggestSync } from "../services/suggester.js";
 
 const router = new Hono();
 
@@ -11,115 +12,179 @@ function getMonth(c) {
   return month && /^\d{4}-\d{2}$/.test(month) ? month : null;
 }
 
+// Global full-text search across all months
+router.get("/search", async (c) => {
+  const userId = c.get("userId");
+  const q     = (c.req.query("q") || "").trim();
+  const limit = Math.min(50, Number(c.req.query("limit") || 20));
+  if (q.length < 2) return c.json([]);
+  const db   = getDb(c.env);
+  const term = `%${q}%`;
+  const rows = await db.prepare(
+    `SELECT t.id, t.fecha, t.desc_banco, t.desc_usuario, t.monto, t.moneda,
+            c.name AS category_name, c.color AS category_color, a.name AS account_name
+     FROM transactions t
+     LEFT JOIN categories c ON c.id = t.category_id
+     LEFT JOIN accounts a ON a.id = t.account_id
+     WHERE t.user_id = ?
+       AND (LOWER(t.desc_banco) LIKE LOWER(?) OR LOWER(COALESCE(t.desc_usuario,'')) LIKE LOWER(?))
+     ORDER BY t.fecha DESC LIMIT ?`
+  ).all(userId, term, term, limit);
+  return c.json(rows);
+});
+
 router.get("/pending", async (c) => {
-  const month = getMonth(c);
+  const userId = c.get("userId");
+  const month  = getMonth(c);
   if (!month) return c.json({ error: "month is required in YYYY-MM format" }, 400);
-  const db = getDb(c.env);
-  const rows = await getTransactionsForMonth(db, month, "AND t.category_id IS NULL");
+  const db   = getDb(c.env);
+  const rows = await getTransactionsForMonth(db, month, userId, "AND t.category_id IS NULL");
   return c.json(rows);
 });
 
 router.get("/summary", async (c) => {
-  const month = getMonth(c);
+  const userId = c.get("userId");
+  const month  = getMonth(c);
   if (!month) return c.json({ error: "month is required in YYYY-MM format" }, 400);
   const db = getDb(c.env);
-  return c.json(await computeSummary(db, c.env, month));
+  return c.json(await computeSummary(db, c.env, month, userId));
 });
 
 router.get("/monthly-evolution", async (c) => {
-  const end = c.req.query("end");
+  const userId = c.get("userId");
+  const end    = c.req.query("end");
   if (!end || !/^\d{4}-\d{2}$/.test(end)) {
     return c.json({ error: "end is required in YYYY-MM format" }, 400);
   }
   const months = Math.max(1, Number(c.req.query("months") || 6));
   const db = getDb(c.env);
-  return c.json(await computeMonthlyEvolution(db, end, months));
+  return c.json(await computeMonthlyEvolution(db, end, months, userId));
 });
 
 router.get("/", async (c) => {
-  const month = getMonth(c);
+  const userId = c.get("userId");
+  const month  = getMonth(c);
   if (!month) return c.json({ error: "month is required in YYYY-MM format" }, 400);
-  const db = getDb(c.env);
-  const filters = [];
-  const params = [];
-  if (c.req.query("account_id")) { filters.push("AND t.account_id = ?"); params.push(c.req.query("account_id")); }
-  if (c.req.query("category_id")) { filters.push("AND t.category_id = ?"); params.push(Number(c.req.query("category_id"))); }
-  return c.json(await getTransactionsForMonth(db, month, filters.join(" "), params));
+  const db   = getDb(c.env);
+  const rows = await getTransactionsForMonth(db, month, userId);
+  // Attach category suggestions to uncategorized transactions
+  const [rules, categories] = await Promise.all([
+    db.prepare("SELECT id, pattern, category_id FROM rules WHERE user_id = ? ORDER BY match_count DESC").all(userId),
+    db.prepare("SELECT id, name FROM categories WHERE user_id = ?").all(userId),
+  ]);
+  return c.json(rows.map((tx) => suggestSync(tx, rules, categories)));
 });
 
 router.post("/", async (c) => {
-  const body = await c.req.json();
+  const userId = c.get("userId");
+  const body   = await c.req.json();
   const { fecha, desc_banco, desc_usuario = null, monto, moneda = "UYU",
-          category_id = null, account_id = null, es_cuota = 0, installment_id = null } = body;
-
-  if (!fecha || !desc_banco || typeof monto !== "number") {
+          category_id = null, account_id = null, es_cuota = 0 } = body;
+  if (!fecha || !desc_banco || monto == null) {
     return c.json({ error: "fecha, desc_banco and monto are required" }, 400);
   }
+  const db   = getDb(c.env);
+  const hash = await buildDedupHash({ fecha, monto, desc_banco });
+  const dup  = await db.prepare(
+    "SELECT id FROM transactions WHERE dedup_hash = ? AND user_id = ?"
+  ).get(hash, userId);
+  if (dup) return c.json({ error: "Duplicate transaction", id: dup.id }, 409);
 
-  const db = getDb(c.env);
+  // Auto-categorize
   let resolvedCategoryId = category_id;
   if (!resolvedCategoryId) {
-    const rule = await findMatchingRule(db, desc_banco);
-    if (rule) { resolvedCategoryId = rule.category_id; await bumpRule(db, rule.id); }
+    const rule = await findMatchingRule(db, desc_banco, userId);
+    if (rule) {
+      resolvedCategoryId = rule.category_id;
+      await bumpRule(db, rule.id);
+    }
   }
 
-  const dedupHash = await buildDedupHash({ fecha, monto, desc_banco });
-  const duplicate = await db.prepare(
-    "SELECT id FROM transactions WHERE dedup_hash = ? AND substr(fecha,1,7) = substr(?,1,7) LIMIT 1"
-  ).get(dedupHash, fecha);
-
-  if (duplicate) return c.json({ error: "transaction already exists for this month" }, 409);
-
   const result = await db.prepare(
-    `INSERT INTO transactions (fecha,desc_banco,desc_usuario,monto,moneda,category_id,account_id,es_cuota,installment_id,dedup_hash)
+    `INSERT INTO transactions (fecha,desc_banco,desc_usuario,monto,moneda,category_id,account_id,es_cuota,dedup_hash,user_id)
      VALUES (?,?,?,?,?,?,?,?,?,?)`
-  ).run(fecha, desc_banco, desc_usuario, monto, moneda, resolvedCategoryId, account_id, es_cuota ? 1 : 0, installment_id, dedupHash);
+  ).run(fecha, desc_banco.trim(), desc_usuario, Number(monto), moneda,
+        resolvedCategoryId, account_id, es_cuota ? 1 : 0, hash, userId);
 
-  const transaction = await db.prepare(
-    `SELECT t.*,c.name AS category_name,c.type AS category_type,a.name AS account_name
-     FROM transactions t LEFT JOIN categories c ON c.id=t.category_id LEFT JOIN accounts a ON a.id=t.account_id
-     WHERE t.id=?`
-  ).get(result.lastInsertRowid);
+  return c.json(await db.prepare("SELECT * FROM transactions WHERE id=?").get(result.lastInsertRowid), 201);
+});
 
-  return c.json(transaction, 201);
+// Batch create (CSV import)
+router.post("/batch", async (c) => {
+  const userId = c.get("userId");
+  const { transactions: txList, account_id: batchAccount } = await c.req.json();
+  if (!Array.isArray(txList)) return c.json({ error: "transactions array required" }, 400);
+  const db    = getDb(c.env);
+  const rules = await db.prepare(
+    "SELECT id, pattern, category_id FROM rules WHERE user_id = ? ORDER BY match_count DESC"
+  ).all(userId);
+
+  let created = 0, duplicates = 0, errors = 0;
+  for (const tx of txList) {
+    try {
+      const { fecha, desc_banco, monto, moneda = "UYU", account_id } = tx;
+      if (!fecha || !desc_banco || monto == null) { errors++; continue; }
+      const hash = await buildDedupHash({ fecha, monto, desc_banco });
+      const dup  = await db.prepare(
+        "SELECT id FROM transactions WHERE dedup_hash = ? AND user_id = ?"
+      ).get(hash, userId);
+      if (dup) { duplicates++; continue; }
+
+      const rule = rules.find((r) => desc_banco.toLowerCase().includes(r.pattern.toLowerCase()));
+      await db.prepare(
+        `INSERT INTO transactions (fecha,desc_banco,monto,moneda,category_id,account_id,dedup_hash,user_id)
+         VALUES (?,?,?,?,?,?,?,?)`
+      ).run(fecha, desc_banco.trim(), Number(monto), moneda,
+            rule?.category_id ?? null, account_id || batchAccount || null, hash, userId);
+      created++;
+    } catch { errors++; }
+  }
+  return c.json({ created, duplicates, errors });
 });
 
 router.put("/:id", async (c) => {
-  const id = Number(c.req.param("id"));
-  const db = getDb(c.env);
-  const current = await db.prepare("SELECT * FROM transactions WHERE id = ?").get(id);
-  if (!current) return c.json({ error: "transaction not found" }, 404);
+  const userId = c.get("userId");
+  const id     = Number(c.req.param("id"));
+  const db     = getDb(c.env);
+  const tx     = await db.prepare(
+    "SELECT * FROM transactions WHERE id = ? AND user_id = ?"
+  ).get(id, userId);
+  if (!tx) return c.json({ error: "transaction not found" }, 404);
 
   const body = await c.req.json();
   const next = {
-    category_id:  body.category_id  ?? current.category_id,
-    desc_usuario: body.desc_usuario ?? current.desc_usuario,
-    account_id:   body.account_id   ?? current.account_id
+    category_id:  body.category_id  !== undefined ? body.category_id  : tx.category_id,
+    desc_usuario: body.desc_usuario !== undefined ? body.desc_usuario : tx.desc_usuario,
+    account_id:   body.account_id   !== undefined ? body.account_id   : tx.account_id,
+    fecha:        body.fecha        !== undefined ? body.fecha        : tx.fecha,
+    monto:        body.monto        !== undefined ? Number(body.monto): tx.monto,
   };
 
-  await db.prepare("UPDATE transactions SET category_id=?,desc_usuario=?,account_id=? WHERE id=?")
-    .run(next.category_id, next.desc_usuario, next.account_id, id);
+  await db.prepare(
+    `UPDATE transactions SET category_id=?,desc_usuario=?,account_id=?,fecha=?,monto=?
+     WHERE id=? AND user_id=?`
+  ).run(next.category_id, next.desc_usuario, next.account_id, next.fecha, next.monto, id, userId);
 
-  let ruleStatus = null;
-  if (body.category_id && body.category_id !== current.category_id) {
-    ruleStatus = await ensureRuleForManualCategorization(db, current.desc_banco, body.category_id);
+  let ruleResult = null;
+  if (body.category_id != null && body.category_id !== tx.category_id) {
+    ruleResult = await ensureRuleForManualCategorization(db, tx.desc_banco, body.category_id, userId);
   }
 
-  const updated = await db.prepare(
-    `SELECT t.*,c.name AS category_name,c.type AS category_type,a.name AS account_name
-     FROM transactions t LEFT JOIN categories c ON c.id=t.category_id LEFT JOIN accounts a ON a.id=t.account_id
-     WHERE t.id=?`
-  ).get(id);
-
-  return c.json({ transaction: updated, rule: ruleStatus });
+  return c.json({
+    ...(await db.prepare("SELECT * FROM transactions WHERE id=?").get(id)),
+    rule: ruleResult
+  });
 });
 
 router.delete("/:id", async (c) => {
-  const id = Number(c.req.param("id"));
-  const db = getDb(c.env);
-  const existing = await db.prepare("SELECT id FROM transactions WHERE id = ?").get(id);
-  if (!existing) return c.json({ error: "transaction not found" }, 404);
-  await db.prepare("DELETE FROM transactions WHERE id = ?").run(id);
+  const userId = c.get("userId");
+  const id     = Number(c.req.param("id"));
+  const db     = getDb(c.env);
+  const tx     = await db.prepare(
+    "SELECT id FROM transactions WHERE id = ? AND user_id = ?"
+  ).get(id, userId);
+  if (!tx) return c.json({ error: "transaction not found" }, 404);
+  await db.prepare("DELETE FROM transactions WHERE id = ? AND user_id = ?").run(id, userId);
   return c.json({ ok: true });
 });
 
