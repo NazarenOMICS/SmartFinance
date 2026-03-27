@@ -2,6 +2,7 @@ const express = require("express");
 const { db, getSettingsObject } = require("../db");
 
 const router = express.Router();
+const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
 
 router.get("/consolidated", (req, res) => {
   const settings = getSettingsObject();
@@ -31,9 +32,15 @@ router.get("/", (req, res) => {
 });
 
 router.post("/", (req, res) => {
-  const { id, name, currency, balance = 0 } = req.body;
+  const id = String(req.body.id || "").trim();
+  const name = String(req.body.name || "").trim();
+  const currency = String(req.body.currency || "").trim().toUpperCase();
+  const balance = req.body.balance ?? 0;
   if (!id || !name || !currency) {
     return res.status(400).json({ error: "id, name and currency are required" });
+  }
+  if (!SUPPORTED_CURRENCIES.has(currency)) {
+    return res.status(400).json({ error: "currency must be UYU, USD or ARS" });
   }
 
   const existing = db.prepare("SELECT id FROM accounts WHERE id = ?").get(id);
@@ -54,9 +61,12 @@ router.put("/:id", (req, res) => {
   }
 
   const next = {
-    name: req.body.name ?? current.name,
+    name: req.body.name !== undefined ? String(req.body.name).trim() : current.name,
     balance: req.body.balance ?? current.balance
   };
+  if (!next.name) {
+    return res.status(400).json({ error: "name is required" });
+  }
 
   db.prepare("UPDATE accounts SET name = ?, balance = ? WHERE id = ?").run(next.name, next.balance, id);
   res.json(db.prepare("SELECT * FROM accounts WHERE id = ?").get(id));

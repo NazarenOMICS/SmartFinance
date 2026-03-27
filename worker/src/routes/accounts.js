@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { getDb, getSettingsObject } from "../db.js";
 
 const router = new Hono();
+const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
 
 router.get("/consolidated", async (c) => {
   const userId  = c.get("userId");
@@ -37,8 +38,15 @@ router.get("/", async (c) => {
 
 router.post("/", async (c) => {
   const userId = c.get("userId");
-  const { id, name, currency, balance = 0 } = await c.req.json();
+  const body = await c.req.json();
+  const id = String(body.id || "").trim();
+  const name = String(body.name || "").trim();
+  const currency = String(body.currency || "").trim().toUpperCase();
+  const balance = body.balance ?? 0;
   if (!id || !name || !currency) return c.json({ error: "id, name and currency are required" }, 400);
+  if (!SUPPORTED_CURRENCIES.has(currency)) {
+    return c.json({ error: "currency must be UYU, USD or ARS" }, 400);
+  }
   const db = getDb(c.env);
   // Check for duplicate id within this user's accounts
   const existing = await db.prepare(
@@ -60,7 +68,11 @@ router.put("/:id", async (c) => {
   ).get(id, userId);
   if (!current) return c.json({ error: "account not found" }, 404);
   const body = await c.req.json();
-  const next = { name: body.name ?? current.name, balance: body.balance ?? current.balance };
+  const next = {
+    name: body.name !== undefined ? String(body.name).trim() : current.name,
+    balance: body.balance ?? current.balance
+  };
+  if (!next.name) return c.json({ error: "name is required" }, 400);
   await db.prepare(
     "UPDATE accounts SET name=?,balance=? WHERE id=? AND user_id=?"
   ).run(next.name, next.balance, id, userId);

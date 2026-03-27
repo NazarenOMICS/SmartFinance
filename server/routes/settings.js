@@ -1,5 +1,5 @@
 const express = require("express");
-const { getSettingsObject, upsertSetting } = require("../db");
+const { getSettingsObject, normalizeSettingValue, upsertSetting } = require("../db");
 
 const router = express.Router();
 
@@ -13,8 +13,9 @@ router.put("/", (req, res) => {
     return res.status(400).json({ error: "key is required" });
   }
 
-  upsertSetting(key, value);
-  res.json({ key, value: String(value) });
+  const normalizedValue = normalizeSettingValue(key, value);
+  upsertSetting(key, normalizedValue);
+  res.json({ key, value: normalizedValue });
 });
 
 module.exports = router;

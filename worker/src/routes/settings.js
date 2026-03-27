@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getSettingsObject, upsertSetting } from "../db.js";
+import { getSettingsObject, normalizeSettingValue, upsertSetting } from "../db.js";
 
 const router = new Hono();
 
@@ -12,8 +12,9 @@ router.put("/", async (c) => {
   const userId = c.get("userId");
   const { key, value } = await c.req.json();
   if (!key) return c.json({ error: "key is required" }, 400);
-  await upsertSetting(c.env, key, value, userId);
-  return c.json({ key, value: String(value) });
+  const normalizedValue = normalizeSettingValue(key, value);
+  await upsertSetting(c.env, key, normalizedValue, userId);
+  return c.json({ key, value: normalizedValue });
 });
 
 export default router;

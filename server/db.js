@@ -5,6 +5,16 @@ const DB_PATH = path.join(__dirname, "finance-tracker.db");
 const DEFAULT_PATTERNS = [
   String.raw`^(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)\s+(.+?)\s+([\-]?\$?\s?[\d.,]+(?:\.\d{2})?)\s*$`
 ];
+const DEFAULT_SETTINGS = {
+  exchange_rate_usd_uyu: "42.5",
+  exchange_rate_ars_uyu: "0.045",
+  display_currency: "UYU",
+  savings_initial: "50000",
+  savings_goal: "200000",
+  savings_currency: "UYU",
+  parsing_patterns: JSON.stringify(DEFAULT_PATTERNS)
+};
+const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
 
 const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
@@ -95,39 +105,62 @@ function migrate() {
     );
   `);
 
-  const defaults = {
-    exchange_rate_usd_uyu: "42.5",
-    exchange_rate_ars_uyu: "0.045",
-    display_currency: "UYU",
-    savings_initial: "50000",
-    savings_goal: "200000",
-    savings_currency: "UYU",
-    parsing_patterns: JSON.stringify(DEFAULT_PATTERNS)
-  };
-
   const insertSetting = db.prepare(`
     INSERT INTO settings (key, value) VALUES (?, ?)
     ON CONFLICT(key) DO NOTHING
   `);
 
-  Object.entries(defaults).forEach(([key, value]) => insertSetting.run(key, value));
+  Object.entries(DEFAULT_SETTINGS).forEach(([key, value]) => insertSetting.run(key, value));
+}
+
+function normalizeSettingValue(key, value) {
+  const raw = value == null ? "" : String(value).trim();
+
+  if (key === "display_currency" || key === "savings_currency") {
+    return SUPPORTED_CURRENCIES.has(raw) ? raw : DEFAULT_SETTINGS[key];
+  }
+
+  if (key === "exchange_rate_usd_uyu" || key === "exchange_rate_ars_uyu") {
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? String(parsed) : DEFAULT_SETTINGS[key];
+  }
+
+  if (key === "savings_initial" || key === "savings_goal") {
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? String(parsed) : DEFAULT_SETTINGS[key];
+  }
+
+  if (key === "parsing_patterns") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string" && item.trim())) {
+        return JSON.stringify(parsed);
+      }
+    } catch (_) {
+      // fall through to default
+    }
+    return DEFAULT_SETTINGS.parsing_patterns;
+  }
+
+  return String(value);
 }
 
 function getSettingsObject() {
   const rows = db.prepare("SELECT key, value FROM settings").all();
   return rows.reduce((acc, row) => {
-    acc[row.key] = row.value;
+    acc[row.key] = normalizeSettingValue(row.key, row.value);
     return acc;
-  }, {});
+  }, { ...DEFAULT_SETTINGS });
 }
 
 function upsertSetting(key, value) {
+  const normalizedValue = normalizeSettingValue(key, value);
   return db
     .prepare(`
       INSERT INTO settings (key, value) VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `)
-    .run(key, String(value));
+    .run(key, normalizedValue);
 }
 
 function monthWindow(month) {
@@ -145,8 +178,10 @@ module.exports = {
   db,
   DB_PATH,
   DEFAULT_PATTERNS,
+  DEFAULT_SETTINGS,
   getSettingsObject,
   monthWindow,
+  normalizeSettingValue,
   upsertSetting
 };
 
