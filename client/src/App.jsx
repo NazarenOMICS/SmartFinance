@@ -60,6 +60,7 @@ function AuthScreen() {
             card: "shadow-panel rounded-[28px] border border-white/70 dark:border-white/10",
             headerTitle: "font-display text-2xl text-finance-ink",
             formButtonPrimary: "bg-finance-purple hover:opacity-90 rounded-full",
+            footer: "hidden",
           },
         }}
       />
@@ -185,9 +186,10 @@ function AppInner() {
         const delay = 500 * (attempt + 1); // 500ms, 1000ms, 1500ms
         setTimeout(() => initApp(attempt + 1), delay);
       } else {
-        // Exhausted retries — fall through to the app (treat as new user)
+        // Exhausted retries — auth token likely not ready yet.
+        // Fall through to the app rather than forcing the onboarding wizard.
         setApiDown(false);
-        setOnboardStatus("no_accounts");
+        setOnboardStatus("done");
       }
     }
   }
@@ -368,7 +370,23 @@ export default function App() {
   }
 
   return (
-    <ClerkProvider publishableKey={PUBLISHABLE_KEY}>
+    <ClerkProvider
+      publishableKey={PUBLISHABLE_KEY}
+      localization={{
+        signIn: {
+          start: {
+            title: "SmartFinance",
+            subtitle: "Iniciá sesión para continuar",
+          },
+        },
+        signUp: {
+          start: {
+            title: "SmartFinance",
+            subtitle: "Creá tu cuenta para empezar",
+          },
+        },
+      }}
+    >
       <ToastProvider>
         {/* Inject token getter into api.js */}
         <SignedIn>
