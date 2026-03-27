@@ -1,5 +1,5 @@
 const express = require("express");
-const { db } = require("../db");
+const { db, getSettingsObject } = require("../db");
 const { computeFutureCommitments } = require("../services/metrics");
 
 const router = express.Router();
@@ -10,14 +10,19 @@ router.get("/commitments", (req, res) => {
   if (!start || !/^\d{4}-\d{2}$/.test(start)) {
     return res.status(400).json({ error: "start is required in YYYY-MM format" });
   }
-  res.json(computeFutureCommitments(db, start, months));
+  const settings = getSettingsObject();
+  res.json(computeFutureCommitments(db, start, months, {
+    currency: settings.display_currency || "UYU",
+    exchangeRateUsd: Number(settings.exchange_rate_usd_uyu || 42.5),
+    exchangeRateArs: Number(settings.exchange_rate_ars_uyu || 0.045)
+  }));
 });
 
 router.get("/", (req, res) => {
   const rows = db
     .prepare(
       `
-      SELECT i.*, a.name AS account_name
+      SELECT i.*, a.name AS account_name, a.currency AS account_currency
       FROM installments i
       LEFT JOIN accounts a ON a.id = i.account_id
       WHERE i.cuota_actual <= i.cantidad_cuotas

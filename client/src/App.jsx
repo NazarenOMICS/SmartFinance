@@ -129,8 +129,8 @@ function AppInner() {
 
   async function refreshPendingCount() {
     try {
-      const txs = await api.getTransactions(month);
-      setPendingCount(txs.filter((t) => !t.category_id).length);
+      const summary = await api.getSummary(month);
+      setPendingCount(summary.pending_count || 0);
     } catch { /* silent */ }
   }
 

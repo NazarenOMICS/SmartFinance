@@ -1,4 +1,5 @@
 import { monthWindow, getSettingsObject } from "../db.js";
+import { isLikelyTransfer } from "./categorizer.js";
 
 export function previousMonth(month) {
   const [year, monthNum] = month.split("-").map(Number);
@@ -93,7 +94,7 @@ export async function computeSummary(db, env, month, userId) {
     id: cat.id,
     name: cat.name,
     type: cat.type,
-    budget: cat.budget,
+    budget: convertAmount(cat.budget, "UYU", displayCurrency, exchangeRate, exchangeRateArs),
     color: cat.color,
     spent: byCategoryMap[cat.name] || 0
   }));
@@ -124,7 +125,7 @@ export async function computeSummary(db, env, month, userId) {
     byCategory: budgets.filter((item) => item.spent > 0),
     byType,
     budgets,
-    pending_count: current.filter((tx) => !tx.category_id && !isTransfer(tx)).length,
+    pending_count: current.filter((tx) => !tx.category_id && !isLikelyTransfer(tx.desc_banco)).length,
     currency: displayCurrency
   };
 }

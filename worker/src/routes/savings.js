@@ -150,9 +150,10 @@ router.get("/insights", async (c) => {
   const totalExpenses = current
     .filter((tx) => tx.monto < 0)
     .reduce((s, tx) => s + Math.abs(convertAmount(tx.monto, tx.moneda, savingsCurrency, usdRate, arsRate)), 0);
-  const totalBudget   = (await db.prepare(
+  const totalBudgetUyu = (await db.prepare(
     "SELECT COALESCE(SUM(budget),0) AS total FROM categories WHERE user_id=?"
   ).get(userId)).total;
+  const totalBudget = convertAmount(totalBudgetUyu, "UYU", savingsCurrency, usdRate, arsRate);
 
   const today = new Date();
   const [year, monthNum] = month.split("-").map(Number);

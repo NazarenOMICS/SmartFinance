@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getDb } from "../db.js";
+import { getDb, getSettingsObject } from "../db.js";
 import { computeFutureCommitments } from "../services/metrics.js";
 
 const router = new Hono();
@@ -9,14 +9,19 @@ router.get("/commitments", async (c) => {
   const start  = c.req.query("start");
   if (!start || !/^\d{4}-\d{2}$/.test(start)) return c.json({ error: "start is required in YYYY-MM format" }, 400);
   const months = Math.max(1, Number(c.req.query("months") || 6));
-  return c.json(await computeFutureCommitments(getDb(c.env), start, months, userId));
+  const settings = await getSettingsObject(c.env, userId);
+  return c.json(await computeFutureCommitments(getDb(c.env), start, months, userId, {
+    currency: settings.display_currency || "UYU",
+    exchangeRateUsd: Number(settings.exchange_rate_usd_uyu || 42.5),
+    exchangeRateArs: Number(settings.exchange_rate_ars_uyu || 0.045)
+  }));
 });
 
 router.get("/", async (c) => {
   const userId = c.get("userId");
   const db = getDb(c.env);
   return c.json(await db.prepare(
-    `SELECT i.*,a.name AS account_name FROM installments i
+    `SELECT i.*,a.name AS account_name,a.currency AS account_currency FROM installments i
      LEFT JOIN accounts a ON a.id=i.account_id AND a.user_id=i.user_id
      WHERE i.user_id = ? AND i.cuota_actual <= i.cantidad_cuotas
      ORDER BY i.created_at DESC`

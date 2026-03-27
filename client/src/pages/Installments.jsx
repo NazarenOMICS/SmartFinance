@@ -4,9 +4,33 @@ import { useToast } from "../contexts/ToastContext";
 import MetricCard from "../components/MetricCard";
 import { fmtMoney } from "../utils";
 
+function convertAmount(amount, currency, targetCurrency, usdRate, arsRate) {
+  const value = Number(amount || 0);
+  const sourceCurrency = currency || targetCurrency || "UYU";
+  const safeUsdRate = usdRate > 0 ? usdRate : 42.5;
+  const safeArsRate = arsRate > 0 ? arsRate : 0.045;
+
+  if (!targetCurrency || sourceCurrency === targetCurrency) return value;
+
+  let inUyu = value;
+  if (sourceCurrency === "USD") inUyu = value * safeUsdRate;
+  else if (sourceCurrency === "ARS") inUyu = value * safeArsRate;
+
+  if (targetCurrency === "UYU") return inUyu;
+  if (targetCurrency === "USD") return inUyu / safeUsdRate;
+  if (targetCurrency === "ARS") return inUyu / safeArsRate;
+  return inUyu;
+}
+
 export default function Installments({ month }) {
   const { addToast } = useToast();
-  const [state, setState] = useState({ loading: true, error: "", installments: [], commitments: [] });
+  const [state, setState] = useState({
+    loading: true,
+    error: "",
+    installments: [],
+    commitments: [],
+    settings: null
+  });
   const [localCuotas, setLocalCuotas] = useState({});
   const [accounts, setAccounts] = useState([]);
   const [form, setForm] = useState({ descripcion: "", monto_total: "", cantidad_cuotas: "", account_id: "", start_month: month });
@@ -14,13 +38,14 @@ export default function Installments({ month }) {
   async function load() {
     setState((prev) => ({ ...prev, loading: true, error: "" }));
     try {
-      const [installments, commitments, nextAccounts] = await Promise.all([
+      const [installments, commitments, nextAccounts, settings] = await Promise.all([
         api.getInstallments(),
         api.getCommitments(month, 6),
-        api.getAccounts()
+        api.getAccounts(),
+        api.getSettings()
       ]);
       setAccounts(nextAccounts);
-      setState({ loading: false, error: "", installments, commitments });
+      setState({ loading: false, error: "", installments, commitments, settings });
       const map = {};
       installments.forEach((i) => { map[i.id] = String(i.cuota_actual); });
       setLocalCuotas(map);
@@ -69,20 +94,30 @@ export default function Installments({ month }) {
   if (state.loading) return <div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel dark:bg-neutral-900/80">Cargando cuotas…</div>;
   if (state.error) return <div className="rounded-[28px] bg-finance-redSoft p-6 text-finance-red shadow-panel dark:bg-red-900/30">{state.error}</div>;
 
+  const displayCurrency = state.settings?.display_currency || "UYU";
+  const exchangeRateUsd = Number(state.settings?.exchange_rate_usd_uyu || 42.5);
+  const exchangeRateArs = Number(state.settings?.exchange_rate_ars_uyu || 0.045);
+
   // Find THIS month's commitment (not necessarily the first in the array)
   const thisMonthCommitment = state.commitments.find((c) => c.month === month);
   const totalMonth = thisMonthCommitment?.total || 0;
   // Remaining = cuotas pendientes de pagar (cantidad_cuotas - cuota_actual)
-  const remainingDebt = state.installments.reduce(
-    (sum, item) => sum + item.monto_cuota * Math.max(0, item.cantidad_cuotas - item.cuota_actual),
-    0
-  );
+  const remainingDebt = state.installments.reduce((sum, item) => {
+    const pendingInstallments = Math.max(0, item.cantidad_cuotas - item.cuota_actual);
+    return sum + convertAmount(
+      item.monto_cuota * pendingInstallments,
+      item.account_currency || "UYU",
+      displayCurrency,
+      exchangeRateUsd,
+      exchangeRateArs
+    );
+  }, 0);
 
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2">
-        <MetricCard label="Cuotas del mes" value={fmtMoney(totalMonth)} tone="text-finance-amber" />
-        <MetricCard label="Deuda restante" value={fmtMoney(remainingDebt)} tone="text-finance-red" />
+        <MetricCard label="Cuotas del mes" value={fmtMoney(totalMonth, displayCurrency)} tone="text-finance-amber" />
+        <MetricCard label="Deuda restante" value={fmtMoney(remainingDebt, displayCurrency)} tone="text-finance-red" />
       </div>
 
       <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
@@ -98,7 +133,7 @@ export default function Installments({ month }) {
           {state.installments.map((item) => (
             <div key={item.id} className="grid grid-cols-[1.2fr_120px_120px_120px_140px_80px] gap-4 py-4">
               <span className="font-semibold text-finance-ink">{item.descripcion}</span>
-              <span>{fmtMoney(item.monto_total)}</span>
+              <span>{fmtMoney(item.monto_total, item.account_currency || "UYU")}</span>
               <input
                 className="rounded-xl border border-neutral-200 px-3 py-2 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
                 type="number"
@@ -106,7 +141,7 @@ export default function Installments({ month }) {
                 onChange={(event) => setLocalCuotas((prev) => ({ ...prev, [item.id]: event.target.value }))}
                 onBlur={(event) => handleUpdate(item.id, event.target.value)}
               />
-              <span>{fmtMoney(item.monto_cuota)}</span>
+              <span>{fmtMoney(item.monto_cuota, item.account_currency || "UYU")}</span>
               <span className="text-neutral-500">{item.account_name || "—"}</span>
               <button onClick={() => handleDelete(item.id)} className="text-finance-red">
                 Borrar
@@ -137,4 +172,3 @@ export default function Installments({ month }) {
     </div>
   );
 }
-

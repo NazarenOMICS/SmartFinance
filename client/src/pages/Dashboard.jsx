@@ -47,7 +47,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
       });
 
       setState({ loading: false, error: "", summary, transactions, categories, evolution, trend, prevSummary });
-      onPendingChange?.(transactions.filter((t) => !t.category_id).length);
+      onPendingChange?.(summary.pending_count || 0);
     } catch (error) {
       setState((prev) => ({ ...prev, loading: false, error: error.message }));
     }
@@ -158,7 +158,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
                   : `${overBudget.length} categorías superaron su presupuesto mensual`}
               </p>
               <p className="mt-1 text-sm text-finance-red/80 dark:text-red-400">
-                {overBudget.map((b) => `${b.name} (${fmtMoney(b.spent)} / ${fmtMoney(b.budget)})`).join(" · ")}
+                {overBudget.map((b) => `${b.name} (${money(b.spent)} / ${money(b.budget)})`).join(" | ")}
               </p>
             </div>
           </div>

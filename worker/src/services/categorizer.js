@@ -10,6 +10,34 @@ export async function bumpRule(db, ruleId) {
   return db.prepare("UPDATE rules SET match_count = match_count + 1 WHERE id = ?").run(ruleId);
 }
 
+const TRANSFER_KEYWORDS = [
+  "supernet tc",
+  "compra de dolares",
+  "venta de dolares",
+  "compra dolares",
+  "venta dolares",
+  "compra divisa",
+  "venta divisa",
+  "compra moneda extranjera",
+  "venta moneda extranjera",
+  "cambio divisas",
+  "cambio de moneda",
+  "operacion tc",
+  "operacion de cambio",
+  "tc compra",
+  "tc venta",
+  "transferencia propia",
+  "transferencia entre cuentas",
+  "transferencia interna",
+  "movimiento entre cuentas",
+  "debito transferencia interna",
+];
+
+export function isLikelyTransfer(descBanco) {
+  const normalized = String(descBanco || "").toLowerCase();
+  return TRANSFER_KEYWORDS.some((kw) => normalized.includes(kw));
+}
+
 function buildPatternFromDescription(descBanco) {
   const stopwords = new Set(["pos", "compra", "debito", "deb", "automatico", "transferencia", "recibida", "pago", "cuota", "trip"]);
   const cleaned = String(descBanco || "")
