@@ -58,8 +58,16 @@ export default function SearchModal({ onClose, onNavigateToMonth }) {
 
   function handleKeyDown(e) {
     if (e.key === "Escape") { onClose(); return; }
-    if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(i + 1, results.length - 1)); return; }
-    if (e.key === "ArrowUp")   { e.preventDefault(); setActiveIdx((i) => Math.max(i - 1, 0)); return; }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIdx((i) => (results.length > 0 ? Math.min(i + 1, results.length - 1) : 0));
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIdx((i) => (results.length > 0 ? Math.max(i - 1, 0) : 0));
+      return;
+    }
     if (e.key === "Enter" && results[activeIdx]) {
       pickResult(results[activeIdx]);
     }

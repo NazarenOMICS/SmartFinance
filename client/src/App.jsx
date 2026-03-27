@@ -137,15 +137,38 @@ function AppInner() {
   // Called once after auth is ready — runs onboarding check
   async function initApp(attempt = 0) {
     const MAX_RETRIES = 3;
-
-    // Fast path: if this user already completed onboarding (cached in localStorage),
-    // skip the wizard immediately and load settings in the background.
     const cachedDone = userId && localStorage.getItem(`sf_onboard_${userId}`) === "done";
+
+    // Fast path: keep the app responsive for returning users, but still
+    // reconcile with the API so stale local state does not hide onboarding
+    // or mask a backend outage.
     if (cachedDone) {
       setOnboardStatus("done");
-      api.onboard().catch(() => {});
-      refreshSettings().catch(() => {});
-      refreshPendingCount().catch(() => {});
+      try {
+        await api.onboard();
+        const [accounts] = await Promise.all([
+          api.getAccounts(),
+          refreshSettings(),
+          refreshPendingCount(),
+        ]);
+        setApiDown(false);
+        if (accounts.length === 0) {
+          localStorage.removeItem(`sf_onboard_${userId}`);
+          setOnboardStatus("no_accounts");
+        }
+      } catch (e) {
+        const isNetworkError =
+          e.message?.toLowerCase().includes("fetch") ||
+          e.message?.toLowerCase().includes("network") ||
+          e.message?.toLowerCase().includes("failed to fetch");
+
+        if (isNetworkError) {
+          setApiDown(true);
+        } else if (attempt < MAX_RETRIES) {
+          const delay = 500 * (attempt + 1);
+          setTimeout(() => initApp(attempt + 1), delay);
+        }
+      }
       return;
     }
 

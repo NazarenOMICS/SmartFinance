@@ -35,12 +35,15 @@ router.post("/", (req, res) => {
   const id = String(req.body.id || "").trim();
   const name = String(req.body.name || "").trim();
   const currency = String(req.body.currency || "").trim().toUpperCase();
-  const balance = req.body.balance ?? 0;
+  const balance = Number(req.body.balance ?? 0);
   if (!id || !name || !currency) {
     return res.status(400).json({ error: "id, name and currency are required" });
   }
   if (!SUPPORTED_CURRENCIES.has(currency)) {
     return res.status(400).json({ error: "currency must be UYU, USD or ARS" });
+  }
+  if (!Number.isFinite(balance)) {
+    return res.status(400).json({ error: "balance must be a finite number" });
   }
 
   const existing = db.prepare("SELECT id FROM accounts WHERE id = ?").get(id);
@@ -62,10 +65,13 @@ router.put("/:id", (req, res) => {
 
   const next = {
     name: req.body.name !== undefined ? String(req.body.name).trim() : current.name,
-    balance: req.body.balance ?? current.balance
+    balance: req.body.balance !== undefined ? Number(req.body.balance) : current.balance
   };
   if (!next.name) {
     return res.status(400).json({ error: "name is required" });
+  }
+  if (!Number.isFinite(next.balance)) {
+    return res.status(400).json({ error: "balance must be a finite number" });
   }
 
   db.prepare("UPDATE accounts SET name = ?, balance = ? WHERE id = ?").run(next.name, next.balance, id);

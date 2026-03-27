@@ -226,7 +226,7 @@ router.post("/", async (c) => {
     const dedupHash = await buildDedupHash(tx);
     const exists    = await db.prepare(
       "SELECT id FROM transactions WHERE dedup_hash=? AND user_id=? AND substr(fecha,1,7)=? LIMIT 1"
-    ).get(dedupHash, userId, period);
+    ).get(dedupHash, userId, tx.fecha.slice(0, 7));
     if (exists) { duplicatesSkipped++; continue; }
 
     let categoryId = null;

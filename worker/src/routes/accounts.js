@@ -42,10 +42,13 @@ router.post("/", async (c) => {
   const id = String(body.id || "").trim();
   const name = String(body.name || "").trim();
   const currency = String(body.currency || "").trim().toUpperCase();
-  const balance = body.balance ?? 0;
+  const balance = Number(body.balance ?? 0);
   if (!id || !name || !currency) return c.json({ error: "id, name and currency are required" }, 400);
   if (!SUPPORTED_CURRENCIES.has(currency)) {
     return c.json({ error: "currency must be UYU, USD or ARS" }, 400);
+  }
+  if (!Number.isFinite(balance)) {
+    return c.json({ error: "balance must be a finite number" }, 400);
   }
   const db = getDb(c.env);
   // Check for duplicate id within this user's accounts
@@ -70,9 +73,10 @@ router.put("/:id", async (c) => {
   const body = await c.req.json();
   const next = {
     name: body.name !== undefined ? String(body.name).trim() : current.name,
-    balance: body.balance ?? current.balance
+    balance: body.balance !== undefined ? Number(body.balance) : current.balance
   };
   if (!next.name) return c.json({ error: "name is required" }, 400);
+  if (!Number.isFinite(next.balance)) return c.json({ error: "balance must be a finite number" }, 400);
   await db.prepare(
     "UPDATE accounts SET name=?,balance=? WHERE id=? AND user_id=?"
   ).run(next.name, next.balance, id, userId);

@@ -21,6 +21,10 @@ function parsePositiveInt(rawValue, fallback, max = null) {
   return max == null ? parsed : Math.min(parsed, max);
 }
 
+function isValidISODate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
+}
+
 router.get("/pending", (req, res) => {
   const month = requireMonth(req, res);
   if (!month) return;
@@ -105,6 +109,12 @@ router.post("/", (req, res) => {
   if (!fecha || !desc_banco || typeof monto !== "number") {
     return res.status(400).json({ error: "fecha, desc_banco and monto are required" });
   }
+  if (!isValidISODate(fecha)) {
+    return res.status(400).json({ error: "fecha must be in YYYY-MM-DD format" });
+  }
+  if (!Number.isFinite(monto)) {
+    return res.status(400).json({ error: "monto must be a finite number" });
+  }
   if (account_id) {
     const account = db.prepare("SELECT id FROM accounts WHERE id = ?").get(account_id);
     if (!account) {
@@ -187,6 +197,12 @@ router.put("/:id", (req, res) => {
       return res.status(404).json({ error: "account not found" });
     }
   }
+  if (req.body.fecha !== undefined && !isValidISODate(req.body.fecha)) {
+    return res.status(400).json({ error: "fecha must be in YYYY-MM-DD format" });
+  }
+  if (req.body.monto !== undefined && !Number.isFinite(Number(req.body.monto))) {
+    return res.status(400).json({ error: "monto must be a finite number" });
+  }
   if (req.body.category_id !== undefined && req.body.category_id !== null) {
     const category = db.prepare("SELECT id FROM categories WHERE id = ?").get(Number(req.body.category_id));
     if (!category) {
@@ -199,15 +215,34 @@ router.put("/:id", (req, res) => {
     desc_usuario: req.body.desc_usuario ?? current.desc_usuario,
     account_id:   req.body.account_id   ?? current.account_id,
     fecha:        req.body.fecha        ?? current.fecha,
-    monto:        req.body.monto        ?? current.monto,
+    monto:        req.body.monto !== undefined ? Number(req.body.monto) : current.monto,
   };
+  const nextDedupHash = buildDedupHash({
+    fecha: next.fecha,
+    monto: next.monto,
+    desc_banco: current.desc_banco
+  });
+  const duplicate = db
+    .prepare(
+      `
+      SELECT id
+      FROM transactions
+      WHERE id <> ? AND dedup_hash = ? AND substr(fecha, 1, 7) = substr(?, 1, 7)
+      LIMIT 1
+    `
+    )
+    .get(id, nextDedupHash, next.fecha);
+  if (duplicate) {
+    return res.status(409).json({ error: "transaction already exists for this month" });
+  }
 
-  db.prepare("UPDATE transactions SET category_id = ?, desc_usuario = ?, account_id = ?, fecha = ?, monto = ? WHERE id = ?").run(
+  db.prepare("UPDATE transactions SET category_id = ?, desc_usuario = ?, account_id = ?, fecha = ?, monto = ?, dedup_hash = ? WHERE id = ?").run(
     next.category_id,
     next.desc_usuario,
     next.account_id,
     next.fecha,
     next.monto,
+    nextDedupHash,
     id
   );
 

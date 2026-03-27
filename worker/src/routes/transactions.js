@@ -18,6 +18,10 @@ function parsePositiveInt(rawValue, fallback, max = null) {
   return max == null ? parsed : Math.min(parsed, max);
 }
 
+function isValidISODate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
+}
+
 // Global full-text search across all months
 router.get("/search", async (c) => {
   const userId = c.get("userId");
@@ -72,7 +76,22 @@ router.get("/", async (c) => {
   const month  = getMonth(c);
   if (!month) return c.json({ error: "month is required in YYYY-MM format" }, 400);
   const db   = getDb(c.env);
-  const rows = await getTransactionsForMonth(db, month, userId);
+  const filters = [];
+  const params = [];
+
+  const accountId = c.req.query("account_id");
+  if (accountId) {
+    filters.push("AND t.account_id = ?");
+    params.push(accountId);
+  }
+
+  const categoryId = c.req.query("category_id");
+  if (categoryId) {
+    filters.push("AND t.category_id = ?");
+    params.push(Number(categoryId));
+  }
+
+  const rows = await getTransactionsForMonth(db, month, userId, filters.join(" "), params);
   // Attach category suggestions to uncategorized transactions
   const [rules, categories] = await Promise.all([
     db.prepare("SELECT id, pattern, category_id FROM rules WHERE user_id = ? ORDER BY match_count DESC").all(userId),
@@ -89,6 +108,12 @@ router.post("/", async (c) => {
   if (!fecha || !desc_banco || monto == null) {
     return c.json({ error: "fecha, desc_banco and monto are required" }, 400);
   }
+  if (!isValidISODate(fecha)) {
+    return c.json({ error: "fecha must be in YYYY-MM-DD format" }, 400);
+  }
+  if (!Number.isFinite(Number(monto))) {
+    return c.json({ error: "monto must be a finite number" }, 400);
+  }
   const db   = getDb(c.env);
   if (account_id) {
     const account = await db.prepare(
@@ -104,8 +129,8 @@ router.post("/", async (c) => {
   }
   const hash = await buildDedupHash({ fecha, monto, desc_banco });
   const dup  = await db.prepare(
-    "SELECT id FROM transactions WHERE dedup_hash = ? AND user_id = ?"
-  ).get(hash, userId);
+    "SELECT id FROM transactions WHERE dedup_hash = ? AND user_id = ? AND substr(fecha, 1, 7) = substr(?, 1, 7)"
+  ).get(hash, userId, fecha);
   if (dup) return c.json({ error: "Duplicate transaction", id: dup.id }, 409);
 
   // Auto-categorize
@@ -173,11 +198,12 @@ router.post("/batch", async (c) => {
     try {
       const { fecha, desc_banco, monto, moneda, account_id } = tx;
       if (!fecha || !desc_banco || monto == null) { errors++; continue; }
+      if (!isValidISODate(fecha) || !Number.isFinite(Number(monto))) { errors++; continue; }
       if (tx.category_id != null && !categoryIds.has(Number(tx.category_id))) { errors++; continue; }
       const hash = await buildDedupHash({ fecha, monto, desc_banco });
       const dup  = await db.prepare(
-        "SELECT id FROM transactions WHERE dedup_hash = ? AND user_id = ?"
-      ).get(hash, userId);
+        "SELECT id FROM transactions WHERE dedup_hash = ? AND user_id = ? AND substr(fecha, 1, 7) = substr(?, 1, 7)"
+      ).get(hash, userId, fecha);
       if (dup) { duplicates++; continue; }
 
       const resolvedAccountId = account_id || batchAccount || null;
@@ -225,6 +251,12 @@ router.put("/:id", async (c) => {
     ).get(body.account_id, userId);
     if (!account) return c.json({ error: "account not found" }, 404);
   }
+  if (body.fecha !== undefined && !isValidISODate(body.fecha)) {
+    return c.json({ error: "fecha must be in YYYY-MM-DD format" }, 400);
+  }
+  if (body.monto !== undefined && !Number.isFinite(Number(body.monto))) {
+    return c.json({ error: "monto must be a finite number" }, 400);
+  }
   if (body.category_id !== undefined && body.category_id !== null) {
     const category = await db.prepare(
       "SELECT id FROM categories WHERE id = ? AND user_id = ?"
@@ -238,11 +270,25 @@ router.put("/:id", async (c) => {
     fecha:        body.fecha        !== undefined ? body.fecha        : tx.fecha,
     monto:        body.monto        !== undefined ? Number(body.monto): tx.monto,
   };
+  const nextDedupHash = await buildDedupHash({
+    fecha: next.fecha,
+    monto: next.monto,
+    desc_banco: tx.desc_banco
+  });
+  const duplicate = await db.prepare(
+    `SELECT id
+     FROM transactions
+     WHERE id <> ? AND user_id = ? AND dedup_hash = ? AND substr(fecha, 1, 7) = substr(?, 1, 7)
+     LIMIT 1`
+  ).get(id, userId, nextDedupHash, next.fecha);
+  if (duplicate) {
+    return c.json({ error: "Duplicate transaction", id: duplicate.id }, 409);
+  }
 
   await db.prepare(
-    `UPDATE transactions SET category_id=?,desc_usuario=?,account_id=?,fecha=?,monto=?
+    `UPDATE transactions SET category_id=?,desc_usuario=?,account_id=?,fecha=?,monto=?,dedup_hash=?
      WHERE id=? AND user_id=?`
-  ).run(next.category_id, next.desc_usuario, next.account_id, next.fecha, next.monto, id, userId);
+  ).run(next.category_id, next.desc_usuario, next.account_id, next.fecha, next.monto, nextDedupHash, id, userId);
 
   let ruleResult = null;
   if (body.category_id != null && body.category_id !== tx.category_id) {

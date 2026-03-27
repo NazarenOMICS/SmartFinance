@@ -195,7 +195,7 @@ router.post("/", upload.single("file"), async (req, res, next) => {
       const runInserts = db.transaction((txList) => {
         for (const transaction of txList) {
           const dedupHash = buildDedupHash(transaction);
-          if (checkDup.get(dedupHash, period)) {
+          if (checkDup.get(dedupHash, transaction.fecha.slice(0, 7))) {
             duplicatesSkipped += 1;
             continue;
           }
@@ -277,7 +277,7 @@ router.post("/", upload.single("file"), async (req, res, next) => {
 
             const tx = { fecha, desc_banco: desc, monto };
             const dedupHash = buildDedupHash(tx);
-            if (checkDup.get(dedupHash, period)) { duplicatesSkipped += 1; continue; }
+            if (checkDup.get(dedupHash, fecha.slice(0, 7))) { duplicatesSkipped += 1; continue; }
 
             let categoryId = null;
             const rule = findMatchingRule(db, desc);
