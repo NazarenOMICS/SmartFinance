@@ -9,10 +9,12 @@
  */
 import { Hono } from "hono";
 import { getDb, upsertSetting } from "../db.js";
+import { DEFAULT_PATTERNS } from "../services/tx-extractor.js";
 
 const router = new Hono();
 
 const DEFAULT_CATEGORIES = [
+  { name: "Ingreso", budget: 0, type: "variable", color: "#639922", sort_order: 0 },
   { name: "Alquiler", budget: 18000, type: "fijo", color: "#639922" },
   { name: "Supermercado", budget: 12000, type: "variable", color: "#534AB7" },
   { name: "Transporte", budget: 6000, type: "variable", color: "#1D9E75" },
@@ -21,7 +23,8 @@ const DEFAULT_CATEGORIES = [
   { name: "Servicios", budget: 7000, type: "fijo", color: "#BA7517" },
   { name: "Salud", budget: 4000, type: "variable", color: "#E24B4A" },
   { name: "Otros", budget: 5000, type: "variable", color: "#888780" },
-  { name: "Ingreso", budget: 0, type: "variable", color: "#639922" },
+  { name: "Reintegro", budget: 0, type: "variable", color: "#1D9E75", sort_order: 90 },
+  { name: "Transferencia", budget: 0, type: "transferencia", color: "#888780", sort_order: 91 },
 ];
 
 const DEFAULT_SETTINGS = [
@@ -31,6 +34,7 @@ const DEFAULT_SETTINGS = [
   { key: "savings_initial", value: "0" },
   { key: "savings_goal", value: "200000" },
   { key: "savings_currency", value: "UYU" },
+  { key: "parsing_patterns", value: JSON.stringify(DEFAULT_PATTERNS) },
 ];
 
 router.post("/", async (c) => {
@@ -41,22 +45,27 @@ router.post("/", async (c) => {
     "SELECT COUNT(*) AS count FROM categories WHERE user_id = ?"
   ).get(userId);
 
-  if (existing.count > 0) {
-    return c.json({ status: "existing", message: "User already has data" });
-  }
+  const existingCategories = await db.prepare(
+    "SELECT name FROM categories WHERE user_id = ?"
+  ).all(userId);
+  const existingNames = new Set(existingCategories.map((row) => row.name.toLowerCase()));
 
   for (let i = 0; i < DEFAULT_CATEGORIES.length; i += 1) {
     const cat = DEFAULT_CATEGORIES[i];
+    if (existingNames.has(cat.name.toLowerCase())) continue;
     await db.prepare(
       "INSERT INTO categories (name,budget,type,color,sort_order,user_id) VALUES (?,?,?,?,?,?)"
-    ).run(cat.name, cat.budget, cat.type, cat.color, i, userId);
+    ).run(cat.name, cat.budget, cat.type, cat.color, cat.sort_order ?? i, userId);
   }
 
   for (const setting of DEFAULT_SETTINGS) {
     await upsertSetting(c.env, setting.key, setting.value, userId);
   }
 
-  return c.json({ status: "created", categories: DEFAULT_CATEGORIES.length });
+  return c.json({
+    status: existing.count > 0 ? "existing" : "created",
+    categories: DEFAULT_CATEGORIES.length
+  });
 });
 
 router.post("/claim-legacy", async (c) => {

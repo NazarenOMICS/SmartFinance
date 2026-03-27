@@ -10,6 +10,13 @@ export async function bumpRule(db, ruleId) {
   return db.prepare("UPDATE rules SET match_count = match_count + 1 WHERE id = ?").run(ruleId);
 }
 
+const REINTEGRO_KEYWORDS = [
+  "devolucion", "devol", "reintegro", "reversa", "reverso",
+  "acreditacion devol", "cashback", "contracargo", "reversal"
+];
+
+const REINTEGRO_THRESHOLDS = { UYU: 200, USD: 5, ARS: 1000 };
+
 const TRANSFER_KEYWORDS = [
   "supernet tc",
   "compra de dolares",
@@ -36,6 +43,27 @@ const TRANSFER_KEYWORDS = [
 export function isLikelyTransfer(descBanco) {
   const normalized = String(descBanco || "").toLowerCase();
   return TRANSFER_KEYWORDS.some((kw) => normalized.includes(kw));
+}
+
+export async function isLikelyReintegro(db, descBanco, monto, moneda, userId) {
+  if (monto <= 0) return false;
+
+  const normalized = String(descBanco || "").toLowerCase();
+  if (REINTEGRO_KEYWORDS.some((kw) => normalized.includes(kw))) return true;
+
+  const threshold = REINTEGRO_THRESHOLDS[moneda] ?? REINTEGRO_THRESHOLDS.UYU;
+  if (monto < threshold) {
+    const rule = await findMatchingRule(db, descBanco, userId);
+    if (rule) {
+      const category = await db.prepare(
+        "SELECT name FROM categories WHERE id = ? AND user_id = ?"
+      ).get(rule.category_id, userId);
+      if (category?.name === "Ingreso") return false;
+    }
+    return true;
+  }
+
+  return false;
 }
 
 function buildPatternFromDescription(descBanco) {

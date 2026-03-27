@@ -4,6 +4,7 @@ const { db } = require("../db");
 const router = express.Router();
 
 const DEFAULT_CATEGORIES = [
+  { name: "Ingreso",        type: "variable",      budget: 0,     color: "#639922", sort_order: 0 },
   { name: "Alquiler",      type: "fijo",     budget: 18000, color: "#639922", sort_order: 1 },
   { name: "Supermercado",  type: "variable", budget: 12000, color: "#534AB7", sort_order: 2 },
   { name: "Transporte",    type: "variable", budget:  6000, color: "#1D9E75", sort_order: 3 },
@@ -12,14 +13,13 @@ const DEFAULT_CATEGORIES = [
   { name: "Servicios",     type: "fijo",     budget:  7000, color: "#BA7517", sort_order: 6 },
   { name: "Salud",         type: "variable", budget:  4000, color: "#E24B4A", sort_order: 7 },
   { name: "Otros",         type: "variable", budget:  5000, color: "#888780", sort_order: 8 },
+  { name: "Reintegro",     type: "variable",      budget: 0,     color: "#1D9E75", sort_order: 90 },
+  { name: "Transferencia", type: "transferencia", budget: 0,     color: "#888780", sort_order: 91 },
 ];
 
 // POST /api/onboard — idempotent: seeds default categories if none exist
 router.post("/", (req, res) => {
   const count = db.prepare("SELECT COUNT(*) AS n FROM categories").get().n;
-  if (count > 0) {
-    return res.json({ status: "existing" });
-  }
 
   const insertCategory = db.prepare(
     "INSERT OR IGNORE INTO categories (name, type, budget, color, sort_order) VALUES (?, ?, ?, ?, ?)"
@@ -31,7 +31,7 @@ router.post("/", (req, res) => {
     }
   })();
 
-  res.json({ status: "created" });
+  res.json({ status: count > 0 ? "existing" : "created" });
 });
 
 // POST /api/onboard/claim-legacy — no-op for local Express server

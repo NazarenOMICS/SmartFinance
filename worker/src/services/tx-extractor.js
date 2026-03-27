@@ -16,7 +16,7 @@
 //
 // Patterns are tried in order; the first match wins.
 
-const DEFAULT_PATTERNS = [
+export const DEFAULT_PATTERNS = [
   // 1. Two trailing numbers: date + description + amount + balance-to-ignore
   String.raw`^(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)\s+(.+?)\s+([-]?[\d.,]+)\s+[\d.,]+\s*$`,
   // 2. Single trailing number: date + description + amount

@@ -143,6 +143,7 @@ function AppInner() {
     const cachedDone = userId && localStorage.getItem(`sf_onboard_${userId}`) === "done";
     if (cachedDone) {
       setOnboardStatus("done");
+      api.onboard().catch(() => {});
       refreshSettings().catch(() => {});
       refreshPendingCount().catch(() => {});
       return;

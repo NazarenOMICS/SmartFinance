@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { getDb } from "../db.js";
 import { buildDedupHash } from "../services/dedup.js";
-import { findMatchingRule, bumpRule } from "../services/categorizer.js";
+import { findMatchingRule, bumpRule, isLikelyReintegro, isLikelyTransfer } from "../services/categorizer.js";
 import { extractTransactions } from "../services/tx-extractor.js";
 import { parseCSV } from "../services/csv-parser.js";
 import { detectFormat, computeFormatKey, applyColumnMap } from "../services/format-detector.js";
@@ -187,6 +187,12 @@ router.post("/", async (c) => {
   const rules = await db.prepare(
     "SELECT id, pattern, category_id FROM rules WHERE user_id=? ORDER BY match_count DESC"
   ).all(userId);
+  const transferCategory = await db.prepare(
+    "SELECT id FROM categories WHERE user_id = ? AND name = 'Transferencia'"
+  ).get(userId);
+  const reintegroCategory = await db.prepare(
+    "SELECT id FROM categories WHERE user_id = ? AND name = 'Reintegro'"
+  ).get(userId);
 
   for (const tx of extractedTxs) {
     const dedupHash = await buildDedupHash(tx);
@@ -197,8 +203,19 @@ router.post("/", async (c) => {
 
     let categoryId = null;
     const rule = rules.find(r => tx.desc_banco.toLowerCase().includes(r.pattern.toLowerCase()));
-    if (rule) { categoryId = rule.category_id; await bumpRule(db, rule.id); autoCategorized++; }
-    else { pendingReview++; }
+    if (rule) {
+      categoryId = rule.category_id;
+      await bumpRule(db, rule.id);
+      autoCategorized++;
+    } else if (isLikelyTransfer(tx.desc_banco)) {
+      if (transferCategory) { categoryId = transferCategory.id; autoCategorized++; }
+      else pendingReview++;
+    } else if (await isLikelyReintegro(db, tx.desc_banco, Number(tx.monto), accountCurrency, userId)) {
+      if (reintegroCategory) { categoryId = reintegroCategory.id; autoCategorized++; }
+      else pendingReview++;
+    } else {
+      pendingReview++;
+    }
 
     await db.prepare(
       "INSERT INTO transactions (fecha,desc_banco,monto,moneda,category_id,account_id,upload_id,dedup_hash,user_id) VALUES (?,?,?,?,?,?,?,?,?)"

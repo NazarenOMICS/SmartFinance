@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { getDb } from "../db.js";
 import { buildDedupHash } from "../services/dedup.js";
-import { ensureRuleForManualCategorization, findMatchingRule, bumpRule } from "../services/categorizer.js";
+import { ensureRuleForManualCategorization, findMatchingRule, bumpRule, isLikelyReintegro, isLikelyTransfer } from "../services/categorizer.js";
 import { computeMonthlyEvolution, computeSummary, getTransactionsForMonth } from "../services/metrics.js";
 import { suggestSync } from "../services/suggester.js";
 
@@ -97,6 +97,16 @@ router.post("/", async (c) => {
     if (rule) {
       resolvedCategoryId = rule.category_id;
       await bumpRule(db, rule.id);
+    } else if (isLikelyTransfer(desc_banco)) {
+      const transferCategory = await db.prepare(
+        "SELECT id FROM categories WHERE user_id = ? AND name = 'Transferencia'"
+      ).get(userId);
+      if (transferCategory) resolvedCategoryId = transferCategory.id;
+    } else if (await isLikelyReintegro(db, desc_banco, Number(monto), moneda, userId)) {
+      const reintegroCategory = await db.prepare(
+        "SELECT id FROM categories WHERE user_id = ? AND name = 'Reintegro'"
+      ).get(userId);
+      if (reintegroCategory) resolvedCategoryId = reintegroCategory.id;
     }
   }
 
@@ -118,6 +128,12 @@ router.post("/batch", async (c) => {
   const rules = await db.prepare(
     "SELECT id, pattern, category_id FROM rules WHERE user_id = ? ORDER BY match_count DESC"
   ).all(userId);
+  const transferCategory = await db.prepare(
+    "SELECT id FROM categories WHERE user_id = ? AND name = 'Transferencia'"
+  ).get(userId);
+  const reintegroCategory = await db.prepare(
+    "SELECT id FROM categories WHERE user_id = ? AND name = 'Reintegro'"
+  ).get(userId);
   const accountCurrencyCache = new Map();
   if (batchAccount) {
     const batchAccountRow = await db.prepare(
@@ -146,11 +162,19 @@ router.post("/batch", async (c) => {
       }
       const resolvedCurrency = moneda || accountCurrencyCache.get(resolvedAccountId) || "UYU";
       const rule = rules.find((r) => desc_banco.toLowerCase().includes(r.pattern.toLowerCase()));
+      let resolvedCategoryId = rule?.category_id ?? null;
+      if (rule) {
+        await bumpRule(db, rule.id);
+      } else if (isLikelyTransfer(desc_banco)) {
+        resolvedCategoryId = transferCategory?.id ?? null;
+      } else if (await isLikelyReintegro(db, desc_banco, Number(monto), resolvedCurrency, userId)) {
+        resolvedCategoryId = reintegroCategory?.id ?? null;
+      }
       await db.prepare(
         `INSERT INTO transactions (fecha,desc_banco,monto,moneda,category_id,account_id,dedup_hash,user_id)
          VALUES (?,?,?,?,?,?,?,?)`
       ).run(fecha, desc_banco.trim(), Number(monto), resolvedCurrency,
-            rule?.category_id ?? null, resolvedAccountId, hash, userId);
+            resolvedCategoryId, resolvedAccountId, hash, userId);
       created++;
     } catch { errors++; }
   }
