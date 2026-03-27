@@ -11,7 +11,7 @@ const router = new Hono();
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Split one CSV line respecting quoted fields. */
-function splitLine(line) {
+function splitLine(line, delimiter = ",") {
   const fields = [];
   let cur = "", inQ = false;
   for (let i = 0; i < line.length; i++) {
@@ -19,11 +19,30 @@ function splitLine(line) {
     if (ch === '"') {
       if (inQ && line[i + 1] === '"') { cur += '"'; i++; }
       else inQ = !inQ;
-    } else if (ch === "," && !inQ) { fields.push(cur.trim()); cur = ""; }
+    } else if (ch === delimiter && !inQ) { fields.push(cur.trim()); cur = ""; }
     else cur += ch;
   }
   fields.push(cur.trim());
   return fields;
+}
+
+function normalizeHeader(header) {
+  return String(header || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\ufffd/g, "")
+    .trim();
+}
+
+function detectDelimiter(line) {
+  const counts = { ",": 0, ";": 0, "\t": 0 };
+  let inQ = false;
+  for (const ch of line) {
+    if (ch === '"') inQ = !inQ;
+    else if (!inQ && counts[ch] !== undefined) counts[ch] += 1;
+  }
+  return Object.entries(counts).sort((left, right) => right[1] - left[1])[0][0];
 }
 
 /**
@@ -32,15 +51,21 @@ function splitLine(line) {
  */
 function findHeader(text) {
   const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  let delimiter = ",";
   for (let i = 0; i < Math.min(25, lines.length); i++) {
-    const fields = splitLine(lines[i]);
-    const norms  = fields.map(f => f.toLowerCase().normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "").replace(/\ufffd/g, "").trim());
-    if (norms.some(n => n === "fecha" || n === "date")) {
-      return { headerIdx: i, lines, headers: fields, normHeaders: norms };
+    delimiter = detectDelimiter(lines[i]);
+    const fields = splitLine(lines[i], delimiter);
+    const norms  = fields.map(normalizeHeader);
+    if (norms.some(n => n === "fecha" || n === "date") && fields.length >= 3) {
+      return { headerIdx: i, lines, headers: fields, normHeaders: norms, delimiter };
     }
   }
-  return null;
+
+  const headerIdx = lines.findIndex((line) => line.trim());
+  if (headerIdx === -1) return null;
+  delimiter = detectDelimiter(lines[headerIdx]);
+  const headers = splitLine(lines[headerIdx], delimiter);
+  return { headerIdx, lines, headers, normHeaders: headers.map(normalizeHeader), delimiter };
 }
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
@@ -76,8 +101,11 @@ router.post("/", async (c) => {
   const filename = file ? file.name : `manual-${period}.txt`;
   const db       = getDb(c.env);
 
-  const account        = await db.prepare("SELECT currency FROM accounts WHERE id=? AND user_id=?").get(account_id, userId);
-  const accountCurrency = account?.currency || "UYU";
+  const account = await db.prepare("SELECT currency FROM accounts WHERE id=? AND user_id=?").get(account_id, userId);
+  if (!account) {
+    return c.json({ error: "account not found" }, 404);
+  }
+  const accountCurrency = account.currency;
 
   const uploadResult = await db.prepare(
     "INSERT INTO uploads (filename,account_id,period,status,user_id) VALUES (?,?,?,'pending',?)"
@@ -110,7 +138,7 @@ router.post("/", async (c) => {
       // 2. Parser got 0 results — try format detector
       const found = findHeader(csvText);
       if (found) {
-        const { headers, normHeaders, headerIdx, lines } = found;
+        const { headers, headerIdx, lines, delimiter } = found;
         const formatKey = computeFormatKey(headers);
 
         // Check if user has a saved custom mapping for this format
@@ -148,18 +176,18 @@ router.post("/", async (c) => {
           const dataRows = lines
             .slice(headerIdx + 1)
             .filter(l => l.trim())
-            .map(l => splitLine(l));
+            .map(l => splitLine(l, delimiter));
           const { transactions } = applyColumnMap(dataRows, columns, period);
           extractedTxs = transactions;
         } else {
           // Unknown format — ask client to show column mapper
-          await db.prepare("UPDATE uploads SET status='needs_mapping' WHERE id=?").run(uploadId);
+          await db.prepare("UPDATE uploads SET status='needs_mapping' WHERE id=? AND user_id=?").run(uploadId, userId);
           return c.json({
             upload_id:      uploadId,
             needs_mapping:  true,
             format_key:     formatKey,
             columns:        headers,
-            sample:         lines.slice(headerIdx, headerIdx + 6).map(l => splitLine(l)),
+            sample:         lines.slice(headerIdx, headerIdx + 6).map(l => splitLine(l, delimiter)),
             new_transactions: 0,
             duplicates_skipped: 0,
             auto_categorized:   0,
@@ -223,8 +251,8 @@ router.post("/", async (c) => {
     newTransactions++;
   }
 
-  await db.prepare("UPDATE uploads SET tx_count=?,status='processed' WHERE id=?")
-    .run(newTransactions, uploadId);
+  await db.prepare("UPDATE uploads SET tx_count=?,status='processed' WHERE id=? AND user_id=?")
+    .run(newTransactions, uploadId, userId);
 
   return c.json({
     upload_id:          uploadId,

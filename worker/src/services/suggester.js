@@ -77,11 +77,11 @@ async function suggestFromHistory(db, descBanco, userId = null) {
   const conditions = topWords.map(() => "LOWER(t.desc_banco) LIKE ?").join(" OR ");
   const params = topWords.map((w) => `%${w}%`);
 
-  const whereUser = userId ? "AND t.user_id = ? AND c.user_id = t.user_id" : "";
+  const whereUser = userId ? "AND t.user_id = ?" : "";
   const rows = await db.prepare(
     `SELECT c.id AS category_id, c.name AS category_name, COUNT(*) AS cnt
      FROM transactions t
-     JOIN categories c ON c.id = t.category_id
+     JOIN categories c ON c.id = t.category_id AND c.user_id = t.user_id
      WHERE t.category_id IS NOT NULL ${whereUser} AND (${conditions})
      GROUP BY c.id
      ORDER BY cnt DESC

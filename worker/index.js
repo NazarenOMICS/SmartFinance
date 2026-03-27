@@ -45,8 +45,11 @@ app.route("/api/bank-formats", bankFormatsRouter);
 
 // ── Error handler ─────────────────────────────────────────────────────────────
 app.onError((err, c) => {
-  console.error(err);
-  return c.json({ error: err.message || "Unexpected server error" }, 500);
+  const status = typeof err?.status === "number" ? err.status : 500;
+  if (status >= 500) {
+    console.error(err);
+  }
+  return c.json({ error: err.message || "Unexpected server error" }, status);
 });
 
 export default app;

@@ -23,7 +23,7 @@ router.post("/", async (c) => {
   const result = await db.prepare(
     "INSERT INTO categories (name,budget,type,color,user_id) VALUES (?,?,?,?,?)"
   ).run(name.trim(), budget, type, color, userId);
-  return c.json(await db.prepare("SELECT * FROM categories WHERE id=?").get(result.lastInsertRowid), 201);
+  return c.json(await db.prepare("SELECT * FROM categories WHERE id=? AND user_id=?").get(result.lastInsertRowid, userId), 201);
 });
 
 router.put("/:id", async (c) => {
@@ -36,15 +36,19 @@ router.put("/:id", async (c) => {
   if (!current) return c.json({ error: "category not found" }, 404);
   const body = await c.req.json();
   const next = {
-    name:   body.name   ?? current.name,
+    name:   body.name?.trim() ?? current.name,
     budget: body.budget ?? current.budget,
     type:   body.type   ?? current.type,
     color:  body.color  ?? current.color
   };
+  const duplicate = await db.prepare(
+    "SELECT id FROM categories WHERE user_id = ? AND name = ? COLLATE NOCASE AND id != ?"
+  ).get(userId, next.name, id);
+  if (duplicate) return c.json({ error: `Ya existe una categorÃ­a con el nombre "${next.name}"` }, 409);
   await db.prepare(
     "UPDATE categories SET name=?,budget=?,type=?,color=? WHERE id=? AND user_id=?"
   ).run(next.name, next.budget, next.type, next.color, id, userId);
-  return c.json(await db.prepare("SELECT * FROM categories WHERE id=?").get(id));
+  return c.json(await db.prepare("SELECT * FROM categories WHERE id=? AND user_id=?").get(id, userId));
 });
 
 router.delete("/:id", async (c) => {

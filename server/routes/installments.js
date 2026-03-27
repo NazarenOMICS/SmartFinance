@@ -4,8 +4,14 @@ const { computeFutureCommitments } = require("../services/metrics");
 
 const router = express.Router();
 
+function parsePositiveInt(rawValue, fallback, max = null) {
+  const parsed = Number(rawValue);
+  if (!Number.isInteger(parsed) || parsed < 1) return fallback;
+  return max == null ? parsed : Math.min(parsed, max);
+}
+
 router.get("/commitments", (req, res) => {
-  const months = Math.max(1, Number(req.query.months || 6));
+  const months = parsePositiveInt(req.query.months || 6, 6, 24);
   const start = req.query.start;
   if (!start || !/^\d{4}-\d{2}$/.test(start)) {
     return res.status(400).json({ error: "start is required in YYYY-MM format" });
@@ -38,8 +44,22 @@ router.post("/", (req, res) => {
   if (!descripcion || !monto_total || !cantidad_cuotas || !start_month) {
     return res.status(400).json({ error: "descripcion, monto_total, cantidad_cuotas and start_month are required" });
   }
+  if (!/^\d{4}-\d{2}$/.test(start_month)) {
+    return res.status(400).json({ error: "start_month must be in YYYY-MM format" });
+  }
+  const cuotas = parsePositiveInt(cantidad_cuotas, null);
+  const total = Number(monto_total);
+  if (!cuotas || !Number.isFinite(total)) {
+    return res.status(400).json({ error: "monto_total and cantidad_cuotas must be valid numbers" });
+  }
+  if (account_id) {
+    const account = db.prepare("SELECT id FROM accounts WHERE id = ?").get(account_id);
+    if (!account) {
+      return res.status(404).json({ error: "account not found" });
+    }
+  }
 
-  const monto_cuota = Math.round(Number(monto_total) / Number(cantidad_cuotas));
+  const monto_cuota = Math.round(total / cuotas);
   const result = db
     .prepare(
       `
@@ -48,7 +68,7 @@ router.post("/", (req, res) => {
       ) VALUES (?, ?, ?, 1, ?, ?, ?)
     `
     )
-    .run(descripcion, monto_total, cantidad_cuotas, monto_cuota, account_id, start_month);
+    .run(descripcion, total, cuotas, monto_cuota, account_id, start_month);
 
   res.status(201).json(db.prepare("SELECT * FROM installments WHERE id = ?").get(result.lastInsertRowid));
 });
@@ -62,6 +82,9 @@ router.put("/:id", (req, res) => {
   }
 
   const cuotaActual = req.body.cuota_actual ?? current.cuota_actual;
+  if (!parsePositiveInt(cuotaActual, null)) {
+    return res.status(400).json({ error: "cuota_actual must be a positive integer" });
+  }
   db.prepare("UPDATE installments SET cuota_actual = ? WHERE id = ?").run(cuotaActual, id);
   res.json(db.prepare("SELECT * FROM installments WHERE id = ?").get(id));
 });

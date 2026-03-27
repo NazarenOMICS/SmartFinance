@@ -13,10 +13,17 @@ router.post("/", (req, res) => {
   if (!name) {
     return res.status(400).json({ error: "name is required" });
   }
+  const normalizedName = name.trim();
+  const existing = db.prepare(
+    "SELECT id FROM categories WHERE name = ? COLLATE NOCASE"
+  ).get(normalizedName);
+  if (existing) {
+    return res.status(409).json({ error: `Ya existe una categoría con el nombre "${normalizedName}"` });
+  }
 
   const result = db
     .prepare("INSERT INTO categories (name, budget, type, color) VALUES (?, ?, ?, ?)")
-    .run(name, budget, type, color);
+    .run(normalizedName, budget, type, color);
 
   res.status(201).json(db.prepare("SELECT * FROM categories WHERE id = ?").get(result.lastInsertRowid));
 });
@@ -30,11 +37,17 @@ router.put("/:id", (req, res) => {
   }
 
   const next = {
-    name: req.body.name ?? current.name,
+    name: req.body.name?.trim() ?? current.name,
     budget: req.body.budget ?? current.budget,
     type: req.body.type ?? current.type,
     color: req.body.color ?? current.color
   };
+  const duplicate = db.prepare(
+    "SELECT id FROM categories WHERE name = ? COLLATE NOCASE AND id != ?"
+  ).get(next.name, id);
+  if (duplicate) {
+    return res.status(409).json({ error: `Ya existe una categoría con el nombre "${next.name}"` });
+  }
 
   db.prepare("UPDATE categories SET name = ?, budget = ?, type = ?, color = ? WHERE id = ?").run(
     next.name,

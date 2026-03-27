@@ -4,6 +4,12 @@ import { computeFutureCommitments, previousMonth } from "../services/metrics.js"
 
 const router = new Hono();
 
+function parsePositiveInt(rawValue, fallback, max = null) {
+  const parsed = Number(rawValue);
+  if (!Number.isInteger(parsed) || parsed < 1) return fallback;
+  return max == null ? parsed : Math.min(parsed, max);
+}
+
 function getMonthSeries(months, endMonth) {
   const [year, monthNum] = endMonth.split("-").map(Number);
   return Array.from({ length: months }, (_, i) => {
@@ -54,10 +60,13 @@ function nextMonth(month) {
 
 router.get("/projection", async (c) => {
   const userId  = c.get("userId");
-  const months  = Math.max(1, Number(c.req.query("months") || 12));
+  const months  = parsePositiveInt(c.req.query("months") || 12, 12, 60);
   const now     = new Date();
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const baseMonth    = c.req.query("end") || currentMonth;
+  if (c.req.query("end") && !/^\d{4}-\d{2}$/.test(c.req.query("end"))) {
+    return c.json({ error: "end must be in YYYY-MM format" }, 400);
+  }
   const db       = getDb(c.env);
   const settings = await getSettingsObject(c.env, userId);
   const savingsCurrency = settings.savings_currency || "UYU";

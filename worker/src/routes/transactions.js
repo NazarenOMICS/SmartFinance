@@ -12,11 +12,17 @@ function getMonth(c) {
   return month && /^\d{4}-\d{2}$/.test(month) ? month : null;
 }
 
+function parsePositiveInt(rawValue, fallback, max = null) {
+  const parsed = Number(rawValue);
+  if (!Number.isInteger(parsed) || parsed < 1) return fallback;
+  return max == null ? parsed : Math.min(parsed, max);
+}
+
 // Global full-text search across all months
 router.get("/search", async (c) => {
   const userId = c.get("userId");
   const q     = (c.req.query("q") || "").trim();
-  const limit = Math.min(50, Number(c.req.query("limit") || 20));
+  const limit = parsePositiveInt(c.req.query("limit") || 20, 20, 50);
   if (q.length < 2) return c.json([]);
   const db   = getDb(c.env);
   const term = `%${q}%`;
@@ -56,7 +62,7 @@ router.get("/monthly-evolution", async (c) => {
   if (!end || !/^\d{4}-\d{2}$/.test(end)) {
     return c.json({ error: "end is required in YYYY-MM format" }, 400);
   }
-  const months = Math.max(1, Number(c.req.query("months") || 6));
+  const months = parsePositiveInt(c.req.query("months") || 6, 6, 24);
   const db = getDb(c.env);
   return c.json(await computeMonthlyEvolution(db, c.env, end, months, userId));
 });
@@ -84,6 +90,18 @@ router.post("/", async (c) => {
     return c.json({ error: "fecha, desc_banco and monto are required" }, 400);
   }
   const db   = getDb(c.env);
+  if (account_id) {
+    const account = await db.prepare(
+      "SELECT id FROM accounts WHERE id = ? AND user_id = ?"
+    ).get(account_id, userId);
+    if (!account) return c.json({ error: "account not found" }, 404);
+  }
+  if (category_id != null) {
+    const category = await db.prepare(
+      "SELECT id FROM categories WHERE id = ? AND user_id = ?"
+    ).get(Number(category_id), userId);
+    if (!category) return c.json({ error: "category not found" }, 404);
+  }
   const hash = await buildDedupHash({ fecha, monto, desc_banco });
   const dup  = await db.prepare(
     "SELECT id FROM transactions WHERE dedup_hash = ? AND user_id = ?"
@@ -116,7 +134,7 @@ router.post("/", async (c) => {
   ).run(fecha, desc_banco.trim(), desc_usuario, Number(monto), moneda,
         resolvedCategoryId, account_id, es_cuota ? 1 : 0, hash, userId);
 
-  return c.json(await db.prepare("SELECT * FROM transactions WHERE id=?").get(result.lastInsertRowid), 201);
+  return c.json(await db.prepare("SELECT * FROM transactions WHERE id=? AND user_id=?").get(result.lastInsertRowid, userId), 201);
 });
 
 // Batch create (CSV import)
@@ -125,6 +143,12 @@ router.post("/batch", async (c) => {
   const { transactions: txList, account_id: batchAccount } = await c.req.json();
   if (!Array.isArray(txList)) return c.json({ error: "transactions array required" }, 400);
   const db    = getDb(c.env);
+  if (batchAccount) {
+    const batchAccountRow = await db.prepare(
+      "SELECT currency FROM accounts WHERE id = ? AND user_id = ?"
+    ).get(batchAccount, userId);
+    if (!batchAccountRow) return c.json({ error: "account not found" }, 404);
+  }
   const rules = await db.prepare(
     "SELECT id, pattern, category_id FROM rules WHERE user_id = ? ORDER BY match_count DESC"
   ).all(userId);
@@ -135,6 +159,8 @@ router.post("/batch", async (c) => {
     "SELECT id FROM categories WHERE user_id = ? AND name = 'Reintegro'"
   ).get(userId);
   const accountCurrencyCache = new Map();
+  const categories = await db.prepare("SELECT id FROM categories WHERE user_id = ?").all(userId);
+  const categoryIds = new Set(categories.map((row) => Number(row.id)));
   if (batchAccount) {
     const batchAccountRow = await db.prepare(
       "SELECT currency FROM accounts WHERE id = ? AND user_id = ?"
@@ -147,6 +173,7 @@ router.post("/batch", async (c) => {
     try {
       const { fecha, desc_banco, monto, moneda, account_id } = tx;
       if (!fecha || !desc_banco || monto == null) { errors++; continue; }
+      if (tx.category_id != null && !categoryIds.has(Number(tx.category_id))) { errors++; continue; }
       const hash = await buildDedupHash({ fecha, monto, desc_banco });
       const dup  = await db.prepare(
         "SELECT id FROM transactions WHERE dedup_hash = ? AND user_id = ?"
@@ -158,6 +185,7 @@ router.post("/batch", async (c) => {
         const accountRow = await db.prepare(
           "SELECT currency FROM accounts WHERE id = ? AND user_id = ?"
         ).get(resolvedAccountId, userId);
+        if (!accountRow) { errors++; continue; }
         if (accountRow?.currency) accountCurrencyCache.set(resolvedAccountId, accountRow.currency);
       }
       const resolvedCurrency = moneda || accountCurrencyCache.get(resolvedAccountId) || "UYU";
@@ -191,6 +219,18 @@ router.put("/:id", async (c) => {
   if (!tx) return c.json({ error: "transaction not found" }, 404);
 
   const body = await c.req.json();
+  if (body.account_id !== undefined && body.account_id !== null) {
+    const account = await db.prepare(
+      "SELECT id FROM accounts WHERE id = ? AND user_id = ?"
+    ).get(body.account_id, userId);
+    if (!account) return c.json({ error: "account not found" }, 404);
+  }
+  if (body.category_id !== undefined && body.category_id !== null) {
+    const category = await db.prepare(
+      "SELECT id FROM categories WHERE id = ? AND user_id = ?"
+    ).get(Number(body.category_id), userId);
+    if (!category) return c.json({ error: "category not found" }, 404);
+  }
   const next = {
     category_id:  body.category_id  !== undefined ? body.category_id  : tx.category_id,
     desc_usuario: body.desc_usuario !== undefined ? body.desc_usuario : tx.desc_usuario,
@@ -210,7 +250,7 @@ router.put("/:id", async (c) => {
   }
 
   return c.json({
-    ...(await db.prepare("SELECT * FROM transactions WHERE id=?").get(id)),
+    ...(await db.prepare("SELECT * FROM transactions WHERE id=? AND user_id=?").get(id, userId)),
     rule: ruleResult
   });
 });

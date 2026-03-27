@@ -4,6 +4,12 @@ const { computeFutureCommitments, previousMonth } = require("../services/metrics
 
 const router = express.Router();
 
+function parsePositiveInt(rawValue, fallback, max = null) {
+  const parsed = Number(rawValue);
+  if (!Number.isInteger(parsed) || parsed < 1) return fallback;
+  return max == null ? parsed : Math.min(parsed, max);
+}
+
 function getMonthSeries(months, endMonth) {
   const [year, monthNum] = endMonth.split("-").map(Number);
   return Array.from({ length: months }, (_, index) => {
@@ -58,11 +64,14 @@ function nextMonth(month) {
 }
 
 router.get("/projection", (req, res) => {
-  const months = Math.max(1, Number(req.query.months || 12));
+  const months = parsePositiveInt(req.query.months || 12, 12, 60);
   const settings = getSettingsObject();
   const today = new Date();
   const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
   const baseMonth = req.query.end || currentMonth;
+  if (req.query.end && !/^\d{4}-\d{2}$/.test(req.query.end)) {
+    return res.status(400).json({ error: "end must be in YYYY-MM format" });
+  }
   const savingsCurrency = settings.savings_currency || "UYU";
   const usdRate = Number(settings.exchange_rate_usd_uyu || 1);
   const arsRate = Number(settings.exchange_rate_ars_uyu || 0.045);

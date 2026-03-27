@@ -15,6 +15,12 @@ function requireMonth(req, res) {
   return month;
 }
 
+function parsePositiveInt(rawValue, fallback, max = null) {
+  const parsed = Number(rawValue);
+  if (!Number.isInteger(parsed) || parsed < 1) return fallback;
+  return max == null ? parsed : Math.min(parsed, max);
+}
+
 router.get("/pending", (req, res) => {
   const month = requireMonth(req, res);
   if (!month) return;
@@ -31,7 +37,7 @@ router.get("/summary", (req, res) => {
 });
 
 router.get("/monthly-evolution", (req, res) => {
-  const months = Math.max(1, Number(req.query.months || 6));
+  const months = parsePositiveInt(req.query.months || 6, 6, 24);
   const end = req.query.end;
 
   if (!end || !/^\d{4}-\d{2}$/.test(end)) {
@@ -44,7 +50,7 @@ router.get("/monthly-evolution", (req, res) => {
 router.get("/search", (req, res) => {
   const { q, limit: limitParam = "20" } = req.query;
   if (!q) return res.status(400).json({ error: "q is required" });
-  const limit = Math.min(Number(limitParam), 100);
+  const limit = parsePositiveInt(limitParam, 20, 100);
   const pattern = `%${q}%`;
   const rows = db
     .prepare(
@@ -98,6 +104,18 @@ router.post("/", (req, res) => {
 
   if (!fecha || !desc_banco || typeof monto !== "number") {
     return res.status(400).json({ error: "fecha, desc_banco and monto are required" });
+  }
+  if (account_id) {
+    const account = db.prepare("SELECT id FROM accounts WHERE id = ?").get(account_id);
+    if (!account) {
+      return res.status(404).json({ error: "account not found" });
+    }
+  }
+  if (category_id != null) {
+    const category = db.prepare("SELECT id FROM categories WHERE id = ?").get(Number(category_id));
+    if (!category) {
+      return res.status(404).json({ error: "category not found" });
+    }
   }
 
   let resolvedCategoryId = category_id;
@@ -163,6 +181,18 @@ router.put("/:id", (req, res) => {
   if (!current) {
     return res.status(404).json({ error: "transaction not found" });
   }
+  if (req.body.account_id !== undefined && req.body.account_id !== null) {
+    const account = db.prepare("SELECT id FROM accounts WHERE id = ?").get(req.body.account_id);
+    if (!account) {
+      return res.status(404).json({ error: "account not found" });
+    }
+  }
+  if (req.body.category_id !== undefined && req.body.category_id !== null) {
+    const category = db.prepare("SELECT id FROM categories WHERE id = ?").get(Number(req.body.category_id));
+    if (!category) {
+      return res.status(404).json({ error: "category not found" });
+    }
+  }
 
   const next = {
     category_id:  req.body.category_id  ?? current.category_id,
@@ -221,7 +251,11 @@ router.post("/batch", (req, res) => {
   const batchAccount = batchAccountId
     ? db.prepare("SELECT currency FROM accounts WHERE id = ?").get(batchAccountId)
     : null;
+  if (batchAccountId && !batchAccount) {
+    return res.status(404).json({ error: "account not found" });
+  }
   const batchCurrency = batchAccount?.currency || "UYU";
+  const validCategoryIds = new Set(db.prepare("SELECT id FROM categories").all().map((row) => Number(row.id)));
 
   let created = 0;
   let duplicates = 0;
@@ -239,6 +273,8 @@ router.post("/batch", (req, res) => {
               moneda = batchCurrency,
               category_id = null, account_id = batchAccountId, es_cuota = 0 } = tx;
       if (!fecha || !desc_banco || typeof monto !== "number") continue;
+      if (category_id != null && !validCategoryIds.has(Number(category_id))) continue;
+      if (account_id && !db.prepare("SELECT id FROM accounts WHERE id = ?").get(account_id)) continue;
 
       const hash = buildDedupHash({ fecha, monto, desc_banco });
       const exists = db
