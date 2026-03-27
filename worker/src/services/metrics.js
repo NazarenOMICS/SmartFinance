@@ -33,20 +33,27 @@ export async function computeSummary(db, env, month, userId) {
   ]);
 
   const settings = await getSettingsObject(env, userId);
-  const exchangeRate    = Number(settings.exchange_rate_usd_uyu || 42.5);
+  const exchangeRate = Number(settings.exchange_rate_usd_uyu || 42.5);
   const exchangeRateArs = Number(settings.exchange_rate_ars_uyu || 0.045);
   const displayCurrency = settings.display_currency || "UYU";
+  const isTransfer = (tx) => tx.category_type === "transferencia";
 
-  const currentIncome    = current.filter((tx) => tx.monto > 0).reduce((s, tx) => s + tx.monto, 0);
-  const currentExpenses  = current.filter((tx) => tx.monto < 0).reduce((s, tx) => s + Math.abs(tx.monto), 0);
-  const previousIncome   = previous.filter((tx) => tx.monto > 0).reduce((s, tx) => s + tx.monto, 0);
-  const previousExpenses = previous.filter((tx) => tx.monto < 0).reduce((s, tx) => s + Math.abs(tx.monto), 0);
+  const financialCurrent = current.filter((tx) => !isTransfer(tx));
+  const financialPrevious = previous.filter((tx) => !isTransfer(tx));
 
-  const byCategoryMap = current
+  const currentIncome = financialCurrent.filter((tx) => tx.monto > 0).reduce((sum, tx) => sum + tx.monto, 0);
+  const currentExpenses = financialCurrent.filter((tx) => tx.monto < 0).reduce((sum, tx) => sum + Math.abs(tx.monto), 0);
+  const previousIncome = financialPrevious.filter((tx) => tx.monto > 0).reduce((sum, tx) => sum + tx.monto, 0);
+  const previousExpenses = financialPrevious.filter((tx) => tx.monto < 0).reduce((sum, tx) => sum + Math.abs(tx.monto), 0);
+
+  const byCategoryMap = financialCurrent
     .filter((tx) => tx.monto < 0 && tx.category_name)
-    .reduce((acc, tx) => { acc[tx.category_name] = (acc[tx.category_name] || 0) + Math.abs(tx.monto); return acc; }, {});
+    .reduce((acc, tx) => {
+      acc[tx.category_name] = (acc[tx.category_name] || 0) + Math.abs(tx.monto);
+      return acc;
+    }, {});
 
-  const byType = current
+  const byType = financialCurrent
     .filter((tx) => tx.monto < 0)
     .reduce((acc, tx) => {
       const type = tx.category_type || "variable";
@@ -55,8 +62,12 @@ export async function computeSummary(db, env, month, userId) {
     }, { fijo: 0, variable: 0 });
 
   const budgets = categories.map((cat) => ({
-    id: cat.id, name: cat.name, type: cat.type, budget: cat.budget,
-    color: cat.color, spent: byCategoryMap[cat.name] || 0
+    id: cat.id,
+    name: cat.name,
+    type: cat.type,
+    budget: cat.budget,
+    color: cat.color,
+    spent: byCategoryMap[cat.name] || 0
   }));
 
   const accounts = await db.prepare("SELECT * FROM accounts WHERE user_id = ?").all(userId);
@@ -72,18 +83,27 @@ export async function computeSummary(db, env, month, userId) {
     }
     return balance;
   };
-  const consolidated = accounts.reduce((sum, acc) => sum + toDisplay(acc.balance, acc.currency), 0);
+  const consolidated = accounts.reduce((sum, account) => sum + toDisplay(account.balance, account.currency), 0);
 
-  const installmentsMonth = current.filter((tx) => tx.es_cuota).reduce((s, tx) => s + Math.abs(tx.monto), 0);
+  const installmentsMonth = current.filter((tx) => tx.es_cuota).reduce((sum, tx) => sum + Math.abs(tx.monto), 0);
 
   return {
     month,
-    totals: { patrimonio: consolidated, income: currentIncome, expenses: currentExpenses,
-              margin: currentIncome - currentExpenses, installments: installmentsMonth },
-    deltas: { income: pctDelta(currentIncome, previousIncome), expenses: pctDelta(currentExpenses, previousExpenses) },
+    totals: {
+      patrimonio: consolidated,
+      income: currentIncome,
+      expenses: currentExpenses,
+      margin: currentIncome - currentExpenses,
+      installments: installmentsMonth
+    },
+    deltas: {
+      income: pctDelta(currentIncome, previousIncome),
+      expenses: pctDelta(currentExpenses, previousExpenses)
+    },
     byCategory: budgets.filter((item) => item.spent > 0),
-    byType, budgets,
-    pending_count: current.filter((tx) => !tx.category_id).length,
+    byType,
+    budgets,
+    pending_count: current.filter((tx) => !tx.category_id && !isTransfer(tx)).length,
     currency: displayCurrency
   };
 }
@@ -91,16 +111,17 @@ export async function computeSummary(db, env, month, userId) {
 export async function computeMonthlyEvolution(db, endMonth, months, userId) {
   const [endYear, endMonthNum] = endMonth.split("-").map(Number);
   const series = [];
-  for (let offset = months - 1; offset >= 0; offset--) {
+  for (let offset = months - 1; offset >= 0; offset -= 1) {
     const total = endYear * 12 + (endMonthNum - 1) - offset;
     const year = Math.floor(total / 12);
     const monthIndex = (total % 12) + 1;
     const month = `${year}-${String(monthIndex).padStart(2, "0")}`;
     const tx = await getTransactionsForMonth(db, month, userId);
+    const financial = tx.filter((item) => item.category_type !== "transferencia");
     series.push({
       month,
-      ingresos: tx.filter((t) => t.monto > 0).reduce((s, t) => s + t.monto, 0),
-      gastos:   tx.filter((t) => t.monto < 0).reduce((s, t) => s + Math.abs(t.monto), 0)
+      ingresos: financial.filter((item) => item.monto > 0).reduce((sum, item) => sum + item.monto, 0),
+      gastos: financial.filter((item) => item.monto < 0).reduce((sum, item) => sum + Math.abs(item.monto), 0)
     });
   }
   return series;
@@ -110,7 +131,7 @@ export async function computeFutureCommitments(db, startMonth, months, userId) {
   const installments = await db.prepare("SELECT * FROM installments WHERE user_id = ?").all(userId);
   const [startYear, startMonthNum] = startMonth.split("-").map(Number);
   const result = [];
-  for (let offset = 0; offset < months; offset++) {
+  for (let offset = 0; offset < months; offset += 1) {
     const total = startYear * 12 + (startMonthNum - 1) + offset;
     const year = Math.floor(total / 12);
     const monthIndex = (total % 12) + 1;
