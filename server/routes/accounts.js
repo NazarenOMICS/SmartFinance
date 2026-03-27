@@ -5,18 +5,23 @@ const router = express.Router();
 
 router.get("/consolidated", (req, res) => {
   const settings = getSettingsObject();
-  const rate = Number(settings.exchange_rate_usd_uyu || 1);
+  const usdRate = Number(settings.exchange_rate_usd_uyu || 1);
+  const arsRate = Number(settings.exchange_rate_ars_uyu || 0.045);
   const displayCurrency = settings.display_currency || "UYU";
   const rows = db.prepare("SELECT * FROM accounts ORDER BY created_at ASC").all();
 
   const total = rows.reduce((sum, account) => {
     if (displayCurrency === account.currency) return sum + account.balance;
-    if (displayCurrency === "UYU" && account.currency === "USD") return sum + account.balance * rate;
-    if (displayCurrency === "USD" && account.currency === "UYU") return sum + account.balance / rate;
-    return sum + account.balance;
+    // Normalize to UYU first, then convert to display currency
+    let inUYU = account.balance;
+    if (account.currency === "USD") inUYU = account.balance * usdRate;
+    else if (account.currency === "ARS") inUYU = account.balance * arsRate;
+    if (displayCurrency === "UYU") return sum + inUYU;
+    if (displayCurrency === "USD") return sum + inUYU / usdRate;
+    return sum + inUYU;
   }, 0);
 
-  res.json({ total, currency: displayCurrency, exchange_rate: rate });
+  res.json({ total, currency: displayCurrency, exchange_rate: usdRate });
 });
 
 router.get("/", (req, res) => {
@@ -53,13 +58,21 @@ router.put("/:id", (req, res) => {
 
 router.delete("/:id", (req, res) => {
   const id = req.params.id;
+  const force = req.query.force === "true";
   const hasTransactions = db.prepare("SELECT COUNT(*) AS count FROM transactions WHERE account_id = ?").get(id).count > 0;
 
-  if (hasTransactions) {
+  if (hasTransactions && !force) {
     return res.status(409).json({ error: "account has linked transactions" });
   }
 
-  db.prepare("DELETE FROM accounts WHERE id = ?").run(id);
+  const deleteAccount = db.transaction(() => {
+    if (hasTransactions) {
+      db.prepare("DELETE FROM transactions WHERE account_id = ?").run(id);
+    }
+    db.prepare("DELETE FROM accounts WHERE id = ?").run(id);
+  });
+
+  deleteAccount();
   res.status(204).send();
 });
 

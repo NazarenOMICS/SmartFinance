@@ -17,6 +17,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
   const [state, setState] = useState({ loading: true, error: "", summary: null, transactions: [], categories: [], evolution: [], trend: null, prevSummary: null });
   const [clickedCategory, setClickedCategory]         = useState(null);
   const [dismissedBudgetAlert, setDismissedBudgetAlert] = useState(false);
+  const [drilldownFilter, setDrilldownFilter]           = useState(null); // null | 'income' | 'expenses'
 
   async function load() {
     setState((prev) => ({ ...prev, loading: true, error: "" }));
@@ -27,7 +28,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
       const prevY = m === 1 ? y - 1 : y;
       const prevMonth = `${prevY}-${String(prevM).padStart(2, "0")}`;
 
-      const [summary, transactions, categories, evolution, trend, prevSummary] = await Promise.all([
+      const [summary, transactions, categories, evolution, rawTrend, prevSummary] = await Promise.all([
         api.getSummary(month),
         api.getTransactions(month),
         api.getCategories(),
@@ -35,6 +36,16 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
         api.getCategoryTrend(month, 4),
         api.getSummary(prevMonth).catch(() => null),
       ]);
+
+      // Transform trend from [{month, byCategory:{name:amount}}] → {name: [{month, spent}]}
+      const trend = {};
+      (rawTrend || []).forEach(({ month: m, byCategory }) => {
+        Object.entries(byCategory || {}).forEach(([name, spent]) => {
+          if (!trend[name]) trend[name] = [];
+          trend[name].push({ month: m, spent });
+        });
+      });
+
       setState({ loading: false, error: "", summary, transactions, categories, evolution, trend, prevSummary });
       onPendingChange?.(transactions.filter((t) => !t.category_id).length);
     } catch (error) {
@@ -161,8 +172,21 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Patrimonio total" value={fmtMoney(summary.totals.patrimonio, summary.currency)} tone="text-finance-purple" />
-        <MetricCard label="Ingresos del mes" value={fmtMoney(summary.totals.income)} delta={summary.deltas.income} tone="text-finance-teal" />
-        <MetricCard label="Gastos del mes" value={fmtMoney(summary.totals.expenses)} delta={summary.deltas.expenses} tone="text-finance-red" />
+        <MetricCard
+          label="Ingresos del mes"
+          value={fmtMoney(summary.totals.income)}
+          delta={summary.deltas.income}
+          tone="text-finance-teal"
+          positiveIsGood
+          onClick={() => setDrilldownFilter((f) => f === "income" ? null : "income")}
+        />
+        <MetricCard
+          label="Gastos del mes"
+          value={fmtMoney(summary.totals.expenses)}
+          delta={summary.deltas.expenses}
+          tone="text-finance-red"
+          onClick={() => setDrilldownFilter((f) => f === "expenses" ? null : "expenses")}
+        />
         <MetricCard label="Margen disponible" value={fmtMoney(summary.totals.margin)} tone={summary.totals.margin >= 0 ? "text-finance-green" : "text-finance-red"} />
       </div>
 
@@ -291,9 +315,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
       </div>
 
       <div className="space-y-3">
-        {summary.budgets.filter((item) => item.budget > 0 || item.spent > 0).map((item) => {
-          const catTrend = state.trend?.categories?.find((c) => c.id === item.id);
-          return (
+        {summary.budgets.filter((item) => item.budget > 0 || item.spent > 0).map((item) => (
             <BudgetBar
               key={item.id}
               label={item.name}
@@ -301,10 +323,9 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
               budget={item.budget}
               type={item.type}
               color={item.color}
-              trend={catTrend?.series}
+              trend={state.trend?.[item.name]}
             />
-          );
-        })}
+          ))}
       </div>
 
       <MonthComparison
@@ -312,8 +333,28 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
         previous={state.prevSummary?.byCategory || []}
       />
 
+      {drilldownFilter && (
+        <div className="flex items-center justify-between rounded-2xl bg-finance-purpleSoft px-5 py-3 dark:bg-purple-900/30">
+          <p className="text-sm font-semibold text-finance-purple dark:text-purple-300">
+            {drilldownFilter === "income" ? "Mostrando solo ingresos del mes" : "Mostrando solo gastos del mes"}
+          </p>
+          <button
+            onClick={() => setDrilldownFilter(null)}
+            className="text-finance-purple/60 transition hover:text-finance-purple dark:text-purple-400"
+          >
+            ✕ limpiar
+          </button>
+        </div>
+      )}
+
       <TransactionTable
-        transactions={state.transactions}
+        transactions={
+          drilldownFilter === "income"
+            ? state.transactions.filter((t) => t.monto > 0 && t.category_type !== "transferencia")
+            : drilldownFilter === "expenses"
+            ? state.transactions.filter((t) => t.monto < 0 && t.category_type !== "transferencia")
+            : state.transactions
+        }
         categories={state.categories}
         onCategorize={handleCategorize}
         onBulkCategorize={handleBulkCategorize}

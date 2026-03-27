@@ -4,6 +4,7 @@ const path = require("path");
 const fs = require("fs");
 
 const { seed } = require("./seed");
+const { ensureDefaultRules } = require("./services/categorizer");
 const transactionsRouter = require("./routes/transactions");
 const categoriesRouter = require("./routes/categories");
 const accountsRouter = require("./routes/accounts");
@@ -26,6 +27,7 @@ if (!fs.existsSync(uploadsDir)) {
 }
 
 seed();
+ensureDefaultRules(require("./db").db);
 
 app.use(cors({
   origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : true

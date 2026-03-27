@@ -245,17 +245,25 @@ export default function TransactionTable({
             : categories.filter((c) => c.name !== "Ingreso");
           const isEditingThis = editingRow === tx.id;
           const isSelected    = selectedIds.has(tx.id);
-          const rowBg = !tx.category_id
-            ? isSelected
-              ? "bg-finance-purpleSoft dark:bg-purple-900/20"
-              : "bg-finance-amberSoft/40 dark:bg-amber-900/15"
+          const isTransfer    = tx.category_type === "transferencia";
+          const rowBg = isSelected
+            ? "bg-finance-purpleSoft dark:bg-purple-900/20"
+            : isTransfer
+            ? "bg-neutral-50/70 dark:bg-neutral-800/30"
+            : !tx.category_id
+            ? "bg-finance-amberSoft/40 dark:bg-amber-900/15"
             : "";
 
           // ── Category cell content (shared between mobile and desktop) ──
           const categoryCellContent = (
             <>
               {tx.category_name && editingCategory !== tx.id ? (
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 flex-wrap">
+                  {isTransfer && (
+                    <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-semibold text-neutral-500 dark:bg-neutral-700 dark:text-neutral-400" title="Transferencia entre cuentas — no afecta ingresos ni gastos">
+                      ↔ mov. interno
+                    </span>
+                  )}
                   <button onClick={() => setEditingCategory(tx.id)} title="Clic para cambiar categoría" className="flex-1 text-left">
                     <Badge>{tx.category_name}</Badge>
                   </button>

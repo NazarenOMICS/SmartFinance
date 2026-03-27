@@ -1,5 +1,6 @@
 const express = require("express");
 const { db } = require("../db");
+const { applyRuleRetroactively } = require("../services/categorizer");
 
 const router = express.Router();
 
@@ -24,8 +25,26 @@ router.post("/", (req, res) => {
     return res.status(400).json({ error: "pattern and category_id are required" });
   }
 
+  // Prevent duplicate patterns (same pattern, same or different category)
+  const existing = db
+    .prepare("SELECT id, category_id FROM rules WHERE LOWER(pattern) = LOWER(?) LIMIT 1")
+    .get(pattern);
+
+  if (existing) {
+    if (existing.category_id === Number(category_id)) {
+      // Identical rule already exists — return it with retro_count = 0
+      const rule = db.prepare("SELECT * FROM rules WHERE id = ?").get(existing.id);
+      return res.status(200).json({ ...rule, retro_count: 0, duplicate: true });
+    }
+    return res.status(409).json({
+      error: `Pattern "${pattern}" already exists for a different category. Delete the existing rule first.`
+    });
+  }
+
   const result = db.prepare("INSERT INTO rules (pattern, category_id, match_count) VALUES (?, ?, 0)").run(pattern, category_id);
-  res.status(201).json(db.prepare("SELECT * FROM rules WHERE id = ?").get(result.lastInsertRowid));
+  const retro_count = applyRuleRetroactively(db, pattern, category_id);
+  const rule = db.prepare("SELECT * FROM rules WHERE id = ?").get(result.lastInsertRowid);
+  res.status(201).json({ ...rule, retro_count });
 });
 
 router.delete("/:id", (req, res) => {

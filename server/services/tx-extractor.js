@@ -21,20 +21,27 @@ function parseAmount(raw) {
     return 0;
   }
 
-  const commaCount = (cleaned.match(/,/g) || []).length;
-  const dotCount = (cleaned.match(/\./g) || []).length;
+  const lastComma = cleaned.lastIndexOf(",");
+  const lastDot   = cleaned.lastIndexOf(".");
   let normalized = cleaned;
 
-  if (commaCount > 0 && dotCount > 0) {
-    normalized = cleaned.replace(/\./g, "").replace(",", ".");
-  } else if (commaCount > 0) {
-    normalized = cleaned.replace(/\./g, "").replace(",", ".");
-  } else {
-    const lastDot = cleaned.lastIndexOf(".");
-    if (lastDot > -1 && cleaned.length - lastDot > 3) {
-      normalized = cleaned.replace(/\./g, "");
+  if (lastComma > -1 && lastDot > -1) {
+    // Both separators present — whichever comes last is the decimal separator
+    if (lastComma > lastDot) {
+      // European format: 1.234,56 → dot=thousands, comma=decimal
+      normalized = cleaned.replace(/\./g, "").replace(",", ".");
+    } else {
+      // US/BROU format: 1,234.56 → comma=thousands, dot=decimal
+      normalized = cleaned.replace(/,/g, "");
     }
+  } else if (lastComma > -1) {
+    // Only comma — treat as decimal separator (e.g. "1234,56")
+    normalized = cleaned.replace(",", ".");
+  } else if (lastDot > -1 && cleaned.length - lastDot > 3) {
+    // Only dot and more than 3 digits after it → thousands separator, not decimal
+    normalized = cleaned.replace(/\./g, "");
   }
+  // else: only dot with ≤3 digits after → decimal separator, keep as-is
 
   return Number.parseFloat(normalized);
 }

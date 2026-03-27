@@ -65,7 +65,9 @@ export default function Rules() {
     try {
       const result = await api.createRule({ pattern: ruleForm.pattern, category_id: Number(ruleForm.category_id) });
       setRuleForm({ pattern: "", category_id: "" });
-      if (result?.retro_count > 0) {
+      if (result?.duplicate) {
+        addToast("info", "Esta regla ya existe.");
+      } else if (result?.retro_count > 0) {
         addToast("success", `Regla creada y aplicada a ${result.retro_count} transacciones sin categorizar.`);
       } else {
         addToast("success", "Regla creada correctamente.");
@@ -98,7 +100,7 @@ export default function Rules() {
         <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Categorías y presupuestos</p>
         <p className="mt-1 text-sm text-neutral-500">Editá el presupuesto mensual y el tipo de gasto de cada categoría.</p>
         <div className="mt-5 space-y-3">
-          {state.categories.filter((c) => c.name !== "Ingreso").map((category) => (
+          {state.categories.filter((c) => c.type !== "transferencia" && c.name !== "Ingreso").map((category) => (
             <div key={category.id} className="grid gap-3 md:grid-cols-[1fr_130px_130px_80px] items-center">
               <div className="flex items-center gap-3">
                 <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: category.color || "#888780" }} />
@@ -128,7 +130,7 @@ export default function Rules() {
               </button>
             </div>
           ))}
-          {state.categories.filter((c) => c.name !== "Ingreso").length === 0 && (
+          {state.categories.filter((c) => c.type !== "transferencia" && c.name !== "Ingreso").length === 0 && (
             <p className="py-4 text-center text-neutral-400">Sin categorías todavía.</p>
           )}
         </div>

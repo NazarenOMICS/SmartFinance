@@ -357,23 +357,16 @@ export default function Upload({ month, onDone }) {
     formData.append("period", uploadForm.period);
 
     const file = uploadForm.file;
-    if (file.name.toLowerCase().endsWith(".pdf")) {
-      setParsing(true);
-      try {
+    setParsing(true);
+    try {
+      if (file.name.toLowerCase().endsWith(".pdf")) {
         const text = await extractPdfText(file);
         formData.append("extracted_text", text);
         formData.append("file", new Blob([file.name], { type: "text/plain" }), file.name);
-      } catch (e) {
-        addToast("error", `Error al leer el PDF: ${e.message}`);
-        setParsing(false);
-        return;
+      } else {
+        formData.append("file", file);
       }
-      setParsing(false);
-    } else {
-      formData.append("file", file);
-    }
 
-    try {
       const result = await api.uploadFile(formData);
 
       // Server couldn't detect the CSV format → show column mapper
@@ -399,6 +392,8 @@ export default function Upload({ month, onDone }) {
       }
     } catch (e) {
       addToast("error", e.message);
+    } finally {
+      setParsing(false);
     }
   }
 
@@ -478,12 +473,22 @@ export default function Upload({ month, onDone }) {
           onDragLeave={handleDragLeave}
           onDragOver={handleDragOver}
           onDrop={handleDrop}
-          className={`rounded-[32px] border-2 border-dashed p-6 shadow-panel transition-colors dark:bg-neutral-900/85 ${
+          className={`relative rounded-[32px] border-2 border-dashed p-6 shadow-panel transition-colors dark:bg-neutral-900/85 ${
             isDragging
               ? "border-finance-purple bg-finance-purpleSoft dark:bg-purple-900/20"
               : "border-finance-purple/30 bg-white/85 dark:border-finance-purple/20"
           }`}
         >
+          {/* Loading overlay — shown while extracting PDF + uploading */}
+          {parsing && (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 rounded-[30px] bg-white/92 backdrop-blur-[2px] dark:bg-neutral-900/92">
+              <div className="h-10 w-10 animate-spin rounded-full border-4 border-finance-purple/20 border-t-finance-purple" />
+              <div className="text-center">
+                <p className="font-semibold text-finance-ink dark:text-neutral-100">Procesando archivo…</p>
+                <p className="mt-1 text-xs text-neutral-400">Esto puede tardar unos segundos</p>
+              </div>
+            </div>
+          )}
           <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">
             Paso 2a — Subir resumen
             {selectedAccountData ? <span className="ml-2 font-semibold text-finance-purple">({selectedAccountData.name})</span> : null}
@@ -513,6 +518,11 @@ export default function Upload({ month, onDone }) {
           {uploadForm.file?.name.toLowerCase().endsWith(".pdf") && (
             <div className="mt-3 space-y-1">
               <p className="text-xs text-finance-teal">PDF detectado — el texto se extrae en tu navegador antes de subir.</p>
+              {selectedAccountData && selectedAccountData.currency !== "UYU" && (
+                <p className="text-xs text-finance-amber">
+                  Cuenta en <strong>{selectedAccountData.currency}</strong> — las transacciones se importarán en {selectedAccountData.currency}. Verificá que el PDF corresponda a esta cuenta.
+                </p>
+              )}
               <p className="text-xs text-finance-amber">
                 💡 <strong>Tip BROU:</strong> Para mejores resultados descargá el <strong>CSV</strong> desde el portal de BROU (Movimientos → Exportar) en lugar del PDF.
               </p>
@@ -533,7 +543,7 @@ export default function Upload({ month, onDone }) {
               disabled={parsing || !selectedAccount}
               className="rounded-full bg-finance-purple px-5 py-3 font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
             >
-              {parsing ? "Leyendo PDF…" : "Procesar"}
+              Procesar
             </button>
           </div>
 

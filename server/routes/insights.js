@@ -16,8 +16,9 @@ function normalizeDesc(s) {
 }
 
 // GET /api/insights/recurring?month=YYYY-MM
-// Returns expense transactions from `month` that also appear in at least one
-// of the two preceding months (same normalized description → recurring).
+// Returns expense patterns that appear in at least 2 of the 3 months ending
+// at `month`. Grouped by normalized description, returning avg_amount,
+// occurrences, months_seen, and category info.
 router.get("/recurring", (req, res) => {
   const { month } = req.query;
   if (!month || !/^\d{4}-\d{2}$/.test(month)) {
@@ -26,17 +27,53 @@ router.get("/recurring", (req, res) => {
 
   const prev1 = previousMonth(month);
   const prev2 = previousMonth(prev1);
+  const months = [prev2, prev1, month];
 
   const expenses = (m) =>
-    getTransactionsForMonth(db, m).filter((tx) => tx.monto < 0);
+    getTransactionsForMonth(db, m).filter((tx) => tx.monto < 0 && tx.category_type !== "transferencia");
 
-  const current = expenses(month);
-  const historicDescs = new Set([
-    ...expenses(prev1).map((tx) => normalizeDesc(tx.desc_banco)),
-    ...expenses(prev2).map((tx) => normalizeDesc(tx.desc_banco)),
-  ]);
+  // Collect all expense transactions across 3 months
+  const allExpenses = months.flatMap((m) => expenses(m).map((tx) => ({ ...tx, month: m })));
 
-  const recurring = current.filter((tx) => historicDescs.has(normalizeDesc(tx.desc_banco)));
+  // Group by normalized description
+  const groups = {};
+  for (const tx of allExpenses) {
+    const key = normalizeDesc(tx.desc_banco);
+    if (!groups[key]) {
+      groups[key] = {
+        desc_banco: tx.desc_banco,
+        moneda: tx.moneda,
+        category_name: tx.category_name || null,
+        category_color: null, // resolved below
+        txs: []
+      };
+    }
+    groups[key].txs.push(tx);
+  }
+
+  // Resolve category color (join categories table)
+  const categoryColors = db.prepare("SELECT name, color FROM categories").all()
+    .reduce((acc, c) => { acc[c.name] = c.color; return acc; }, {});
+
+  const recurring = Object.values(groups)
+    .filter((g) => {
+      const monthsSeen = new Set(g.txs.map((tx) => tx.month));
+      return monthsSeen.size >= 2;
+    })
+    .map((g) => {
+      const monthsSeen = [...new Set(g.txs.map((tx) => tx.month))].sort();
+      const avg_amount = g.txs.reduce((s, tx) => s + Math.abs(tx.monto), 0) / g.txs.length;
+      return {
+        desc_banco: g.desc_banco,
+        moneda: g.moneda,
+        category_name: g.category_name,
+        category_color: g.category_name ? (categoryColors[g.category_name] || null) : null,
+        avg_amount: Math.round(avg_amount),
+        occurrences: g.txs.length,
+        months_seen: monthsSeen,
+      };
+    })
+    .sort((a, b) => b.avg_amount - a.avg_amount);
 
   res.json(recurring);
 });
@@ -60,7 +97,7 @@ router.get("/category-trend", (req, res) => {
     const month = `${year}-${String(monthIndex).padStart(2, "0")}`;
 
     const byCategory = getTransactionsForMonth(db, month)
-      .filter((tx) => tx.monto < 0 && tx.category_name)
+      .filter((tx) => tx.monto < 0 && tx.category_name && tx.category_type !== "transferencia")
       .reduce((acc, tx) => {
         acc[tx.category_name] = (acc[tx.category_name] || 0) + Math.abs(tx.monto);
         return acc;

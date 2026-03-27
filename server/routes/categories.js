@@ -55,7 +55,11 @@ router.delete("/:id", (req, res) => {
     return res.status(409).json({ error: "category has linked transactions" });
   }
 
-  db.prepare("DELETE FROM categories WHERE id = ?").run(id);
+  // Delete linked rules first to avoid FK constraint violation
+  db.transaction(() => {
+    db.prepare("DELETE FROM rules WHERE category_id = ?").run(id);
+    db.prepare("DELETE FROM categories WHERE id = ?").run(id);
+  })();
   res.status(204).send();
 });
 

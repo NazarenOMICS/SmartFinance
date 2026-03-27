@@ -1,7 +1,7 @@
 const express = require("express");
 const { db } = require("../db");
 const { buildDedupHash } = require("../services/dedup");
-const { ensureRuleForManualCategorization, findMatchingRule, bumpRule } = require("../services/categorizer");
+const { ensureRuleForManualCategorization, findMatchingRule, bumpRule, isLikelyReintegro, isLikelyTransfer } = require("../services/categorizer");
 const { computeMonthlyEvolution, computeSummary, getTransactionsForMonth } = require("../services/metrics");
 
 const router = express.Router();
@@ -49,7 +49,7 @@ router.get("/search", (req, res) => {
   const rows = db
     .prepare(
       `
-      SELECT t.*, c.name AS category_name, c.type AS category_type, a.name AS account_name
+      SELECT t.*, c.name AS category_name, c.type AS category_type, c.color AS category_color, a.name AS account_name
       FROM transactions t
       LEFT JOIN categories c ON c.id = t.category_id
       LEFT JOIN accounts a ON a.id = t.account_id
@@ -106,6 +106,12 @@ router.post("/", (req, res) => {
     if (rule) {
       resolvedCategoryId = rule.category_id;
       bumpRule(db, rule.id);
+    } else if (isLikelyTransfer(desc_banco)) {
+      const transferCat = db.prepare("SELECT id FROM categories WHERE name = 'Transferencia'").get();
+      if (transferCat) resolvedCategoryId = transferCat.id;
+    } else if (isLikelyReintegro(db, desc_banco, Number(monto), moneda)) {
+      const reintegroCat = db.prepare("SELECT id FROM categories WHERE name = 'Reintegro'").get();
+      if (reintegroCat) resolvedCategoryId = reintegroCat.id;
     }
   }
 
@@ -159,15 +165,19 @@ router.put("/:id", (req, res) => {
   }
 
   const next = {
-    category_id: req.body.category_id ?? current.category_id,
+    category_id:  req.body.category_id  ?? current.category_id,
     desc_usuario: req.body.desc_usuario ?? current.desc_usuario,
-    account_id: req.body.account_id ?? current.account_id
+    account_id:   req.body.account_id   ?? current.account_id,
+    fecha:        req.body.fecha        ?? current.fecha,
+    monto:        req.body.monto        ?? current.monto,
   };
 
-  db.prepare("UPDATE transactions SET category_id = ?, desc_usuario = ?, account_id = ? WHERE id = ?").run(
+  db.prepare("UPDATE transactions SET category_id = ?, desc_usuario = ?, account_id = ?, fecha = ?, monto = ? WHERE id = ?").run(
     next.category_id,
     next.desc_usuario,
     next.account_id,
+    next.fecha,
+    next.monto,
     id
   );
 
@@ -202,10 +212,16 @@ router.delete("/:id", (req, res) => {
 });
 
 router.post("/batch", (req, res) => {
-  const { transactions } = req.body;
+  const { transactions, account_id: batchAccountId = null } = req.body;
   if (!Array.isArray(transactions) || transactions.length === 0) {
     return res.status(400).json({ error: "transactions array is required" });
   }
+
+  // Resolve the account currency once for the whole batch (used as moneda fallback)
+  const batchAccount = batchAccountId
+    ? db.prepare("SELECT currency FROM accounts WHERE id = ?").get(batchAccountId)
+    : null;
+  const batchCurrency = batchAccount?.currency || "UYU";
 
   let created = 0;
   let duplicates = 0;
@@ -218,8 +234,9 @@ router.post("/batch", (req, res) => {
 
   const runBatch = db.transaction((txs) => {
     for (const tx of txs) {
-      const { fecha, desc_banco, desc_usuario = null, monto, moneda = "UYU",
-              category_id = null, account_id = null, es_cuota = 0 } = tx;
+      const { fecha, desc_banco, desc_usuario = null, monto,
+              moneda = batchCurrency,
+              category_id = null, account_id = batchAccountId, es_cuota = 0 } = tx;
       if (!fecha || !desc_banco || typeof monto !== "number") continue;
 
       const hash = buildDedupHash({ fecha, monto, desc_banco });
@@ -235,6 +252,12 @@ router.post("/batch", (req, res) => {
         if (rule) {
           resolvedCategoryId = rule.category_id;
           bumpRule(db, rule.id);
+        } else if (isLikelyTransfer(desc_banco)) {
+          const cat = db.prepare("SELECT id FROM categories WHERE name = 'Transferencia'").get();
+          if (cat) resolvedCategoryId = cat.id;
+        } else if (isLikelyReintegro(db, desc_banco, Number(monto), moneda)) {
+          const cat = db.prepare("SELECT id FROM categories WHERE name = 'Reintegro'").get();
+          if (cat) resolvedCategoryId = cat.id;
         }
       }
 

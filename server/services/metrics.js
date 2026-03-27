@@ -1,4 +1,5 @@
 const { getSettingsObject, monthWindow } = require("../db");
+const { isLikelyTransfer } = require("./categorizer");
 
 function previousMonth(month) {
   const [year, monthNum] = month.split("-").map(Number);
@@ -41,21 +42,30 @@ function computeSummary(db, month) {
   const categories = db.prepare("SELECT * FROM categories ORDER BY sort_order, id").all();
   const settings = getSettingsObject();
   const exchangeRate = Number(settings.exchange_rate_usd_uyu || 1);
+  const arsRate = Number(settings.exchange_rate_ars_uyu || 0.045);
   const displayCurrency = settings.display_currency || "UYU";
 
-  const currentIncome = current.filter((tx) => tx.monto > 0).reduce((sum, tx) => sum + tx.monto, 0);
-  const currentExpenses = current.filter((tx) => tx.monto < 0).reduce((sum, tx) => sum + Math.abs(tx.monto), 0);
-  const previousIncome = previous.filter((tx) => tx.monto > 0).reduce((sum, tx) => sum + tx.monto, 0);
-  const previousExpenses = previous.filter((tx) => tx.monto < 0).reduce((sum, tx) => sum + Math.abs(tx.monto), 0);
+  // Exclude inter-account transfers / currency exchanges from all financial totals.
+  // These have category_type = 'transferencia' and represent money moving between
+  // the user's own accounts, not real income or expenses.
+  const isTransfer = (tx) => tx.category_type === "transferencia";
 
-  const byCategoryMap = current
+  const financialCurrent  = current.filter((tx) => !isTransfer(tx));
+  const financialPrevious = previous.filter((tx) => !isTransfer(tx));
+
+  const currentIncome   = financialCurrent.filter((tx) => tx.monto > 0).reduce((sum, tx) => sum + tx.monto, 0);
+  const currentExpenses = financialCurrent.filter((tx) => tx.monto < 0).reduce((sum, tx) => sum + Math.abs(tx.monto), 0);
+  const previousIncome   = financialPrevious.filter((tx) => tx.monto > 0).reduce((sum, tx) => sum + tx.monto, 0);
+  const previousExpenses = financialPrevious.filter((tx) => tx.monto < 0).reduce((sum, tx) => sum + Math.abs(tx.monto), 0);
+
+  const byCategoryMap = financialCurrent
     .filter((tx) => tx.monto < 0 && tx.category_name)
     .reduce((acc, tx) => {
       acc[tx.category_name] = (acc[tx.category_name] || 0) + Math.abs(tx.monto);
       return acc;
     }, {});
 
-  const byType = current
+  const byType = financialCurrent
     .filter((tx) => tx.monto < 0)
     .reduce(
       (acc, tx) => {
@@ -77,16 +87,13 @@ function computeSummary(db, month) {
 
   const accounts = db.prepare("SELECT * FROM accounts").all();
   const consolidated = accounts.reduce((sum, account) => {
-    if (displayCurrency === account.currency) {
-      return sum + account.balance;
-    }
-    if (displayCurrency === "UYU" && account.currency === "USD") {
-      return sum + account.balance * exchangeRate;
-    }
-    if (displayCurrency === "USD" && account.currency === "UYU") {
-      return sum + account.balance / exchangeRate;
-    }
-    return sum + account.balance;
+    if (displayCurrency === account.currency) return sum + account.balance;
+    let inUYU = account.balance;
+    if (account.currency === "USD") inUYU = account.balance * exchangeRate;
+    else if (account.currency === "ARS") inUYU = account.balance * arsRate;
+    if (displayCurrency === "UYU") return sum + inUYU;
+    if (displayCurrency === "USD") return sum + inUYU / exchangeRate;
+    return sum + inUYU;
   }, 0);
 
   const installmentsMonth = current.filter((tx) => tx.es_cuota).reduce((sum, tx) => sum + Math.abs(tx.monto), 0);
@@ -107,7 +114,8 @@ function computeSummary(db, month) {
     byCategory: budgets.filter((item) => item.spent > 0),
     byType,
     budgets,
-    pending_count: current.filter((tx) => !tx.category_id).length,
+    // Transfers are auto-categorized system entries — don't count as pending review
+    pending_count: current.filter((tx) => !tx.category_id && !isLikelyTransfer(tx.desc_banco)).length,
     currency: displayCurrency
   };
 }
@@ -123,10 +131,11 @@ function computeMonthlyEvolution(db, endMonth, months) {
     const month = `${year}-${String(monthIndex).padStart(2, "0")}`;
     const tx = getTransactionsForMonth(db, month);
 
+    const financial = tx.filter((item) => item.category_type !== "transferencia");
     series.push({
       month,
-      ingresos: tx.filter((item) => item.monto > 0).reduce((sum, item) => sum + item.monto, 0),
-      gastos: tx.filter((item) => item.monto < 0).reduce((sum, item) => sum + Math.abs(item.monto), 0)
+      ingresos: financial.filter((item) => item.monto > 0).reduce((sum, item) => sum + item.monto, 0),
+      gastos:   financial.filter((item) => item.monto < 0).reduce((sum, item) => sum + Math.abs(item.monto), 0)
     });
   }
 

@@ -134,12 +134,17 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
                   onBlur={() => handleBalanceBlur(account.id)}
                 />
                 <span className="font-semibold text-finance-ink">
-                  {fmtMoney(
-                    account.currency === "USD" && (settings.display_currency || "UYU") === "UYU"
-                      ? account.balance * Number(settings.exchange_rate_usd_uyu || 1)
-                      : account.balance,
-                    settings.display_currency || account.currency
-                  )}
+                  {(() => {
+                    const display = settings.display_currency || "UYU";
+                    const usdRate = Number(settings.exchange_rate_usd_uyu || 1);
+                    const arsRate = Number(settings.exchange_rate_ars_uyu || 0.045);
+                    if (account.currency === display) return fmtMoney(account.balance, display);
+                    let inUYU = account.balance;
+                    if (account.currency === "USD") inUYU = account.balance * usdRate;
+                    else if (account.currency === "ARS") inUYU = account.balance * arsRate;
+                    const equiv = display === "USD" ? inUYU / usdRate : inUYU;
+                    return fmtMoney(equiv, display);
+                  })()}
                 </span>
                 <button
                   onClick={() => confirm.pending === account.id ? handleDeleteAccount(account.id) : confirm.ask(account.id)}

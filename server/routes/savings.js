@@ -17,7 +17,14 @@ function getMonthSeries(months, endMonth) {
 
 function monthNet(month) {
   const { start, end } = monthWindow(month);
-  const rows = db.prepare("SELECT monto FROM transactions WHERE fecha >= ? AND fecha < ?").all(start, end);
+  const rows = db
+    .prepare(
+      `SELECT t.monto FROM transactions t
+       LEFT JOIN categories c ON c.id = t.category_id
+       WHERE t.fecha >= ? AND t.fecha < ?
+       AND (c.type IS NULL OR c.type != 'transferencia')`
+    )
+    .all(start, end);
   return rows.reduce((sum, row) => sum + row.monto, 0);
 }
 
@@ -75,10 +82,11 @@ router.get("/insights", (req, res) => {
   const current = db
     .prepare(
       `
-      SELECT t.*, c.name AS category_name, c.budget
+      SELECT t.*, c.name AS category_name, c.type AS category_type, c.budget
       FROM transactions t
       LEFT JOIN categories c ON c.id = t.category_id
       WHERE t.fecha >= ? AND t.fecha < ?
+      AND (c.type IS NULL OR c.type != 'transferencia')
     `
     )
     .all(start, end);
@@ -86,10 +94,11 @@ router.get("/insights", (req, res) => {
   const previous = db
     .prepare(
       `
-      SELECT t.*, c.name AS category_name
+      SELECT t.*, c.name AS category_name, c.type AS category_type
       FROM transactions t
       LEFT JOIN categories c ON c.id = t.category_id
       WHERE t.fecha >= ? AND t.fecha < ?
+      AND (c.type IS NULL OR c.type != 'transferencia')
     `
     )
     .all(prevWindow.start, prevWindow.end);
@@ -114,7 +123,7 @@ router.get("/insights", (req, res) => {
     }
   });
 
-  const totalExpenses = current.filter((tx) => tx.monto < 0).reduce((sum, tx) => sum + Math.abs(tx.monto), 0);
+  const totalExpenses = current.filter((tx) => tx.monto < 0 && tx.category_name !== "Transferencia").reduce((sum, tx) => sum + Math.abs(tx.monto), 0);
   const totalBudget = db.prepare("SELECT COALESCE(SUM(budget), 0) AS total FROM categories").get().total;
   const today = new Date();
   const [year, monthNum] = month.split("-").map(Number);
@@ -125,9 +134,10 @@ router.get("/insights", (req, res) => {
   const remainingBudget = totalBudget - totalExpenses;
 
   const commitments = computeFutureCommitments(db, month, 6);
-  const avgSavings =
-    getMonthSeries(6, month).reduce((sum, item) => sum + monthNet(item), 0) / 6;
-  const currentSaved = Number(settings.savings_initial || 0) + getMonthSeries(6, month).reduce((sum, item) => sum + monthNet(item), 0);
+  const historicalNets = getMonthSeries(6, month).map((m) => monthNet(m));
+  const totalHistoricalNet = historicalNets.reduce((s, n) => s + n, 0);
+  const avgSavings = totalHistoricalNet / 6;
+  const currentSaved = Number(settings.savings_initial || 0) + totalHistoricalNet;
   const avgNet = avgSavings - (commitments[0]?.total || 0);
   const remainingGoal = Number(settings.savings_goal || 0) - currentSaved;
   const etaMonths = avgNet > 0 && remainingGoal > 0 ? Math.ceil(remainingGoal / avgNet) : null;
@@ -137,6 +147,7 @@ router.get("/insights", (req, res) => {
     daily_average_spend: Math.round(totalExpenses / Math.max(1, activeDay)),
     days_left: daysLeft,
     remaining_budget: remainingBudget,
+    budget_exhausted: remainingBudget < 0,
     budget_per_day: daysLeft > 0 ? Math.round(remainingBudget / daysLeft) : 0,
     eta_months: etaMonths
   });
