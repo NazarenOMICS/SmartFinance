@@ -213,7 +213,7 @@ router.post("/", async (c) => {
 
   // ── Persist transactions ─────────────────────────────────────────────────
   const rules = await db.prepare(
-    "SELECT id, pattern, category_id FROM rules WHERE user_id=? ORDER BY match_count DESC"
+    "SELECT id, pattern, category_id FROM rules WHERE user_id=? ORDER BY LENGTH(pattern) DESC, match_count DESC, id ASC"
   ).all(userId);
   const transferCategory = await db.prepare(
     "SELECT id FROM categories WHERE user_id = ? AND name = 'Transferencia'"

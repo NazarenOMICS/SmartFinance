@@ -308,6 +308,7 @@ router.post("/batch", (req, res) => {
               moneda = batchCurrency,
               category_id = null, account_id = batchAccountId, es_cuota = 0 } = tx;
       if (!fecha || !desc_banco || typeof monto !== "number") continue;
+      if (!isValidISODate(fecha) || !Number.isFinite(Number(monto))) continue;
       if (category_id != null && !validCategoryIds.has(Number(category_id))) continue;
       if (account_id && !db.prepare("SELECT id FROM accounts WHERE id = ?").get(account_id)) continue;
 

@@ -15,7 +15,7 @@ function getRules(db) {
       `
       SELECT id, pattern, category_id, match_count
       FROM rules
-      ORDER BY match_count DESC, id ASC
+      ORDER BY LENGTH(pattern) DESC, match_count DESC, id ASC
     `
     )
     .all();
@@ -97,6 +97,7 @@ function ensureRuleForManualCategorization(db, descBanco, categoryId) {
       FROM rules
       WHERE ? LIKE '%' || pattern || '%'
          OR LOWER(?) LIKE '%' || LOWER(pattern) || '%'
+      ORDER BY LENGTH(pattern) DESC, match_count DESC, id ASC
       LIMIT 1
     `
     )

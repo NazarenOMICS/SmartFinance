@@ -94,7 +94,7 @@ router.get("/", async (c) => {
   const rows = await getTransactionsForMonth(db, month, userId, filters.join(" "), params);
   // Attach category suggestions to uncategorized transactions
   const [rules, categories] = await Promise.all([
-    db.prepare("SELECT id, pattern, category_id FROM rules WHERE user_id = ? ORDER BY match_count DESC").all(userId),
+    db.prepare("SELECT id, pattern, category_id FROM rules WHERE user_id = ? ORDER BY LENGTH(pattern) DESC, match_count DESC, id ASC").all(userId),
     db.prepare("SELECT id, name FROM categories WHERE user_id = ?").all(userId),
   ]);
   return c.json(rows.map((tx) => suggestSync(tx, rules, categories)));
@@ -175,7 +175,7 @@ router.post("/batch", async (c) => {
     if (!batchAccountRow) return c.json({ error: "account not found" }, 404);
   }
   const rules = await db.prepare(
-    "SELECT id, pattern, category_id FROM rules WHERE user_id = ? ORDER BY match_count DESC"
+    "SELECT id, pattern, category_id FROM rules WHERE user_id = ? ORDER BY LENGTH(pattern) DESC, match_count DESC, id ASC"
   ).all(userId);
   const transferCategory = await db.prepare(
     "SELECT id FROM categories WHERE user_id = ? AND name = 'Transferencia'"

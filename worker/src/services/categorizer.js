@@ -1,7 +1,7 @@
 export async function findMatchingRule(db, descBanco, userId) {
   const normalized = String(descBanco || "").toLowerCase();
   const rules = await db.prepare(
-    "SELECT id, pattern, category_id, match_count FROM rules WHERE user_id = ? ORDER BY match_count DESC, id ASC"
+    "SELECT id, pattern, category_id, match_count FROM rules WHERE user_id = ? ORDER BY LENGTH(pattern) DESC, match_count DESC, id ASC"
   ).all(userId);
   return rules.find((rule) => normalized.includes(rule.pattern.toLowerCase())) || null;
 }
@@ -92,7 +92,9 @@ async function applyRuleRetroactively(db, pattern, categoryId, userId) {
 export async function ensureRuleForManualCategorization(db, descBanco, categoryId, userId) {
   const existing = await db.prepare(
     `SELECT id, pattern, category_id FROM rules
-     WHERE user_id = ? AND INSTR(LOWER(?), LOWER(pattern)) > 0 LIMIT 1`
+     WHERE user_id = ? AND INSTR(LOWER(?), LOWER(pattern)) > 0
+     ORDER BY LENGTH(pattern) DESC, match_count DESC, id ASC
+     LIMIT 1`
   ).get(userId, descBanco);
 
   if (existing) {
@@ -120,7 +122,7 @@ export async function ensureRuleForManualCategorization(db, descBanco, categoryI
 
 export async function applyAllRulesRetroactively(db, userId) {
   const rules = await db.prepare(
-    "SELECT id, pattern, category_id FROM rules WHERE user_id = ? ORDER BY match_count DESC"
+    "SELECT id, pattern, category_id FROM rules WHERE user_id = ? ORDER BY LENGTH(pattern) DESC, match_count DESC, id ASC"
   ).all(userId);
   let total = 0;
   for (const rule of rules) {
