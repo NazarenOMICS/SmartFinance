@@ -81,9 +81,12 @@ router.put("/:id", (req, res) => {
     return res.status(404).json({ error: "installment not found" });
   }
 
-  const cuotaActual = req.body.cuota_actual ?? current.cuota_actual;
-  if (!parsePositiveInt(cuotaActual, null)) {
+  const cuotaActual = parsePositiveInt(req.body.cuota_actual ?? current.cuota_actual, null);
+  if (!cuotaActual) {
     return res.status(400).json({ error: "cuota_actual must be a positive integer" });
+  }
+  if (cuotaActual > current.cantidad_cuotas) {
+    return res.status(400).json({ error: "cuota_actual cannot be greater than cantidad_cuotas" });
   }
   db.prepare("UPDATE installments SET cuota_actual = ? WHERE id = ?").run(cuotaActual, id);
   res.json(db.prepare("SELECT * FROM installments WHERE id = ?").get(id));

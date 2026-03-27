@@ -101,9 +101,10 @@ export default function Installments({ month }) {
   // Find THIS month's commitment (not necessarily the first in the array)
   const thisMonthCommitment = state.commitments.find((c) => c.month === month);
   const totalMonth = thisMonthCommitment?.total || 0;
-  // Remaining = cuotas pendientes de pagar (cantidad_cuotas - cuota_actual)
+  // cuota_actual represents the current/upcoming installment, so the remaining
+  // debt still includes that installment until the user advances it.
   const remainingDebt = state.installments.reduce((sum, item) => {
-    const pendingInstallments = Math.max(0, item.cantidad_cuotas - item.cuota_actual);
+    const pendingInstallments = Math.max(0, item.cantidad_cuotas - item.cuota_actual + 1);
     return sum + convertAmount(
       item.monto_cuota * pendingInstallments,
       item.account_currency || "UYU",

@@ -72,9 +72,12 @@ router.put("/:id", async (c) => {
   ).get(id, userId);
   if (!current) return c.json({ error: "installment not found" }, 404);
   const body = await c.req.json();
-  const cuotaActual = body.cuota_actual ?? current.cuota_actual;
-  if (!parsePositiveInt(cuotaActual, null)) {
+  const cuotaActual = parsePositiveInt(body.cuota_actual ?? current.cuota_actual, null);
+  if (!cuotaActual) {
     return c.json({ error: "cuota_actual must be a positive integer" }, 400);
+  }
+  if (cuotaActual > current.cantidad_cuotas) {
+    return c.json({ error: "cuota_actual cannot be greater than cantidad_cuotas" }, 400);
   }
   await db.prepare("UPDATE installments SET cuota_actual=? WHERE id=? AND user_id=?").run(cuotaActual, id, userId);
   return c.json(await db.prepare("SELECT * FROM installments WHERE id=? AND user_id=?").get(id, userId));
