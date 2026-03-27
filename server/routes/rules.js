@@ -24,6 +24,10 @@ router.post("/", (req, res) => {
   if (!pattern || !category_id) {
     return res.status(400).json({ error: "pattern and category_id are required" });
   }
+  const normalizedPattern = pattern.trim();
+  if (!normalizedPattern) {
+    return res.status(400).json({ error: "pattern and category_id are required" });
+  }
   const category = db.prepare("SELECT id FROM categories WHERE id = ?").get(Number(category_id));
   if (!category) {
     return res.status(404).json({ error: "category not found" });
@@ -32,7 +36,7 @@ router.post("/", (req, res) => {
   // Prevent duplicate patterns (same pattern, same or different category)
   const existing = db
     .prepare("SELECT id, category_id FROM rules WHERE LOWER(pattern) = LOWER(?) LIMIT 1")
-    .get(pattern);
+    .get(normalizedPattern);
 
   if (existing) {
     if (existing.category_id === Number(category_id)) {
@@ -41,12 +45,12 @@ router.post("/", (req, res) => {
       return res.status(200).json({ ...rule, retro_count: 0, duplicate: true });
     }
     return res.status(409).json({
-      error: `Pattern "${pattern}" already exists for a different category. Delete the existing rule first.`
+      error: `Pattern "${normalizedPattern}" already exists for a different category. Delete the existing rule first.`
     });
   }
 
-  const result = db.prepare("INSERT INTO rules (pattern, category_id, match_count) VALUES (?, ?, 0)").run(pattern, category_id);
-  const retro_count = applyRuleRetroactively(db, pattern, category_id);
+  const result = db.prepare("INSERT INTO rules (pattern, category_id, match_count) VALUES (?, ?, 0)").run(normalizedPattern, category_id);
+  const retro_count = applyRuleRetroactively(db, normalizedPattern, category_id);
   const rule = db.prepare("SELECT * FROM rules WHERE id = ?").get(result.lastInsertRowid);
   res.status(201).json({ ...rule, retro_count });
 });

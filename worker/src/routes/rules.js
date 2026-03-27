@@ -19,6 +19,8 @@ router.post("/", async (c) => {
   const userId = c.get("userId");
   const { pattern, category_id } = await c.req.json();
   if (!pattern || !category_id) return c.json({ error: "pattern and category_id are required" }, 400);
+  const normalizedPattern = pattern.trim();
+  if (!normalizedPattern) return c.json({ error: "pattern and category_id are required" }, 400);
   const db = getDb(c.env);
   const category = await db.prepare(
     "SELECT id FROM categories WHERE id = ? AND user_id = ?"
@@ -27,20 +29,20 @@ router.post("/", async (c) => {
 
   const existing = await db.prepare(
     "SELECT id, category_id FROM rules WHERE user_id = ? AND LOWER(pattern)=LOWER(?) LIMIT 1"
-  ).get(userId, pattern);
+  ).get(userId, normalizedPattern);
   if (existing) {
     if (existing.category_id === Number(category_id)) {
       const rule = await db.prepare("SELECT * FROM rules WHERE id=? AND user_id=?").get(existing.id, userId);
       return c.json({ ...rule, retro_count: 0, duplicate: true }, 200);
     }
-    return c.json({ error: `Pattern "${pattern}" already exists for a different category. Delete the existing rule first.` }, 409);
+    return c.json({ error: `Pattern "${normalizedPattern}" already exists for a different category. Delete the existing rule first.` }, 409);
   }
 
   const result = await db.prepare(
     "INSERT INTO rules (pattern,category_id,match_count,user_id) VALUES (?,?,0,?)"
-  ).run(pattern, category_id, userId);
+  ).run(normalizedPattern, category_id, userId);
 
-  const retroCount = await applyRuleRetroactively(db, pattern, category_id, userId);
+  const retroCount = await applyRuleRetroactively(db, normalizedPattern, category_id, userId);
   const rule = await db.prepare("SELECT * FROM rules WHERE id=? AND user_id=?").get(result.lastInsertRowid, userId);
   return c.json({ ...rule, retro_count: retroCount }, 201);
 });
