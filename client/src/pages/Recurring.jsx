@@ -17,31 +17,36 @@ export default function Recurring({ month }) {
 
   useEffect(() => { load(); }, [month]);
 
-  if (state.loading) return <div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel dark:bg-neutral-900/80">Analizando patrones…</div>;
+  if (state.loading) return <div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel dark:bg-neutral-900/80">{"Analizando patrones\u2026"}</div>;
   if (state.error)   return <div className="rounded-[28px] bg-finance-redSoft p-6 text-finance-red shadow-panel dark:bg-red-900/30">{state.error}</div>;
 
   const recurring = state.data;
+  const totalsByCurrency = recurring.reduce((acc, item) => {
+    acc[item.moneda] = (acc[item.moneda] || 0) + item.avg_amount;
+    return acc;
+  }, {});
+  const recurringTotals = Object.entries(totalsByCurrency).sort(([left], [right]) => left.localeCompare(right));
 
   return (
     <div className="space-y-6">
       {/* Header card */}
       <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
         <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Gastos recurrentes</p>
-        <h2 className="font-display text-3xl text-finance-ink">Detectados automáticamente</h2>
+        <h2 className="font-display text-3xl text-finance-ink">{"Detectados autom\u00E1ticamente"}</h2>
         <p className="mt-2 text-sm text-neutral-500">
-          Transacciones que aparecen en al menos 2 de los últimos 4 meses. Útil para identificar suscripciones y gastos fijos recurrentes.
+          {"Transacciones que se repiten en varios meses. \u00DAtil para identificar suscripciones y gastos fijos recurrentes."}
         </p>
 
         {recurring.length === 0 ? (
           <div className="mt-6 rounded-2xl bg-finance-cream/60 px-5 py-8 text-center dark:bg-neutral-800/40">
-            <p className="text-3xl">◈</p>
-            <p className="mt-3 text-neutral-500">No se detectaron patrones recurrentes todavía. Necesitás más de 1 mes de datos.</p>
+            <p className="text-3xl">{"\u25C8"}</p>
+            <p className="mt-3 text-neutral-500">{"No se detectaron patrones recurrentes todav\u00EDa. Necesit\u00E1s movimientos repetidos en al menos 2 meses."}</p>
           </div>
         ) : (
           <div className="mt-6 space-y-3">
             <div className="grid grid-cols-[1fr_auto_auto_auto] gap-4 border-b border-neutral-100 pb-2 text-xs uppercase tracking-[0.18em] text-neutral-400 dark:border-neutral-800">
-              <span>Descripción</span>
-              <span>Categoría</span>
+              <span>{"Descripci\u00F3n"}</span>
+              <span>{"Categor\u00EDa"}</span>
               <span className="text-right">Promedio/mes</span>
               <span className="text-right">Veces</span>
             </div>
@@ -66,7 +71,7 @@ export default function Recurring({ month }) {
                     </span>
                   ) : (
                     <span className="rounded-full bg-finance-amberSoft px-3 py-1 text-xs font-semibold text-finance-amber dark:bg-amber-900/30 dark:text-amber-300">
-                      Sin categoría
+                      {"Sin categor\u00EDa"}
                     </span>
                   )}
                 </div>
@@ -74,7 +79,7 @@ export default function Recurring({ month }) {
                   {fmtMoney(-item.avg_amount, item.moneda)}
                 </span>
                 <span className="self-center text-right text-sm text-neutral-500">
-                  {item.occurrences}×
+                  {item.occurrences}{"\u00D7"}
                 </span>
               </div>
             ))}
@@ -93,9 +98,19 @@ export default function Recurring({ month }) {
             </div>
             <div>
               <p className="text-sm text-neutral-500">Costo mensual promedio total</p>
-              <p className="font-display text-3xl text-finance-ink">
-                {fmtMoney(recurring.reduce((s, r) => s + r.avg_amount, 0))}
-              </p>
+              {recurringTotals.length === 1 ? (
+                <p className="font-display text-3xl text-finance-ink">
+                  {fmtMoney(recurringTotals[0][1], recurringTotals[0][0])}
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  {recurringTotals.map(([currency, total]) => (
+                    <p key={currency} className="font-display text-2xl text-finance-ink">
+                      {fmtMoney(total, currency)}
+                    </p>
+                  ))}
+                </div>
+              )}
             </div>
             <div>
               <p className="text-sm text-neutral-500">Sin categorizar</p>

@@ -236,7 +236,11 @@ function AppInner() {
   // ── Onboarding ─────────────────────────────────────────────────────────
   if (onboardStatus === "no_accounts") {
     return (
-      <Onboarding onComplete={() => { markDone(); refreshSettings(); }} />
+      <Onboarding onComplete={(nextTab = "dashboard") => {
+        markDone();
+        setTab(nextTab === "upload" ? "upload" : "dashboard");
+        refreshSettings().catch(() => {});
+      }} />
     );
   }
 

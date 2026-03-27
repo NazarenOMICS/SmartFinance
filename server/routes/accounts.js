@@ -35,6 +35,11 @@ router.post("/", (req, res) => {
     return res.status(400).json({ error: "id, name and currency are required" });
   }
 
+  const existing = db.prepare("SELECT id FROM accounts WHERE id = ?").get(id);
+  if (existing) {
+    return res.status(409).json({ error: "account already exists" });
+  }
+
   db.prepare("INSERT INTO accounts (id, name, currency, balance) VALUES (?, ?, ?, ?)").run(id, name, currency, balance);
   res.status(201).json(db.prepare("SELECT * FROM accounts WHERE id = ?").get(id));
 });
@@ -59,20 +64,37 @@ router.put("/:id", (req, res) => {
 router.delete("/:id", (req, res) => {
   const id = req.params.id;
   const force = req.query.force === "true";
-  const hasTransactions = db.prepare("SELECT COUNT(*) AS count FROM transactions WHERE account_id = ?").get(id).count > 0;
-
-  if (hasTransactions && !force) {
-    return res.status(409).json({ error: "account has linked transactions" });
+  const existing = db.prepare("SELECT id FROM accounts WHERE id = ?").get(id);
+  if (!existing) {
+    return res.status(404).json({ error: "account not found" });
   }
 
-  const deleteAccount = db.transaction(() => {
-    if (hasTransactions) {
+  const transactionCount = db.prepare("SELECT COUNT(*) AS count FROM transactions WHERE account_id = ?").get(id).count;
+  const installmentIds = db.prepare("SELECT id FROM installments WHERE account_id = ?").all(id).map((row) => row.id);
+
+  if ((transactionCount > 0 || installmentIds.length > 0) && !force) {
+    return res.status(409).json({ error: "account has linked transactions or installments" });
+  }
+
+  const deleteAccount = db.transaction((linkedInstallmentIds) => {
+    if (linkedInstallmentIds.length > 0) {
+      const placeholders = linkedInstallmentIds.map(() => "?").join(", ");
+      db.prepare(`UPDATE transactions SET installment_id = NULL WHERE installment_id IN (${placeholders})`).run(...linkedInstallmentIds);
+    }
+
+    if (transactionCount > 0) {
       db.prepare("DELETE FROM transactions WHERE account_id = ?").run(id);
     }
+
+    if (linkedInstallmentIds.length > 0) {
+      const placeholders = linkedInstallmentIds.map(() => "?").join(", ");
+      db.prepare(`DELETE FROM installments WHERE id IN (${placeholders})`).run(...linkedInstallmentIds);
+    }
+
     db.prepare("DELETE FROM accounts WHERE id = ?").run(id);
   });
 
-  deleteAccount();
+  deleteAccount(installmentIds);
   res.status(204).send();
 });
 

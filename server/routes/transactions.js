@@ -231,6 +231,7 @@ router.post("/batch", (req, res) => {
       (fecha, desc_banco, desc_usuario, monto, moneda, category_id, account_id, es_cuota, dedup_hash)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+  const transferCategory = db.prepare("SELECT id FROM categories WHERE name = 'Transferencia'").get();
 
   const runBatch = db.transaction((txs) => {
     for (const tx of txs) {
@@ -253,8 +254,7 @@ router.post("/batch", (req, res) => {
           resolvedCategoryId = rule.category_id;
           bumpRule(db, rule.id);
         } else if (isLikelyTransfer(desc_banco)) {
-          const cat = db.prepare("SELECT id FROM categories WHERE name = 'Transferencia'").get();
-          if (cat) resolvedCategoryId = cat.id;
+          if (transferCategory) resolvedCategoryId = transferCategory.id;
         } else if (isLikelyReintegro(db, desc_banco, Number(monto), moneda)) {
           const cat = db.prepare("SELECT id FROM categories WHERE name = 'Reintegro'").get();
           if (cat) resolvedCategoryId = cat.id;

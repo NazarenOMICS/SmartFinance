@@ -53,8 +53,18 @@ app.use("/api/insights", insightsRouter);
 app.use("/api/bank-formats", bankFormatsRouter);
 
 app.use((error, req, res, next) => {
+  if (res.headersSent) {
+    return next(error);
+  }
+
   console.error(error);
-  res.status(500).json({ error: error.message || "Unexpected server error" });
+  const status = Number(
+    error.statusCode ||
+    error.status ||
+    (error.type === "entity.parse.failed" ? 400 : 500)
+  );
+  const safeStatus = status >= 400 && status < 600 ? status : 500;
+  res.status(safeStatus).json({ error: error.message || "Unexpected server error" });
 });
 
 app.listen(PORT, () => {

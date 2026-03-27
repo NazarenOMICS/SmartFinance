@@ -9,23 +9,51 @@ export default function SearchModal({ onClose, onNavigateToMonth }) {
   const [activeIdx, setActiveIdx] = useState(0);
   const inputRef = useRef(null);
   const debounceRef = useRef(null);
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
   useEffect(() => {
+    const trimmedQuery = query.trim();
+    requestIdRef.current += 1;
+    const requestId = requestIdRef.current;
+
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (query.trim().length < 2) { setResults([]); return; }
+    if (trimmedQuery.length < 2) {
+      setResults([]);
+      setActiveIdx(0);
+      setLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
       try {
-        const data = await api.searchTransactions(query.trim(), 25);
-        setResults(data);
-        setActiveIdx(0);
-      } catch (_) { /* ignore */ }
-      finally { setLoading(false); }
+        const data = await api.searchTransactions(trimmedQuery, 25);
+        if (!cancelled && requestIdRef.current === requestId) {
+          setResults(data);
+          setActiveIdx(0);
+        }
+      } catch (_) {
+        if (!cancelled && requestIdRef.current === requestId) {
+          setResults([]);
+          setActiveIdx(0);
+        }
+      }
+      finally {
+        if (!cancelled && requestIdRef.current === requestId) {
+          setLoading(false);
+        }
+      }
     }, 280);
+
+    return () => {
+      cancelled = true;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, [query]);
 
   function handleKeyDown(e) {

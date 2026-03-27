@@ -38,7 +38,7 @@ router.get("/recurring", (req, res) => {
   // Group by normalized description
   const groups = {};
   for (const tx of allExpenses) {
-    const key = normalizeDesc(tx.desc_banco);
+    const key = `${normalizeDesc(tx.desc_banco)}::${tx.moneda}`;
     if (!groups[key]) {
       groups[key] = {
         desc_banco: tx.desc_banco,
@@ -47,6 +47,10 @@ router.get("/recurring", (req, res) => {
         category_color: null, // resolved below
         txs: []
       };
+    }
+    groups[key].desc_banco = tx.desc_banco;
+    if (!groups[key].category_name && tx.category_name) {
+      groups[key].category_name = tx.category_name;
     }
     groups[key].txs.push(tx);
   }
@@ -86,7 +90,10 @@ router.get("/category-trend", (req, res) => {
     return res.status(400).json({ error: "end is required in YYYY-MM format" });
   }
 
-  const months = Math.max(1, Math.min(Number(monthsParam || 3), 12));
+  const parsedMonths = Number(monthsParam || 3);
+  const months = Number.isInteger(parsedMonths)
+    ? Math.max(1, Math.min(parsedMonths, 12))
+    : 3;
   const [endYear, endMonthNum] = end.split("-").map(Number);
   const series = [];
 
