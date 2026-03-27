@@ -1,4 +1,3 @@
-const fs = require("fs");
 const path = require("path");
 const Database = require("better-sqlite3");
 
@@ -6,10 +5,6 @@ const DB_PATH = path.join(__dirname, "finance-tracker.db");
 const DEFAULT_PATTERNS = [
   String.raw`^(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)\s+(.+?)\s+([\-]?\$?\s?[\d.,]+(?:\.\d{2})?)\s*$`
 ];
-
-if (!fs.existsSync(__dirname)) {
-  fs.mkdirSync(__dirname, { recursive: true });
-}
 
 const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
@@ -91,6 +86,12 @@ function migrate() {
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS bank_formats (
+      key TEXT PRIMARY KEY,
+      config TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
     );
   `);
 

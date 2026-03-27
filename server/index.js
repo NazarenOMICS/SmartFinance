@@ -13,6 +13,9 @@ const savingsRouter = require("./routes/savings");
 const settingsRouter = require("./routes/settings");
 const uploadRouter = require("./routes/upload");
 const exportRouter = require("./routes/export");
+const onboardRouter = require("./routes/onboard");
+const insightsRouter = require("./routes/insights");
+const bankFormatsRouter = require("./routes/bank-formats");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -34,6 +37,7 @@ app.get("/api/health", (req, res) => {
   res.json({ ok: true });
 });
 
+app.use("/api/onboard", onboardRouter);
 app.use("/api/transactions", transactionsRouter);
 app.use("/api/categories", categoriesRouter);
 app.use("/api/accounts", accountsRouter);
@@ -43,6 +47,8 @@ app.use("/api/savings", savingsRouter);
 app.use("/api/settings", settingsRouter);
 app.use("/api/upload", uploadRouter);
 app.use("/api/export", exportRouter);
+app.use("/api/insights", insightsRouter);
+app.use("/api/bank-formats", bankFormatsRouter);
 
 app.use((error, req, res, next) => {
   console.error(error);

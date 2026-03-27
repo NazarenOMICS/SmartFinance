@@ -41,6 +41,27 @@ router.get("/monthly-evolution", (req, res) => {
   res.json(computeMonthlyEvolution(db, end, months));
 });
 
+router.get("/search", (req, res) => {
+  const { q, limit: limitParam = "20" } = req.query;
+  if (!q) return res.status(400).json({ error: "q is required" });
+  const limit = Math.min(Number(limitParam), 100);
+  const pattern = `%${q}%`;
+  const rows = db
+    .prepare(
+      `
+      SELECT t.*, c.name AS category_name, c.type AS category_type, a.name AS account_name
+      FROM transactions t
+      LEFT JOIN categories c ON c.id = t.category_id
+      LEFT JOIN accounts a ON a.id = t.account_id
+      WHERE t.desc_banco LIKE ? OR t.desc_usuario LIKE ?
+      ORDER BY t.fecha DESC
+      LIMIT ?
+    `
+    )
+    .all(pattern, pattern, limit);
+  res.json(rows);
+});
+
 router.get("/", (req, res) => {
   const month = requireMonth(req, res);
   if (!month) return;
@@ -168,6 +189,63 @@ router.put("/:id", (req, res) => {
     .get(id);
 
   res.json({ transaction: updated, rule: ruleStatus });
+});
+
+router.delete("/:id", (req, res) => {
+  const id = Number(req.params.id);
+  const existing = db.prepare("SELECT id FROM transactions WHERE id = ?").get(id);
+  if (!existing) {
+    return res.status(404).json({ error: "transaction not found" });
+  }
+  db.prepare("DELETE FROM transactions WHERE id = ?").run(id);
+  res.status(204).send();
+});
+
+router.post("/batch", (req, res) => {
+  const { transactions } = req.body;
+  if (!Array.isArray(transactions) || transactions.length === 0) {
+    return res.status(400).json({ error: "transactions array is required" });
+  }
+
+  let created = 0;
+  let duplicates = 0;
+
+  const insertStmt = db.prepare(`
+    INSERT INTO transactions
+      (fecha, desc_banco, desc_usuario, monto, moneda, category_id, account_id, es_cuota, dedup_hash)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const runBatch = db.transaction((txs) => {
+    for (const tx of txs) {
+      const { fecha, desc_banco, desc_usuario = null, monto, moneda = "UYU",
+              category_id = null, account_id = null, es_cuota = 0 } = tx;
+      if (!fecha || !desc_banco || typeof monto !== "number") continue;
+
+      const hash = buildDedupHash({ fecha, monto, desc_banco });
+      const exists = db
+        .prepare("SELECT id FROM transactions WHERE dedup_hash = ? AND substr(fecha, 1, 7) = substr(?, 1, 7) LIMIT 1")
+        .get(hash, fecha);
+
+      if (exists) { duplicates += 1; continue; }
+
+      let resolvedCategoryId = category_id;
+      if (!resolvedCategoryId) {
+        const rule = findMatchingRule(db, desc_banco);
+        if (rule) {
+          resolvedCategoryId = rule.category_id;
+          bumpRule(db, rule.id);
+        }
+      }
+
+      insertStmt.run(fecha, desc_banco, desc_usuario, monto, moneda,
+                     resolvedCategoryId, account_id, es_cuota ? 1 : 0, hash);
+      created += 1;
+    }
+  });
+
+  runBatch(transactions);
+  res.status(201).json({ created, duplicates });
 });
 
 module.exports = router;
