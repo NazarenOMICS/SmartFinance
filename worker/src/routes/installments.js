@@ -55,7 +55,7 @@ router.post("/", async (c) => {
     ).get(account_id, userId);
     if (!account) return c.json({ error: "account not found" }, 404);
   }
-  const monto_cuota = Math.round(total / cuotas);
+  const monto_cuota = Number((total / cuotas).toFixed(2));
   const result = await db.prepare(
     `INSERT INTO installments (descripcion,monto_total,cantidad_cuotas,cuota_actual,monto_cuota,account_id,start_month,user_id)
      VALUES (?,?,?,1,?,?,?,?)`

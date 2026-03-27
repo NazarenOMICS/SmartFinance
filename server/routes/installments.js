@@ -59,7 +59,7 @@ router.post("/", (req, res) => {
     }
   }
 
-  const monto_cuota = Math.round(total / cuotas);
+  const monto_cuota = Number((total / cuotas).toFixed(2));
   const result = db
     .prepare(
       `
