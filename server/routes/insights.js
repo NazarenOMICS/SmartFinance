@@ -1,8 +1,26 @@
 const express = require("express");
 const { getTransactionsForMonth, previousMonth } = require("../services/metrics");
-const { db } = require("../db");
+const { db, getSettingsObject } = require("../db");
 
 const router = express.Router();
+
+function convertAmount(amount, currency, targetCurrency, usdRate, arsRate) {
+  const value = Number(amount || 0);
+  const sourceCurrency = currency || targetCurrency || "UYU";
+  const safeUsdRate = usdRate > 0 ? usdRate : 42.5;
+  const safeArsRate = arsRate > 0 ? arsRate : 0.045;
+
+  if (!targetCurrency || sourceCurrency === targetCurrency) return value;
+
+  let inUYU = value;
+  if (sourceCurrency === "USD") inUYU = value * safeUsdRate;
+  else if (sourceCurrency === "ARS") inUYU = value * safeArsRate;
+
+  if (targetCurrency === "UYU") return inUYU;
+  if (targetCurrency === "USD") return inUYU / safeUsdRate;
+  if (targetCurrency === "ARS") return inUYU / safeArsRate;
+  return inUYU;
+}
 
 // Normalize a description for recurring-detection comparisons:
 // lowercase, strip digits and punctuation, collapse spaces
@@ -90,6 +108,10 @@ router.get("/category-trend", (req, res) => {
     return res.status(400).json({ error: "end is required in YYYY-MM format" });
   }
 
+  const settings = getSettingsObject();
+  const usdRate = Number(settings.exchange_rate_usd_uyu || 42.5);
+  const arsRate = Number(settings.exchange_rate_ars_uyu || 0.045);
+  const displayCurrency = settings.display_currency || "UYU";
   const parsedMonths = Number(monthsParam || 3);
   const months = Number.isInteger(parsedMonths)
     ? Math.max(1, Math.min(parsedMonths, 12))
@@ -106,7 +128,9 @@ router.get("/category-trend", (req, res) => {
     const byCategory = getTransactionsForMonth(db, month)
       .filter((tx) => tx.monto < 0 && tx.category_name && tx.category_type !== "transferencia")
       .reduce((acc, tx) => {
-        acc[tx.category_name] = (acc[tx.category_name] || 0) + Math.abs(tx.monto);
+        acc[tx.category_name] = (acc[tx.category_name] || 0) + Math.abs(
+          convertAmount(tx.monto, tx.moneda, displayCurrency, usdRate, arsRate)
+        );
         return acc;
       }, {});
 

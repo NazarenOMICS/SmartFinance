@@ -75,16 +75,40 @@ router.delete("/:id", async (c) => {
     "SELECT id FROM accounts WHERE id = ? AND user_id = ?"
   ).get(id, userId);
   if (!existing) return c.json({ error: "account not found" }, 404);
+  const txCountRow = await db.prepare(
+    "SELECT COUNT(*) AS count FROM transactions WHERE account_id=? AND user_id=?"
+  ).get(id, userId);
+  const txCount = txCountRow.count || 0;
+  const installmentRows = await db.prepare(
+    "SELECT id FROM installments WHERE account_id=? AND user_id=?"
+  ).all(id, userId);
+  const installmentIds = installmentRows.map((row) => row.id);
   if (force) {
-    await db.prepare("UPDATE transactions SET installment_id=NULL WHERE account_id=? AND user_id=?").run(id, userId);
-    await db.prepare("DELETE FROM transactions WHERE account_id=? AND user_id=?").run(id, userId);
-    await db.prepare("UPDATE installments SET account_id=NULL WHERE account_id=? AND user_id=?").run(id, userId);
+    if (installmentIds.length > 0) {
+      const placeholders = installmentIds.map(() => "?").join(", ");
+      await db.prepare(
+        `UPDATE transactions
+         SET installment_id = NULL
+         WHERE user_id = ? AND installment_id IN (${placeholders})`
+      ).run(userId, ...installmentIds);
+    }
+    if (txCount > 0) {
+      await db.prepare("DELETE FROM transactions WHERE account_id=? AND user_id=?").run(id, userId);
+    }
+    if (installmentIds.length > 0) {
+      const placeholders = installmentIds.map(() => "?").join(", ");
+      await db.prepare(
+        `DELETE FROM installments
+         WHERE user_id = ? AND id IN (${placeholders})`
+      ).run(userId, ...installmentIds);
+    }
   } else {
-    const count = await db.prepare(
-      "SELECT COUNT(*) AS count FROM transactions WHERE account_id=? AND user_id=?"
-    ).get(id, userId);
-    if (count.count > 0) {
-      return c.json({ error: `Esta cuenta tiene ${count.count} transacciones. Confirmar borrado forzado.`, tx_count: count.count }, 409);
+    if (txCount > 0 || installmentIds.length > 0) {
+      return c.json({
+        error: "account has linked transactions or installments",
+        tx_count: txCount,
+        installment_count: installmentIds.length
+      }, 409);
     }
   }
   await db.prepare("DELETE FROM accounts WHERE id=? AND user_id=?").run(id, userId);

@@ -1,7 +1,25 @@
 import { Hono } from "hono";
-import { getDb } from "../db.js";
+import { getDb, getSettingsObject } from "../db.js";
 
 const router = new Hono();
+
+function convertAmount(amount, currency, targetCurrency, usdRate, arsRate) {
+  const value = Number(amount || 0);
+  const sourceCurrency = currency || targetCurrency || "UYU";
+  const safeUsdRate = usdRate > 0 ? usdRate : 42.5;
+  const safeArsRate = arsRate > 0 ? arsRate : 0.045;
+
+  if (!targetCurrency || sourceCurrency === targetCurrency) return value;
+
+  let inUYU = value;
+  if (sourceCurrency === "USD") inUYU = value * safeUsdRate;
+  else if (sourceCurrency === "ARS") inUYU = value * safeArsRate;
+
+  if (targetCurrency === "UYU") return inUYU;
+  if (targetCurrency === "USD") return inUYU / safeUsdRate;
+  if (targetCurrency === "ARS") return inUYU / safeArsRate;
+  return inUYU;
+}
 
 function normalizeDesc(desc) {
   return String(desc || "")
@@ -22,7 +40,7 @@ router.get("/recurring", async (c) => {
 
   const months = [];
   let [year, monthNumber] = month.split("-").map(Number);
-  for (let i = 0; i < 4; i += 1) {
+  for (let i = 0; i < 3; i += 1) {
     months.push(`${year}-${String(monthNumber).padStart(2, "0")}`);
     monthNumber -= 1;
     if (monthNumber === 0) {
@@ -95,6 +113,10 @@ router.get("/category-trend", async (c) => {
     return c.json({ error: "end is required in YYYY-MM format" }, 400);
   }
   const db = getDb(c.env);
+  const settings = await getSettingsObject(c.env, userId);
+  const usdRate = Number(settings.exchange_rate_usd_uyu || 42.5);
+  const arsRate = Number(settings.exchange_rate_ars_uyu || 0.045);
+  const displayCurrency = settings.display_currency || "UYU";
 
   const months = [];
   let [year, monthNumber] = end.split("-").map(Number);
@@ -109,20 +131,20 @@ router.get("/category-trend", async (c) => {
   months.reverse();
 
   const rows = await db.prepare(
-    `SELECT substr(t.fecha,1,7) AS month, c.name AS cat_name, SUM(ABS(t.monto)) AS spent
+    `SELECT substr(t.fecha,1,7) AS month, c.name AS cat_name, t.moneda, ABS(t.monto) AS spent
      FROM transactions t
      JOIN categories c ON c.id = t.category_id AND c.user_id = t.user_id
      WHERE t.monto < 0
        AND t.user_id = ?
        AND c.type != 'transferencia'
        AND substr(t.fecha,1,7) IN (${months.map(() => "?").join(",")})
-     GROUP BY month, c.id
      ORDER BY month, c.name`
   ).all(userId, ...months);
 
   const byMonth = Object.fromEntries(months.map((monthKey) => [monthKey, {}]));
   rows.forEach((row) => {
-    byMonth[row.month][row.cat_name] = row.spent;
+    const converted = convertAmount(row.spent, row.moneda, displayCurrency, usdRate, arsRate);
+    byMonth[row.month][row.cat_name] = (byMonth[row.month][row.cat_name] || 0) + converted;
   });
 
   return c.json(months.map((monthKey) => ({

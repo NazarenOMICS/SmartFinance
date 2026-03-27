@@ -34,7 +34,7 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
 
   useEffect(() => {
     load();
-  }, [settings.display_currency, settings.exchange_rate_usd_uyu]);
+  }, [settings.display_currency, settings.exchange_rate_usd_uyu, settings.exchange_rate_ars_uyu]);
 
   async function handleBalanceBlur(id) {
     const balance = Number(localBalances[id] ?? 0);
