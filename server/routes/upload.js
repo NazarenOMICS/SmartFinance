@@ -144,6 +144,12 @@ router.post("/", upload.single("file"), async (req, res, next) => {
     if (!req.file || !period) {
       return res.status(400).json({ error: "file and period are required" });
     }
+    const accountRow = account_id
+      ? db.prepare("SELECT currency FROM accounts WHERE id = ?").get(account_id)
+      : null;
+    if (account_id && !accountRow) {
+      return res.status(404).json({ error: "account not found" });
+    }
 
     const uploadResult = db
       .prepare("INSERT INTO uploads (filename, account_id, period, status) VALUES (?, ?, ?, 'pending')")
@@ -157,9 +163,6 @@ router.post("/", upload.single("file"), async (req, res, next) => {
 
     // Resolve the account's currency so PDF transactions are stored correctly.
     // Falls back to UYU if account not found (shouldn't happen in normal flow).
-    const accountRow = account_id
-      ? db.prepare("SELECT currency FROM accounts WHERE id = ?").get(account_id)
-      : null;
     const accountCurrency = accountRow?.currency || "UYU";
 
     if (extension === ".pdf") {

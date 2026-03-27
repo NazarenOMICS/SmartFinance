@@ -90,7 +90,12 @@ router.put("/:id", (req, res) => {
 });
 
 router.delete("/:id", (req, res) => {
-  db.prepare("DELETE FROM installments WHERE id = ?").run(Number(req.params.id));
+  const id = Number(req.params.id);
+  const existing = db.prepare("SELECT id FROM installments WHERE id = ?").get(id);
+  if (!existing) {
+    return res.status(404).json({ error: "installment not found" });
+  }
+  db.prepare("DELETE FROM installments WHERE id = ?").run(id);
   res.status(204).send();
 });
 

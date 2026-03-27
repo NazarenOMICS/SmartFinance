@@ -84,6 +84,10 @@ router.delete("/:id", async (c) => {
   const userId = c.get("userId");
   const id     = Number(c.req.param("id"));
   const db     = getDb(c.env);
+  const existing = await db.prepare(
+    "SELECT id FROM installments WHERE id=? AND user_id=?"
+  ).get(id, userId);
+  if (!existing) return c.json({ error: "installment not found" }, 404);
   await db.prepare("DELETE FROM installments WHERE id=? AND user_id=?").run(id, userId);
   return new Response(null, { status: 204 });
 });

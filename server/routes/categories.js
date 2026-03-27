@@ -62,6 +62,10 @@ router.put("/:id", (req, res) => {
 
 router.delete("/:id", (req, res) => {
   const id = Number(req.params.id);
+  const existing = db.prepare("SELECT id FROM categories WHERE id = ?").get(id);
+  if (!existing) {
+    return res.status(404).json({ error: "category not found" });
+  }
   const hasTransactions = db.prepare("SELECT COUNT(*) AS count FROM transactions WHERE category_id = ?").get(id).count > 0;
 
   if (hasTransactions) {

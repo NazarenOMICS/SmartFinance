@@ -24,6 +24,10 @@ router.post("/", (req, res) => {
   if (!pattern || !category_id) {
     return res.status(400).json({ error: "pattern and category_id are required" });
   }
+  const category = db.prepare("SELECT id FROM categories WHERE id = ?").get(Number(category_id));
+  if (!category) {
+    return res.status(404).json({ error: "category not found" });
+  }
 
   // Prevent duplicate patterns (same pattern, same or different category)
   const existing = db
@@ -48,7 +52,12 @@ router.post("/", (req, res) => {
 });
 
 router.delete("/:id", (req, res) => {
-  db.prepare("DELETE FROM rules WHERE id = ?").run(Number(req.params.id));
+  const id = Number(req.params.id);
+  const existing = db.prepare("SELECT id FROM rules WHERE id = ?").get(id);
+  if (!existing) {
+    return res.status(404).json({ error: "rule not found" });
+  }
+  db.prepare("DELETE FROM rules WHERE id = ?").run(id);
   res.status(204).send();
 });
 
