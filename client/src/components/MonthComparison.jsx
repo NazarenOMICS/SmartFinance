@@ -8,11 +8,11 @@ import { fmtMoney } from "../utils";
  * broken down by category, in a grouped horizontal bar chart.
  *
  * Props:
- *   current  — summary.byCategory for the current month
- *   previous — summary.byCategory for the previous month (fetched separately)
- *   loading  — boolean
+ *   current  - summary.byCategory for the current month
+ *   previous - summary.byCategory for the previous month (fetched separately)
+ *   loading  - boolean
  */
-export default function MonthComparison({ current = [], previous = [], loading }) {
+export default function MonthComparison({ current = [], previous = [], loading, currency = "UYU" }) {
   if (loading) {
     return (
       <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
@@ -25,7 +25,6 @@ export default function MonthComparison({ current = [], previous = [], loading }
     );
   }
 
-  // Merge both months into a single dataset for comparison
   const allCatNames = [...new Set([
     ...current.map((c) => c.name),
     ...previous.map((c) => c.name),
@@ -35,16 +34,16 @@ export default function MonthComparison({ current = [], previous = [], loading }
     .map((name) => {
       const cur = current.find((c) => c.name === name);
       const prev = previous.find((c) => c.name === name);
-      const curSpent  = cur?.spent  || 0;
+      const curSpent = cur?.spent || 0;
       const prevSpent = prev?.spent || 0;
       const delta = prevSpent > 0
         ? Math.round(((curSpent - prevSpent) / prevSpent) * 100)
         : null;
       return {
         name,
-        actual:   curSpent,
+        actual: curSpent,
         anterior: prevSpent,
-        color:    cur?.color || prev?.color || "#888780",
+        color: cur?.color || prev?.color || "#888780",
         delta,
       };
     })
@@ -56,24 +55,24 @@ export default function MonthComparison({ current = [], previous = [], loading }
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null;
-    const cur  = payload.find((p) => p.dataKey === "actual")?.value  || 0;
+    const cur = payload.find((p) => p.dataKey === "actual")?.value || 0;
     const prev = payload.find((p) => p.dataKey === "anterior")?.value || 0;
     const diff = cur - prev;
+
     return (
-      <div className="rounded-2xl border border-neutral-100 bg-white p-3 shadow-lg text-xs dark:border-neutral-700 dark:bg-neutral-900">
-        <p className="font-semibold text-finance-ink mb-1">{label}</p>
-        <p className="text-finance-purple">Este mes: {fmtMoney(cur)}</p>
-        <p className="text-neutral-400">Mes ant.: {fmtMoney(prev)}</p>
+      <div className="rounded-2xl border border-neutral-100 bg-white p-3 text-xs shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
+        <p className="mb-1 font-semibold text-finance-ink">{label}</p>
+        <p className="text-finance-purple">Este mes: {fmtMoney(cur, currency)}</p>
+        <p className="text-neutral-400">Mes ant.: {fmtMoney(prev, currency)}</p>
         {prev > 0 && (
           <p className={`mt-1 font-bold ${diff > 0 ? "text-finance-red" : "text-finance-teal"}`}>
-            {diff > 0 ? "▲" : "▼"} {fmtMoney(Math.abs(diff))} ({Math.abs(Math.round((diff / prev) * 100))}%)
+            {diff > 0 ? "▲" : "▼"} {fmtMoney(Math.abs(diff), currency)} ({Math.abs(Math.round((diff / prev) * 100))}%)
           </p>
         )}
       </div>
     );
   };
 
-  // Winner / loser highlights
   const significant = data.filter((d) => d.delta !== null && d.anterior > 0);
   const topGrowth = significant.sort((a, b) => b.delta - a.delta)[0];
   const topSaving = [...significant].sort((a, b) => a.delta - b.delta)[0];
@@ -85,7 +84,6 @@ export default function MonthComparison({ current = [], previous = [], loading }
         <h2 className="font-display text-3xl text-finance-ink">Este mes vs anterior</h2>
       </div>
 
-      {/* Insight pills */}
       {(topGrowth || topSaving) && (
         <div className="mb-4 flex flex-wrap gap-2">
           {topGrowth && topGrowth.delta > 0 && (
@@ -122,7 +120,7 @@ export default function MonthComparison({ current = [], previous = [], loading }
                 tick={{ fill: "#737373", fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
-                tickFormatter={(v) => fmtMoney(v)}
+                tickFormatter={(v) => fmtMoney(v, currency)}
               />
               <YAxis
                 type="category"
@@ -159,7 +157,7 @@ export default function MonthComparison({ current = [], previous = [], loading }
 
       {data.length > MAX_ITEMS && (
         <p className="mt-2 text-center text-xs text-neutral-400">
-          Mostrando {MAX_ITEMS} de {data.length} categorías
+          Mostrando {MAX_ITEMS} de {data.length} categorias
         </p>
       )}
     </div>

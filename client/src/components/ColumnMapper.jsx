@@ -99,6 +99,7 @@ export default function ColumnMapper({
   sample,   // string[][] — [header, ...data rows]
   formatKey,
   accountId,
+  accountCurrency = "UYU",
   month,
   onSuccess,
   onCancel,
@@ -131,10 +132,10 @@ export default function ColumnMapper({
           else if (c !== null)       monto = Math.abs(c);
         }
         if (monto === null) return null;
-        return { fecha, desc_banco: desc, monto };
+        return { fecha, desc_banco: desc, monto, moneda: accountCurrency };
       })
       .filter(Boolean);
-  }, [roles, dataRows]);
+  }, [accountCurrency, roles, dataRows]);
 
   // ── Validation ──────────────────────────────────────────────────────────────
   const hasFecha  = roles.fecha  !== undefined;
@@ -305,7 +306,7 @@ export default function ColumnMapper({
                     <span className="text-neutral-500 dark:text-neutral-400">{tx.fecha}</span>
                     <span className="mx-3 flex-1 truncate text-finance-ink dark:text-neutral-200">{tx.desc_banco}</span>
                     <span className={`font-semibold tabular-nums ${tx.monto >= 0 ? "text-finance-teal" : "text-finance-red"}`}>
-                      {fmtMoney(tx.monto)}
+                      {fmtMoney(tx.monto, tx.moneda)}
                     </span>
                   </div>
                 ))}

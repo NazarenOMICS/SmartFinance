@@ -129,7 +129,7 @@ function detectColumnsFromData(rows) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function CsvImportPanel({ selectedAccount, month, onImported }) {
+export default function CsvImportPanel({ selectedAccount, selectedCurrency = "UYU", month, onImported }) {
   const { addToast } = useToast();
   const [text, setText]                 = useState("");
   const [rows, setRows]                 = useState(null);
@@ -192,7 +192,7 @@ export default function CsvImportPanel({ selectedAccount, month, onImported }) {
         }
 
         if (!fecha || !desc || monto === null) return null;
-        return { fecha, desc_banco: desc, monto, moneda: "UYU" };
+        return { fecha, desc_banco: desc, monto, moneda: selectedCurrency };
       })
       .filter(Boolean);
   }
@@ -323,7 +323,7 @@ export default function CsvImportPanel({ selectedAccount, month, onImported }) {
                 <div key={i} className="flex justify-between text-xs text-finance-ink dark:text-neutral-200">
                   <span>{tx.fecha} · {tx.desc_banco.slice(0, 30)}</span>
                   <span className={tx.monto > 0 ? "text-finance-teal font-semibold" : "text-finance-red font-semibold"}>
-                    {fmtMoney(tx.monto)}
+                      {fmtMoney(tx.monto, tx.moneda)}
                   </span>
                 </div>
               ))}

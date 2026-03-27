@@ -76,3 +76,5 @@ export async function applyAllRulesRetroactively(db, userId) {
   }
   return total;
 }
+
+export { applyRuleRetroactively };

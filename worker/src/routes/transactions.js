@@ -58,7 +58,7 @@ router.get("/monthly-evolution", async (c) => {
   }
   const months = Math.max(1, Number(c.req.query("months") || 6));
   const db = getDb(c.env);
-  return c.json(await computeMonthlyEvolution(db, end, months, userId));
+  return c.json(await computeMonthlyEvolution(db, c.env, end, months, userId));
 });
 
 router.get("/", async (c) => {
@@ -118,11 +118,18 @@ router.post("/batch", async (c) => {
   const rules = await db.prepare(
     "SELECT id, pattern, category_id FROM rules WHERE user_id = ? ORDER BY match_count DESC"
   ).all(userId);
+  const accountCurrencyCache = new Map();
+  if (batchAccount) {
+    const batchAccountRow = await db.prepare(
+      "SELECT currency FROM accounts WHERE id = ? AND user_id = ?"
+    ).get(batchAccount, userId);
+    if (batchAccountRow?.currency) accountCurrencyCache.set(batchAccount, batchAccountRow.currency);
+  }
 
   let created = 0, duplicates = 0, errors = 0;
   for (const tx of txList) {
     try {
-      const { fecha, desc_banco, monto, moneda = "UYU", account_id } = tx;
+      const { fecha, desc_banco, monto, moneda, account_id } = tx;
       if (!fecha || !desc_banco || monto == null) { errors++; continue; }
       const hash = await buildDedupHash({ fecha, monto, desc_banco });
       const dup  = await db.prepare(
@@ -130,12 +137,20 @@ router.post("/batch", async (c) => {
       ).get(hash, userId);
       if (dup) { duplicates++; continue; }
 
+      const resolvedAccountId = account_id || batchAccount || null;
+      if (resolvedAccountId && !accountCurrencyCache.has(resolvedAccountId)) {
+        const accountRow = await db.prepare(
+          "SELECT currency FROM accounts WHERE id = ? AND user_id = ?"
+        ).get(resolvedAccountId, userId);
+        if (accountRow?.currency) accountCurrencyCache.set(resolvedAccountId, accountRow.currency);
+      }
+      const resolvedCurrency = moneda || accountCurrencyCache.get(resolvedAccountId) || "UYU";
       const rule = rules.find((r) => desc_banco.toLowerCase().includes(r.pattern.toLowerCase()));
       await db.prepare(
         `INSERT INTO transactions (fecha,desc_banco,monto,moneda,category_id,account_id,dedup_hash,user_id)
          VALUES (?,?,?,?,?,?,?,?)`
-      ).run(fecha, desc_banco.trim(), Number(monto), moneda,
-            rule?.category_id ?? null, account_id || batchAccount || null, hash, userId);
+      ).run(fecha, desc_banco.trim(), Number(monto), resolvedCurrency,
+            rule?.category_id ?? null, resolvedAccountId, hash, userId);
       created++;
     } catch { errors++; }
   }

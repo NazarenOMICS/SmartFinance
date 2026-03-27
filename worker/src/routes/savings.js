@@ -13,14 +13,37 @@ function getMonthSeries(months, endMonth) {
   });
 }
 
-async function monthNet(db, month, userId) {
+function convertAmount(amount, currency, targetCurrency, usdRate, arsRate) {
+  const value = Number(amount || 0);
+  const sourceCurrency = currency || targetCurrency || "UYU";
+  const safeUsdRate = usdRate > 0 ? usdRate : 42.5;
+  const safeArsRate = arsRate > 0 ? arsRate : 0.045;
+
+  if (!targetCurrency || sourceCurrency === targetCurrency) return value;
+
+  let inUYU = value;
+  if (sourceCurrency === "USD") inUYU = value * safeUsdRate;
+  else if (sourceCurrency === "ARS") inUYU = value * safeArsRate;
+
+  if (targetCurrency === "UYU") return inUYU;
+  if (targetCurrency === "USD") return inUYU / safeUsdRate;
+  if (targetCurrency === "ARS") return inUYU / safeArsRate;
+  return inUYU;
+}
+
+async function monthNet(db, month, userId, targetCurrency, usdRate, arsRate) {
   const { start, end } = monthWindow(month);
-  const row = await db.prepare(
-    `SELECT COALESCE(SUM(CASE WHEN monto > 0 THEN monto ELSE 0 END), 0) AS income,
-            COALESCE(SUM(CASE WHEN monto < 0 THEN ABS(monto) ELSE 0 END), 0) AS expenses
-     FROM transactions WHERE fecha >= ? AND fecha < ? AND user_id = ?`
-  ).get(start, end, userId);
-  return (row?.income || 0) - (row?.expenses || 0);
+  const rows = await db.prepare(
+    `SELECT t.monto, t.moneda
+     FROM transactions t
+     LEFT JOIN categories c ON c.id = t.category_id AND c.user_id = t.user_id
+     WHERE t.fecha >= ? AND t.fecha < ? AND t.user_id = ?
+       AND (c.type IS NULL OR c.type != 'transferencia')`
+  ).all(start, end, userId);
+  return rows.reduce(
+    (sum, row) => sum + convertAmount(row.monto, row.moneda, targetCurrency, usdRate, arsRate),
+    0
+  );
 }
 
 function nextMonth(month) {
@@ -37,10 +60,19 @@ router.get("/projection", async (c) => {
   const baseMonth    = c.req.query("end") || currentMonth;
   const db       = getDb(c.env);
   const settings = await getSettingsObject(c.env, userId);
+  const savingsCurrency = settings.savings_currency || "UYU";
+  const usdRate = Number(settings.exchange_rate_usd_uyu || 42.5);
+  const arsRate = Number(settings.exchange_rate_ars_uyu || 0.045);
   const historicalMonths = getMonthSeries(6, baseMonth);
-  const nets       = await Promise.all(historicalMonths.map((m) => monthNet(db, m, userId)));
+  const nets = await Promise.all(
+    historicalMonths.map((m) => monthNet(db, m, userId, savingsCurrency, usdRate, arsRate))
+  );
   const avgSavings = nets.reduce((s, n) => s + n, 0) / Math.max(1, nets.length);
-  const commitments = await computeFutureCommitments(db, nextMonth(baseMonth), months, userId);
+  const commitments = await computeFutureCommitments(db, nextMonth(baseMonth), months, userId, {
+    currency: savingsCurrency,
+    exchangeRateUsd: usdRate,
+    exchangeRateArs: arsRate
+  });
   const initial = Number(settings.savings_initial || 0);
   let accumulated = initial;
 
@@ -58,7 +90,7 @@ router.get("/projection", async (c) => {
   return c.json({
     average_monthly_savings: Math.round(avgSavings),
     initial, goal,
-    currency: settings.savings_currency || "UYU",
+    currency: savingsCurrency,
     commitments,
     series: [...historical, ...projected]
   });
@@ -71,26 +103,36 @@ router.get("/insights", async (c) => {
 
   const db       = getDb(c.env);
   const settings = await getSettingsObject(c.env, userId);
+  const savingsCurrency = settings.savings_currency || "UYU";
+  const usdRate = Number(settings.exchange_rate_usd_uyu || 42.5);
+  const arsRate = Number(settings.exchange_rate_ars_uyu || 0.045);
   const prevMo   = previousMonth(month);
   const { start, end }       = monthWindow(month);
   const prevWindow           = monthWindow(prevMo);
 
   const [current, previous] = await Promise.all([
     db.prepare(
-      `SELECT t.*,c.name AS category_name,c.budget FROM transactions t
-       LEFT JOIN categories c ON c.id=t.category_id
-       WHERE t.fecha>=? AND t.fecha<? AND t.user_id=?`
-    ).all(start, end, userId),
+      `SELECT t.*,c.name AS category_name,c.type AS category_type,c.budget FROM transactions t
+       LEFT JOIN categories c ON c.id=t.category_id AND c.user_id=t.user_id
+       WHERE t.fecha>=? AND t.fecha<? AND t.user_id=?
+         AND (c.type IS NULL OR c.type != 'transferencia')`
+     ).all(start, end, userId),
     db.prepare(
-      `SELECT t.*,c.name AS category_name FROM transactions t
-       LEFT JOIN categories c ON c.id=t.category_id
-       WHERE t.fecha>=? AND t.fecha<? AND t.user_id=?`
-    ).all(prevWindow.start, prevWindow.end, userId)
+      `SELECT t.*,c.name AS category_name,c.type AS category_type FROM transactions t
+       LEFT JOIN categories c ON c.id=t.category_id AND c.user_id=t.user_id
+       WHERE t.fecha>=? AND t.fecha<? AND t.user_id=?
+         AND (c.type IS NULL OR c.type != 'transferencia')`
+     ).all(prevWindow.start, prevWindow.end, userId)
   ]);
 
   const byCategory = (rows) => rows
     .filter((tx) => tx.monto < 0 && tx.category_name)
-    .reduce((acc, tx) => { acc[tx.category_name] = (acc[tx.category_name] || 0) + Math.abs(tx.monto); return acc; }, {});
+    .reduce((acc, tx) => {
+      acc[tx.category_name] = (acc[tx.category_name] || 0) + Math.abs(
+        convertAmount(tx.monto, tx.moneda, savingsCurrency, usdRate, arsRate)
+      );
+      return acc;
+    }, {});
 
   const currentByCat  = byCategory(current);
   const previousByCat = byCategory(previous);
@@ -105,7 +147,9 @@ router.get("/insights", async (c) => {
     }
   });
 
-  const totalExpenses = current.filter((tx) => tx.monto < 0).reduce((s, tx) => s + Math.abs(tx.monto), 0);
+  const totalExpenses = current
+    .filter((tx) => tx.monto < 0)
+    .reduce((s, tx) => s + Math.abs(convertAmount(tx.monto, tx.moneda, savingsCurrency, usdRate, arsRate)), 0);
   const totalBudget   = (await db.prepare(
     "SELECT COALESCE(SUM(budget),0) AS total FROM categories WHERE user_id=?"
   ).get(userId)).total;
@@ -117,8 +161,14 @@ router.get("/insights", async (c) => {
   const daysLeft    = Math.max(0, daysInMonth - activeDay);
   const remainingBudget = totalBudget - totalExpenses;
 
-  const commitments  = await computeFutureCommitments(db, month, 6, userId);
-  const seriesNets   = await Promise.all(getMonthSeries(6, month).map((m) => monthNet(db, m, userId)));
+  const commitments = await computeFutureCommitments(db, month, 6, userId, {
+    currency: savingsCurrency,
+    exchangeRateUsd: usdRate,
+    exchangeRateArs: arsRate
+  });
+  const seriesNets = await Promise.all(
+    getMonthSeries(6, month).map((m) => monthNet(db, m, userId, savingsCurrency, usdRate, arsRate))
+  );
   const avgSavings   = seriesNets.reduce((s, n) => s + n, 0) / 6;
   const currentSaved = Number(settings.savings_initial || 0) + seriesNets.reduce((s, n) => s + n, 0);
   const avgNet       = avgSavings - (commitments[0]?.total || 0);
@@ -132,7 +182,8 @@ router.get("/insights", async (c) => {
     remaining_budget: remainingBudget,
     budget_exhausted: remainingBudget < 0,
     budget_per_day: daysLeft > 0 && remainingBudget > 0 ? Math.round(remainingBudget / daysLeft) : 0,
-    eta_months:    etaMonths
+    eta_months:    etaMonths,
+    currency: savingsCurrency
   });
 });
 

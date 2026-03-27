@@ -423,6 +423,7 @@ export default function Upload({ month, onDone }) {
           sample={columnMapper.sample}
           formatKey={columnMapper.formatKey}
           accountId={selectedAccount}
+          accountCurrency={selectedAccountData?.currency || "UYU"}
           month={uploadForm.period}
           onSuccess={(result) => {
             setColumnMapper(null);
@@ -623,6 +624,7 @@ export default function Upload({ month, onDone }) {
       {/* CSV / paste import */}
       <CsvImportPanel
         selectedAccount={selectedAccount}
+        selectedCurrency={selectedAccountData?.currency || "UYU"}
         month={uploadForm.period}
         onImported={() => { load(); onDone?.(); }}
       />

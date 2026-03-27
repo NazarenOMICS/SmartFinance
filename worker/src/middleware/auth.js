@@ -77,16 +77,15 @@ export async function clerkAuth(c, next) {
 
     // Find the matching key by kid
     const jwks = await getJwks(jwksUrl);
-    const jwk  = jwks.keys?.find((k) => k.kid === header.kid);
-    if (!jwk) {
+    let matchedJwk = jwks.keys?.find((k) => k.kid === header.kid);
+    if (!matchedJwk) {
       // kid not found — maybe JWKS rotated, invalidate cache and retry once
       jwksCache = null;
       const freshJwks = await getJwks(jwksUrl);
-      const freshJwk  = freshJwks.keys?.find((k) => k.kid === header.kid);
-      if (!freshJwk) return c.json({ error: "Unknown signing key" }, 401);
+      matchedJwk = freshJwks.keys?.find((k) => k.kid === header.kid);
+      if (!matchedJwk) return c.json({ error: "Unknown signing key" }, 401);
     }
 
-    const matchedJwk = jwks.keys?.find((k) => k.kid === header.kid);
     const publicKey  = await importRsaPublicKey(matchedJwk);
     const valid      = await verifyJwtSignature(signingInput, signature, publicKey);
 

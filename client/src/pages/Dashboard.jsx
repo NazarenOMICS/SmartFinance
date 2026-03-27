@@ -112,6 +112,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
   }
 
   const { summary } = state;
+  const money = (value) => fmtMoney(value, summary.currency);
 
   if (state.transactions.length === 0) {
     return (
@@ -174,7 +175,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
         <MetricCard label="Patrimonio total" value={fmtMoney(summary.totals.patrimonio, summary.currency)} tone="text-finance-purple" />
         <MetricCard
           label="Ingresos del mes"
-          value={fmtMoney(summary.totals.income)}
+          value={money(summary.totals.income)}
           delta={summary.deltas.income}
           tone="text-finance-teal"
           positiveIsGood
@@ -182,12 +183,12 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
         />
         <MetricCard
           label="Gastos del mes"
-          value={fmtMoney(summary.totals.expenses)}
+          value={money(summary.totals.expenses)}
           delta={summary.deltas.expenses}
           tone="text-finance-red"
           onClick={() => setDrilldownFilter((f) => f === "expenses" ? null : "expenses")}
         />
-        <MetricCard label="Margen disponible" value={fmtMoney(summary.totals.margin)} tone={summary.totals.margin >= 0 ? "text-finance-green" : "text-finance-red"} />
+        <MetricCard label="Margen disponible" value={money(summary.totals.margin)} tone={summary.totals.margin >= 0 ? "text-finance-green" : "text-finance-red"} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
@@ -241,7 +242,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
                       />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(value) => fmtMoney(value)} />
+                  <Tooltip formatter={(value) => money(value)} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -274,7 +275,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
                       <p className="text-xs uppercase tracking-[0.16em] text-neutral-400">{category.type}</p>
                     </div>
                   </div>
-                  <p className="font-semibold text-finance-ink">{fmtMoney(category.spent)}</p>
+                  <p className="font-semibold text-finance-ink">{money(category.spent)}</p>
                 </button>
               ))}
             </div>
@@ -299,7 +300,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
               <BarChart data={state.evolution}>
                 <XAxis dataKey="month" tick={{ fill: "#737373", fontSize: 12 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: "#737373", fontSize: 12 }} axisLine={false} tickLine={false} />
-                <Tooltip formatter={(value) => fmtMoney(value)} />
+                <Tooltip formatter={(value) => money(value)} />
                 <Bar dataKey="ingresos" fill="#1D9E75" radius={[10, 10, 0, 0]} name="Ingresos" />
                 <Bar dataKey="gastos" fill="#534AB7" radius={[10, 10, 0, 0]} name="Gastos" />
               </BarChart>
@@ -309,9 +310,9 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <MetricCard label="Gastos fijos" value={fmtMoney(summary.byType.fijo)} tone="text-finance-coral" />
-        <MetricCard label="Gastos variables" value={fmtMoney(summary.byType.variable)} tone="text-finance-blue" />
-        <MetricCard label="Cuotas del mes" value={fmtMoney(summary.totals.installments)} tone="text-finance-amber" />
+        <MetricCard label="Gastos fijos" value={money(summary.byType.fijo)} tone="text-finance-coral" />
+        <MetricCard label="Gastos variables" value={money(summary.byType.variable)} tone="text-finance-blue" />
+        <MetricCard label="Cuotas del mes" value={money(summary.totals.installments)} tone="text-finance-amber" />
       </div>
 
       <div className="space-y-3">
@@ -324,6 +325,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
               type={item.type}
               color={item.color}
               trend={state.trend?.[item.name]}
+              currency={summary.currency}
             />
           ))}
       </div>
@@ -331,6 +333,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
       <MonthComparison
         current={summary.byCategory}
         previous={state.prevSummary?.byCategory || []}
+        currency={summary.currency}
       />
 
       {drilldownFilter && (

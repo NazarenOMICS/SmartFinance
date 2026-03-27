@@ -36,6 +36,24 @@ function pctDelta(current, previous) {
   return ((current - previous) / previous) * 100;
 }
 
+function convertAmount(amount, currency, targetCurrency, usdRate, arsRate) {
+  const value = Number(amount || 0);
+  const sourceCurrency = currency || targetCurrency || "UYU";
+  const safeUsdRate = usdRate > 0 ? usdRate : 1;
+  const safeArsRate = arsRate > 0 ? arsRate : 0.045;
+
+  if (!targetCurrency || sourceCurrency === targetCurrency) return value;
+
+  let inUYU = value;
+  if (sourceCurrency === "USD") inUYU = value * safeUsdRate;
+  else if (sourceCurrency === "ARS") inUYU = value * safeArsRate;
+
+  if (targetCurrency === "UYU") return inUYU;
+  if (targetCurrency === "USD") return inUYU / safeUsdRate;
+  if (targetCurrency === "ARS") return inUYU / safeArsRate;
+  return inUYU;
+}
+
 function computeSummary(db, month) {
   const current = getTransactionsForMonth(db, month);
   const previous = getTransactionsForMonth(db, previousMonth(month));
@@ -52,16 +70,26 @@ function computeSummary(db, month) {
 
   const financialCurrent  = current.filter((tx) => !isTransfer(tx));
   const financialPrevious = previous.filter((tx) => !isTransfer(tx));
+  const toDisplayAmount = (tx) =>
+    convertAmount(tx.monto, tx.moneda, displayCurrency, exchangeRate, arsRate);
 
-  const currentIncome   = financialCurrent.filter((tx) => tx.monto > 0).reduce((sum, tx) => sum + tx.monto, 0);
-  const currentExpenses = financialCurrent.filter((tx) => tx.monto < 0).reduce((sum, tx) => sum + Math.abs(tx.monto), 0);
-  const previousIncome   = financialPrevious.filter((tx) => tx.monto > 0).reduce((sum, tx) => sum + tx.monto, 0);
-  const previousExpenses = financialPrevious.filter((tx) => tx.monto < 0).reduce((sum, tx) => sum + Math.abs(tx.monto), 0);
+  const currentIncome = financialCurrent
+    .filter((tx) => tx.monto > 0)
+    .reduce((sum, tx) => sum + toDisplayAmount(tx), 0);
+  const currentExpenses = financialCurrent
+    .filter((tx) => tx.monto < 0)
+    .reduce((sum, tx) => sum + Math.abs(toDisplayAmount(tx)), 0);
+  const previousIncome = financialPrevious
+    .filter((tx) => tx.monto > 0)
+    .reduce((sum, tx) => sum + convertAmount(tx.monto, tx.moneda, displayCurrency, exchangeRate, arsRate), 0);
+  const previousExpenses = financialPrevious
+    .filter((tx) => tx.monto < 0)
+    .reduce((sum, tx) => sum + Math.abs(convertAmount(tx.monto, tx.moneda, displayCurrency, exchangeRate, arsRate)), 0);
 
   const byCategoryMap = financialCurrent
     .filter((tx) => tx.monto < 0 && tx.category_name)
     .reduce((acc, tx) => {
-      acc[tx.category_name] = (acc[tx.category_name] || 0) + Math.abs(tx.monto);
+      acc[tx.category_name] = (acc[tx.category_name] || 0) + Math.abs(toDisplayAmount(tx));
       return acc;
     }, {});
 
@@ -70,7 +98,7 @@ function computeSummary(db, month) {
     .reduce(
       (acc, tx) => {
         const type = tx.category_type || "variable";
-        acc[type] = (acc[type] || 0) + Math.abs(tx.monto);
+        acc[type] = (acc[type] || 0) + Math.abs(toDisplayAmount(tx));
         return acc;
       },
       { fijo: 0, variable: 0 }
@@ -87,16 +115,12 @@ function computeSummary(db, month) {
 
   const accounts = db.prepare("SELECT * FROM accounts").all();
   const consolidated = accounts.reduce((sum, account) => {
-    if (displayCurrency === account.currency) return sum + account.balance;
-    let inUYU = account.balance;
-    if (account.currency === "USD") inUYU = account.balance * exchangeRate;
-    else if (account.currency === "ARS") inUYU = account.balance * arsRate;
-    if (displayCurrency === "UYU") return sum + inUYU;
-    if (displayCurrency === "USD") return sum + inUYU / exchangeRate;
-    return sum + inUYU;
+    return sum + convertAmount(account.balance, account.currency, displayCurrency, exchangeRate, arsRate);
   }, 0);
 
-  const installmentsMonth = current.filter((tx) => tx.es_cuota).reduce((sum, tx) => sum + Math.abs(tx.monto), 0);
+  const installmentsMonth = current
+    .filter((tx) => tx.es_cuota)
+    .reduce((sum, tx) => sum + Math.abs(toDisplayAmount(tx)), 0);
 
   return {
     month,
@@ -121,6 +145,10 @@ function computeSummary(db, month) {
 }
 
 function computeMonthlyEvolution(db, endMonth, months) {
+  const settings = getSettingsObject();
+  const exchangeRate = Number(settings.exchange_rate_usd_uyu || 1);
+  const arsRate = Number(settings.exchange_rate_ars_uyu || 0.045);
+  const displayCurrency = settings.display_currency || "UYU";
   const [endYear, endMonthNum] = endMonth.split("-").map(Number);
   const series = [];
 
@@ -134,16 +162,27 @@ function computeMonthlyEvolution(db, endMonth, months) {
     const financial = tx.filter((item) => item.category_type !== "transferencia");
     series.push({
       month,
-      ingresos: financial.filter((item) => item.monto > 0).reduce((sum, item) => sum + item.monto, 0),
-      gastos:   financial.filter((item) => item.monto < 0).reduce((sum, item) => sum + Math.abs(item.monto), 0)
+      ingresos: financial
+        .filter((item) => item.monto > 0)
+        .reduce((sum, item) => sum + convertAmount(item.monto, item.moneda, displayCurrency, exchangeRate, arsRate), 0),
+      gastos: financial
+        .filter((item) => item.monto < 0)
+        .reduce((sum, item) => sum + Math.abs(convertAmount(item.monto, item.moneda, displayCurrency, exchangeRate, arsRate)), 0)
     });
   }
 
   return series;
 }
 
-function computeFutureCommitments(db, startMonth, months) {
-  const installments = db.prepare("SELECT * FROM installments").all();
+function computeFutureCommitments(db, startMonth, months, options = {}) {
+  const installments = db.prepare(
+    `SELECT i.*, a.currency AS account_currency
+     FROM installments i
+     LEFT JOIN accounts a ON a.id = i.account_id`
+  ).all();
+  const targetCurrency = options.currency || null;
+  const exchangeRate = Number(options.exchangeRateUsd || 1);
+  const arsRate = Number(options.exchangeRateArs || 0.045);
   const [startYear, startMonthNum] = startMonth.split("-").map(Number);
   const result = [];
 
@@ -162,7 +201,17 @@ function computeFutureCommitments(db, startMonth, months) {
         return sum;
       }
 
-      return sum + installment.monto_cuota;
+      const installmentAmount = targetCurrency
+        ? convertAmount(
+            installment.monto_cuota,
+            installment.account_currency || targetCurrency,
+            targetCurrency,
+            exchangeRate,
+            arsRate
+          )
+        : installment.monto_cuota;
+
+      return sum + installmentAmount;
     }, 0);
 
     result.push({ month, total });

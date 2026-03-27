@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { getDb } from "../db.js";
-import { applyAllRulesRetroactively } from "../services/categorizer.js";
+import { applyRuleRetroactively } from "../services/categorizer.js";
 
 const router = new Hono();
 
@@ -22,15 +22,21 @@ router.post("/", async (c) => {
   const db = getDb(c.env);
 
   const existing = await db.prepare(
-    "SELECT id FROM rules WHERE user_id = ? AND LOWER(pattern)=LOWER(?) AND category_id=?"
-  ).get(userId, pattern, category_id);
-  if (existing) return c.json({ error: "Ya existe una regla con ese patrón para esa categoría" }, 409);
+    "SELECT id, category_id FROM rules WHERE user_id = ? AND LOWER(pattern)=LOWER(?) LIMIT 1"
+  ).get(userId, pattern);
+  if (existing) {
+    if (existing.category_id === Number(category_id)) {
+      const rule = await db.prepare("SELECT * FROM rules WHERE id=?").get(existing.id);
+      return c.json({ ...rule, retro_count: 0, duplicate: true }, 200);
+    }
+    return c.json({ error: `Pattern "${pattern}" already exists for a different category. Delete the existing rule first.` }, 409);
+  }
 
   const result = await db.prepare(
     "INSERT INTO rules (pattern,category_id,match_count,user_id) VALUES (?,?,0,?)"
   ).run(pattern, category_id, userId);
 
-  const retroCount = await applyAllRulesRetroactively(db, userId);
+  const retroCount = await applyRuleRetroactively(db, pattern, category_id, userId);
   const rule = await db.prepare("SELECT * FROM rules WHERE id=?").get(result.lastInsertRowid);
   return c.json({ ...rule, retro_count: retroCount }, 201);
 });
