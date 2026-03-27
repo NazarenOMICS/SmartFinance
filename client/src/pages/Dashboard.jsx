@@ -207,6 +207,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
               >
                 <option value="UYU">UYU</option>
                 <option value="USD">USD</option>
+                <option value="ARS">ARS</option>
               </select>
               <input
                 className="w-28 rounded-full border border-neutral-200 bg-finance-cream px-4 py-2 text-sm text-finance-ink dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"

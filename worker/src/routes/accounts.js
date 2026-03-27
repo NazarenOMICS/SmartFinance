@@ -20,6 +20,7 @@ router.get("/consolidated", async (c) => {
     else if (currency === "ARS") inUyu = balance * rateArs;
     if (displayCurrency === "UYU") return inUyu;
     if (displayCurrency === "USD") return inUyu / rateUsd;
+    if (displayCurrency === "ARS") return inUyu / rateArs;
     return inUyu;
   };
   const total = rows.reduce((sum, acc) => sum + toDisplay(acc.balance, acc.currency), 0);

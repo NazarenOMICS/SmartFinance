@@ -106,6 +106,7 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
             <select className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100" value={settings.display_currency || "UYU"} onChange={(e) => handleSetting("display_currency", e.target.value)}>
               <option value="UYU">Mostrar en UYU</option>
               <option value="USD">Mostrar en USD</option>
+              <option value="ARS">Mostrar en ARS</option>
             </select>
           </div>
         </div>
@@ -142,7 +143,10 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
                     let inUYU = account.balance;
                     if (account.currency === "USD") inUYU = account.balance * usdRate;
                     else if (account.currency === "ARS") inUYU = account.balance * arsRate;
-                    const equiv = display === "USD" ? inUYU / usdRate : inUYU;
+                    const equiv =
+                      display === "USD" ? inUYU / usdRate
+                        : display === "ARS" ? inUYU / arsRate
+                        : inUYU;
                     return fmtMoney(equiv, display);
                   })()}
                 </span>

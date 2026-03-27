@@ -26,6 +26,7 @@ const DEFAULT_CATEGORIES = [
 
 const DEFAULT_SETTINGS = [
   { key: "exchange_rate_usd_uyu", value: "42.5" },
+  { key: "exchange_rate_ars_uyu", value: "0.045" },
   { key: "display_currency", value: "UYU" },
   { key: "savings_initial", value: "0" },
   { key: "savings_goal", value: "200000" },

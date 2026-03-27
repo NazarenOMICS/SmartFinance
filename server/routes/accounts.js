@@ -18,6 +18,7 @@ router.get("/consolidated", (req, res) => {
     else if (account.currency === "ARS") inUYU = account.balance * arsRate;
     if (displayCurrency === "UYU") return sum + inUYU;
     if (displayCurrency === "USD") return sum + inUYU / usdRate;
+    if (displayCurrency === "ARS") return sum + inUYU / arsRate;
     return sum + inUYU;
   }, 0);
 
