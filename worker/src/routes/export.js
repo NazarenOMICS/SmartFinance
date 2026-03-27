@@ -19,8 +19,8 @@ router.get("/csv", async (c) => {
     `SELECT t.fecha,t.desc_banco,t.desc_usuario,t.monto,t.moneda,
             c.name AS categoria,a.name AS cuenta,c.type AS tipo_gasto,t.es_cuota
      FROM transactions t
-     LEFT JOIN categories c ON c.id=t.category_id
-     LEFT JOIN accounts a ON a.id=t.account_id
+     LEFT JOIN categories c ON c.id=t.category_id AND c.user_id=t.user_id
+     LEFT JOIN accounts a ON a.id=t.account_id AND a.user_id=t.user_id
      WHERE t.user_id=? AND t.fecha>=? AND t.fecha<? ORDER BY t.fecha ASC,t.id ASC`
   ).all(userId, start, end);
 

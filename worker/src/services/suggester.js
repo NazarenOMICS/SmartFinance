@@ -67,7 +67,7 @@ function meaningfulWords(desc) {
  * Suggest a category from transaction history (most common category among similar transactions).
  * Returns { category_name, category_id, source, confidence } or null.
  */
-async function suggestFromHistory(db, descBanco) {
+async function suggestFromHistory(db, descBanco, userId = null) {
   const words = meaningfulWords(descBanco);
   if (words.length === 0) return null;
 
@@ -77,15 +77,16 @@ async function suggestFromHistory(db, descBanco) {
   const conditions = topWords.map(() => "LOWER(t.desc_banco) LIKE ?").join(" OR ");
   const params = topWords.map((w) => `%${w}%`);
 
+  const whereUser = userId ? "AND t.user_id = ? AND c.user_id = t.user_id" : "";
   const rows = await db.prepare(
     `SELECT c.id AS category_id, c.name AS category_name, COUNT(*) AS cnt
      FROM transactions t
      JOIN categories c ON c.id = t.category_id
-     WHERE t.category_id IS NOT NULL AND (${conditions})
+     WHERE t.category_id IS NOT NULL ${whereUser} AND (${conditions})
      GROUP BY c.id
      ORDER BY cnt DESC
      LIMIT 1`
-  ).get(...params);
+  ).get(...(userId ? [userId, ...params] : params));
 
   if (!rows || rows.cnt < 1) return null;
 
@@ -101,7 +102,7 @@ async function suggestFromHistory(db, descBanco) {
  * Async suggest using DB history. Returns a suggestion object or null.
  * categories: array of { id, name } from DB (to resolve keyword→id).
  */
-export async function suggest(db, descBanco, categories) {
+export async function suggest(db, descBanco, categories, userId = null) {
   // 1. Try keyword match
   const kwMatch = suggestFromKeywords(descBanco);
   if (kwMatch) {
@@ -114,7 +115,7 @@ export async function suggest(db, descBanco, categories) {
   }
 
   // 2. Try history match
-  const histMatch = await suggestFromHistory(db, descBanco);
+  const histMatch = await suggestFromHistory(db, descBanco, userId);
   if (histMatch) {
     return { category_id: histMatch.category_id, category_name: histMatch.category_name, source: "historial" };
   }

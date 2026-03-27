@@ -50,8 +50,8 @@ router.get("/", async (c) => {
   const userId = c.get("userId");
   const period = c.req.query("period");
   const sql = period
-    ? `SELECT u.*,a.name AS account_name FROM uploads u LEFT JOIN accounts a ON a.id=u.account_id WHERE u.period=? AND u.user_id=? ORDER BY u.created_at DESC`
-    : `SELECT u.*,a.name AS account_name FROM uploads u LEFT JOIN accounts a ON a.id=u.account_id WHERE u.user_id=? ORDER BY u.created_at DESC`;
+    ? `SELECT u.*,a.name AS account_name FROM uploads u LEFT JOIN accounts a ON a.id=u.account_id AND a.user_id=u.user_id WHERE u.period=? AND u.user_id=? ORDER BY u.created_at DESC`
+    : `SELECT u.*,a.name AS account_name FROM uploads u LEFT JOIN accounts a ON a.id=u.account_id AND a.user_id=u.user_id WHERE u.user_id=? ORDER BY u.created_at DESC`;
   const rows = period
     ? await db.prepare(sql).all(period, userId)
     : await db.prepare(sql).all(userId);

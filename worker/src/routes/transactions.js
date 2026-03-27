@@ -24,8 +24,8 @@ router.get("/search", async (c) => {
     `SELECT t.id, t.fecha, t.desc_banco, t.desc_usuario, t.monto, t.moneda,
             c.name AS category_name, c.color AS category_color, a.name AS account_name
      FROM transactions t
-     LEFT JOIN categories c ON c.id = t.category_id
-     LEFT JOIN accounts a ON a.id = t.account_id
+     LEFT JOIN categories c ON c.id = t.category_id AND c.user_id = t.user_id
+     LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
      WHERE t.user_id = ?
        AND (LOWER(t.desc_banco) LIKE LOWER(?) OR LOWER(COALESCE(t.desc_usuario,'')) LIKE LOWER(?))
      ORDER BY t.fecha DESC LIMIT ?`

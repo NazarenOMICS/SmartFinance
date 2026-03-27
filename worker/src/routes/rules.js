@@ -9,7 +9,7 @@ router.get("/", async (c) => {
   const db = getDb(c.env);
   return c.json(await db.prepare(
     `SELECT r.*,c.name AS category_name,c.color AS category_color
-     FROM rules r JOIN categories c ON c.id=r.category_id
+     FROM rules r JOIN categories c ON c.id=r.category_id AND c.user_id=r.user_id
      WHERE r.user_id = ?
      ORDER BY r.match_count DESC, r.id ASC`
   ).all(userId));
