@@ -1,14 +1,15 @@
 const express = require("express");
-const { db } = require("../db");
+const { db, isValidMonthString } = require("../db");
 const { buildDedupHash } = require("../services/dedup");
 const { ensureRuleForManualCategorization, findMatchingRule, bumpRule, isLikelyReintegro, isLikelyTransfer } = require("../services/categorizer");
 const { computeMonthlyEvolution, computeSummary, getTransactionsForMonth } = require("../services/metrics");
 
 const router = express.Router();
+const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
 
 function requireMonth(req, res) {
   const { month } = req.query;
-  if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+  if (!isValidMonthString(month)) {
     res.status(400).json({ error: "month is required in YYYY-MM format" });
     return null;
   }
@@ -22,7 +23,15 @@ function parsePositiveInt(rawValue, fallback, max = null) {
 }
 
 function isValidISODate(value) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
+  const raw = String(value || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  const [year, month, day] = raw.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
 }
 
 router.get("/pending", (req, res) => {
@@ -44,7 +53,7 @@ router.get("/monthly-evolution", (req, res) => {
   const months = parsePositiveInt(req.query.months || 6, 6, 24);
   const end = req.query.end;
 
-  if (!end || !/^\d{4}-\d{2}$/.test(end)) {
+  if (!isValidMonthString(end)) {
     return res.status(400).json({ error: "end is required in YYYY-MM format" });
   }
 
@@ -63,12 +72,12 @@ router.get("/search", (req, res) => {
       FROM transactions t
       LEFT JOIN categories c ON c.id = t.category_id
       LEFT JOIN accounts a ON a.id = t.account_id
-      WHERE t.desc_banco LIKE ? OR t.desc_usuario LIKE ?
+      WHERE t.desc_banco LIKE ? OR t.desc_usuario LIKE ? OR CAST(t.monto AS TEXT) LIKE ?
       ORDER BY t.fecha DESC
       LIMIT ?
     `
     )
-    .all(pattern, pattern, limit);
+    .all(pattern, pattern, pattern, limit);
   res.json(rows);
 });
 
@@ -105,8 +114,10 @@ router.post("/", (req, res) => {
     es_cuota = 0,
     installment_id = null
   } = req.body;
+  const normalizedDescBanco = String(desc_banco || "").trim();
+  const normalizedDescUsuario = desc_usuario == null ? null : String(desc_usuario).trim() || null;
 
-  if (!fecha || !desc_banco || typeof monto !== "number") {
+  if (!fecha || !normalizedDescBanco || typeof monto !== "number") {
     return res.status(400).json({ error: "fecha, desc_banco and monto are required" });
   }
   if (!isValidISODate(fecha)) {
@@ -114,6 +125,9 @@ router.post("/", (req, res) => {
   }
   if (!Number.isFinite(monto)) {
     return res.status(400).json({ error: "monto must be a finite number" });
+  }
+  if (!SUPPORTED_CURRENCIES.has(moneda)) {
+    return res.status(400).json({ error: "moneda must be UYU, USD or ARS" });
   }
   if (account_id) {
     const account = db.prepare("SELECT id FROM accounts WHERE id = ?").get(account_id);
@@ -127,23 +141,29 @@ router.post("/", (req, res) => {
       return res.status(404).json({ error: "category not found" });
     }
   }
+  if (installment_id != null) {
+    const installment = db.prepare("SELECT id FROM installments WHERE id = ?").get(Number(installment_id));
+    if (!installment) {
+      return res.status(404).json({ error: "installment not found" });
+    }
+  }
 
   let resolvedCategoryId = category_id;
   if (!resolvedCategoryId) {
-    const rule = findMatchingRule(db, desc_banco);
+    const rule = findMatchingRule(db, normalizedDescBanco);
     if (rule) {
       resolvedCategoryId = rule.category_id;
       bumpRule(db, rule.id);
-    } else if (isLikelyTransfer(desc_banco)) {
+    } else if (isLikelyTransfer(normalizedDescBanco)) {
       const transferCat = db.prepare("SELECT id FROM categories WHERE name = 'Transferencia'").get();
       if (transferCat) resolvedCategoryId = transferCat.id;
-    } else if (isLikelyReintegro(db, desc_banco, Number(monto), moneda)) {
+    } else if (isLikelyReintegro(db, normalizedDescBanco, Number(monto), moneda)) {
       const reintegroCat = db.prepare("SELECT id FROM categories WHERE name = 'Reintegro'").get();
       if (reintegroCat) resolvedCategoryId = reintegroCat.id;
     }
   }
 
-  const dedupHash = buildDedupHash({ fecha, monto, desc_banco });
+  const dedupHash = buildDedupHash({ fecha, monto, desc_banco: normalizedDescBanco });
   const duplicate = db
     .prepare(
       `
@@ -167,7 +187,7 @@ router.post("/", (req, res) => {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
     )
-    .run(fecha, desc_banco, desc_usuario, monto, moneda, resolvedCategoryId, account_id, es_cuota ? 1 : 0, installment_id, dedupHash);
+    .run(fecha, normalizedDescBanco, normalizedDescUsuario, monto, moneda, resolvedCategoryId, account_id, es_cuota ? 1 : 0, installment_id, dedupHash);
 
   const transaction = db
     .prepare(
@@ -212,7 +232,7 @@ router.put("/:id", (req, res) => {
 
   const next = {
     category_id:  req.body.category_id  ?? current.category_id,
-    desc_usuario: req.body.desc_usuario ?? current.desc_usuario,
+    desc_usuario: req.body.desc_usuario !== undefined ? (String(req.body.desc_usuario).trim() || null) : current.desc_usuario,
     account_id:   req.body.account_id   ?? current.account_id,
     fecha:        req.body.fecha        ?? current.fecha,
     monto:        req.body.monto !== undefined ? Number(req.body.monto) : current.monto,
@@ -307,12 +327,15 @@ router.post("/batch", (req, res) => {
       const { fecha, desc_banco, desc_usuario = null, monto,
               moneda = batchCurrency,
               category_id = null, account_id = batchAccountId, es_cuota = 0 } = tx;
-      if (!fecha || !desc_banco || typeof monto !== "number") continue;
+      const normalizedDescBanco = String(desc_banco || "").trim();
+      const normalizedDescUsuario = desc_usuario == null ? null : String(desc_usuario).trim() || null;
+      if (!fecha || !normalizedDescBanco || typeof monto !== "number") continue;
       if (!isValidISODate(fecha) || !Number.isFinite(Number(monto))) continue;
+      if (!SUPPORTED_CURRENCIES.has(moneda)) continue;
       if (category_id != null && !validCategoryIds.has(Number(category_id))) continue;
       if (account_id && !db.prepare("SELECT id FROM accounts WHERE id = ?").get(account_id)) continue;
 
-      const hash = buildDedupHash({ fecha, monto, desc_banco });
+      const hash = buildDedupHash({ fecha, monto, desc_banco: normalizedDescBanco });
       const exists = db
         .prepare("SELECT id FROM transactions WHERE dedup_hash = ? AND substr(fecha, 1, 7) = substr(?, 1, 7) LIMIT 1")
         .get(hash, fecha);
@@ -321,19 +344,19 @@ router.post("/batch", (req, res) => {
 
       let resolvedCategoryId = category_id;
       if (!resolvedCategoryId) {
-        const rule = findMatchingRule(db, desc_banco);
+        const rule = findMatchingRule(db, normalizedDescBanco);
         if (rule) {
           resolvedCategoryId = rule.category_id;
           bumpRule(db, rule.id);
-        } else if (isLikelyTransfer(desc_banco)) {
+        } else if (isLikelyTransfer(normalizedDescBanco)) {
           if (transferCategory) resolvedCategoryId = transferCategory.id;
-        } else if (isLikelyReintegro(db, desc_banco, Number(monto), moneda)) {
+        } else if (isLikelyReintegro(db, normalizedDescBanco, Number(monto), moneda)) {
           const cat = db.prepare("SELECT id FROM categories WHERE name = 'Reintegro'").get();
           if (cat) resolvedCategoryId = cat.id;
         }
       }
 
-      insertStmt.run(fecha, desc_banco, desc_usuario, monto, moneda,
+      insertStmt.run(fecha, normalizedDescBanco, normalizedDescUsuario, monto, moneda,
                      resolvedCategoryId, account_id, es_cuota ? 1 : 0, hash);
       created += 1;
     }

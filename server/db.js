@@ -172,6 +172,13 @@ function monthWindow(month) {
   return { start, end };
 }
 
+function isValidMonthString(value) {
+  const raw = String(value || "");
+  if (!/^\d{4}-\d{2}$/.test(raw)) return false;
+  const [, month] = raw.split("-").map(Number);
+  return month >= 1 && month <= 12;
+}
+
 migrate();
 
 module.exports = {
@@ -180,6 +187,7 @@ module.exports = {
   DEFAULT_PATTERNS,
   DEFAULT_SETTINGS,
   getSettingsObject,
+  isValidMonthString,
   monthWindow,
   normalizeSettingValue,
   upsertSetting

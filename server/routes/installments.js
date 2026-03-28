@@ -1,5 +1,5 @@
 const express = require("express");
-const { db, getSettingsObject } = require("../db");
+const { db, getSettingsObject, isValidMonthString } = require("../db");
 const { computeFutureCommitments } = require("../services/metrics");
 
 const router = express.Router();
@@ -13,7 +13,7 @@ function parsePositiveInt(rawValue, fallback, max = null) {
 router.get("/commitments", (req, res) => {
   const months = parsePositiveInt(req.query.months || 6, 6, 24);
   const start = req.query.start;
-  if (!start || !/^\d{4}-\d{2}$/.test(start)) {
+  if (!isValidMonthString(start)) {
     return res.status(400).json({ error: "start is required in YYYY-MM format" });
   }
   const settings = getSettingsObject();
@@ -40,17 +40,18 @@ router.get("/", (req, res) => {
 });
 
 router.post("/", (req, res) => {
-  const { descripcion, monto_total, cantidad_cuotas, account_id = null, start_month } = req.body;
-  if (!descripcion || !monto_total || !cantidad_cuotas || !start_month) {
+  const descripcion = String(req.body.descripcion || "").trim();
+  const { monto_total, cantidad_cuotas, account_id = null, start_month } = req.body;
+  if (!descripcion || monto_total == null || cantidad_cuotas == null || !start_month) {
     return res.status(400).json({ error: "descripcion, monto_total, cantidad_cuotas and start_month are required" });
   }
-  if (!/^\d{4}-\d{2}$/.test(start_month)) {
+  if (!isValidMonthString(start_month)) {
     return res.status(400).json({ error: "start_month must be in YYYY-MM format" });
   }
   const cuotas = parsePositiveInt(cantidad_cuotas, null);
   const total = Number(monto_total);
-  if (!cuotas || !Number.isFinite(total)) {
-    return res.status(400).json({ error: "monto_total and cantidad_cuotas must be valid numbers" });
+  if (!cuotas || !Number.isFinite(total) || total <= 0) {
+    return res.status(400).json({ error: "monto_total must be a positive number and cantidad_cuotas must be a positive integer" });
   }
   if (account_id) {
     const account = db.prepare("SELECT id FROM accounts WHERE id = ?").get(account_id);
@@ -98,7 +99,10 @@ router.delete("/:id", (req, res) => {
   if (!existing) {
     return res.status(404).json({ error: "installment not found" });
   }
-  db.prepare("DELETE FROM installments WHERE id = ?").run(id);
+  db.transaction(() => {
+    db.prepare("UPDATE transactions SET installment_id = NULL WHERE installment_id = ?").run(id);
+    db.prepare("DELETE FROM installments WHERE id = ?").run(id);
+  })();
   res.status(204).send();
 });
 

@@ -4,7 +4,7 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 
-const { db, getSettingsObject } = require("../db");
+const { db, getSettingsObject, isValidMonthString } = require("../db");
 const { parsePdfText } = require("../services/pdf-parser");
 const { extractTransactions } = require("../services/tx-extractor");
 const { buildDedupHash } = require("../services/dedup");
@@ -12,6 +12,7 @@ const { findMatchingRule, bumpRule, isLikelyReintegro, isLikelyTransfer } = requ
 
 const router = express.Router();
 const uploadsDir = path.join(__dirname, "..", "..", "uploads");
+const SUPPORTED_IMPORT_EXTENSIONS = new Set([".pdf", ".csv", ".txt"]);
 
 // ─── CSV helpers ──────────────────────────────────────────────────────────────
 
@@ -101,6 +102,41 @@ function parseCsvDate(str) {
   return `${year}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
 }
 
+function isValidPeriod(value) {
+  return isValidMonthString(value);
+}
+
+function isValidISODate(value) {
+  const raw = String(value || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  const [year, month, day] = raw.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
+function parseBankFormatConfig(rawConfig) {
+  try {
+    return JSON.parse(rawConfig);
+  } catch (_) {
+    return null;
+  }
+}
+
+function cleanupUploadedFile(filePath) {
+  if (!filePath) return;
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (_) {
+    // Best effort cleanup only.
+  }
+}
+
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
@@ -144,11 +180,21 @@ router.post("/", upload.single("file"), async (req, res, next) => {
     if (!req.file || !period) {
       return res.status(400).json({ error: "file and period are required" });
     }
+    if (!isValidPeriod(period)) {
+      cleanupUploadedFile(req.file.path);
+      return res.status(400).json({ error: "period must be in YYYY-MM format" });
+    }
     const accountRow = account_id
       ? db.prepare("SELECT currency FROM accounts WHERE id = ?").get(account_id)
       : null;
     if (account_id && !accountRow) {
+      cleanupUploadedFile(req.file.path);
       return res.status(404).json({ error: "account not found" });
+    }
+    const extension = path.extname(req.file.originalname).toLowerCase();
+    if (!SUPPORTED_IMPORT_EXTENSIONS.has(extension)) {
+      cleanupUploadedFile(req.file.path);
+      return res.status(400).json({ error: "unsupported file type" });
     }
 
     const uploadResult = db
@@ -159,7 +205,6 @@ router.post("/", upload.single("file"), async (req, res, next) => {
     let duplicatesSkipped = 0;
     let autoCategorized = 0;
     let pendingReview = 0;
-    const extension = path.extname(req.file.originalname).toLowerCase();
 
     // Resolve the account's currency so PDF transactions are stored correctly.
     // Falls back to UYU if account not found (shouldn't happen in normal flow).
@@ -194,6 +239,7 @@ router.post("/", upload.single("file"), async (req, res, next) => {
 
       const runInserts = db.transaction((txList) => {
         for (const transaction of txList) {
+          if (!isValidISODate(transaction.fecha) || !Number.isFinite(Number(transaction.monto))) continue;
           const dedupHash = buildDedupHash(transaction);
           if (checkDup.get(dedupHash, transaction.fecha.slice(0, 7))) {
             duplicatesSkipped += 1;
@@ -247,7 +293,17 @@ router.post("/", upload.single("file"), async (req, res, next) => {
         }
 
         // Known format — auto-parse and insert
-        const cfg = JSON.parse(savedFormat.config);
+        const cfg = parseBankFormatConfig(savedFormat.config);
+        if (!cfg) {
+          db.prepare("UPDATE uploads SET status = 'needs_mapping' WHERE id = ?").run(uploadResult.lastInsertRowid);
+          return res.status(201).json({
+            needs_mapping: true,
+            upload_id: uploadResult.lastInsertRowid,
+            format_key: formatKey,
+            columns: headers,
+            sample: rows.slice(0, 6),
+          });
+        }
         const insertTx = db.prepare(
           "INSERT INTO transactions (fecha, desc_banco, monto, moneda, category_id, account_id, upload_id, dedup_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         );
@@ -260,7 +316,7 @@ router.post("/", upload.single("file"), async (req, res, next) => {
         const runCsvInserts = db.transaction((rowList) => {
           for (const row of rowList) {
             const fecha = cfg.col_fecha >= 0 ? parseCsvDate(row[cfg.col_fecha]) : null;
-            if (!fecha) continue;
+            if (!fecha || !isValidISODate(fecha)) continue;
             const desc = cfg.col_desc >= 0 ? (row[cfg.col_desc] || "").trim() : "";
             if (!desc) continue;
 
@@ -273,7 +329,7 @@ router.post("/", upload.single("file"), async (req, res, next) => {
               if (d !== null && d !== 0) monto = d;
               else if (c !== null && c !== 0) monto = Math.abs(c);
             }
-            if (monto === null) continue;
+            if (monto === null || !Number.isFinite(Number(monto))) continue;
 
             const tx = { fecha, desc_banco: desc, monto };
             const dedupHash = buildDedupHash(tx);
@@ -314,6 +370,7 @@ router.post("/", upload.single("file"), async (req, res, next) => {
       pending_review: pendingReview
     });
   } catch (error) {
+    cleanupUploadedFile(req.file?.path);
     next(error);
   }
 });

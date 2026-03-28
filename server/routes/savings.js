@@ -1,5 +1,5 @@
 const express = require("express");
-const { db, getSettingsObject, monthWindow } = require("../db");
+const { db, getSettingsObject, isValidMonthString, monthWindow } = require("../db");
 const { computeFutureCommitments, previousMonth } = require("../services/metrics");
 
 const router = express.Router();
@@ -69,7 +69,7 @@ router.get("/projection", (req, res) => {
   const today = new Date();
   const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
   const baseMonth = req.query.end || currentMonth;
-  if (req.query.end && !/^\d{4}-\d{2}$/.test(req.query.end)) {
+  if (req.query.end && !isValidMonthString(req.query.end)) {
     return res.status(400).json({ error: "end must be in YYYY-MM format" });
   }
   const savingsCurrency = settings.savings_currency || "UYU";
@@ -109,7 +109,7 @@ router.get("/projection", (req, res) => {
 
 router.get("/insights", (req, res) => {
   const month = req.query.month;
-  if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+  if (!isValidMonthString(month)) {
     return res.status(400).json({ error: "month is required in YYYY-MM format" });
   }
 
