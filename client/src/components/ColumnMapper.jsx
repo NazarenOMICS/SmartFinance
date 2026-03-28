@@ -40,13 +40,16 @@ function splitCSVLine(line) {
 
 function toISO(s) {
   if (!s) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const raw = s.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return isValidISODate(raw) ? raw : null;
+  }
   const m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
   if (!m) return null;
   const [, d, mo, y] = m;
   const year = y.length === 2 ? `20${y}` : y;
-  if (+d < 1 || +d > 31 || +mo < 1 || +mo > 12) return null;
-  return `${year}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  const iso = `${year}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  return isValidISODate(iso) ? iso : null;
 }
 
 function parseAmt(s) {
@@ -60,6 +63,17 @@ function parseAmt(s) {
   else if (dotPos > commaPos) n = parseFloat(clean.replace(/,/g, ""));
   else                        n = parseFloat(clean);
   return Number.isFinite(n) ? n : null;
+}
+
+function isValidISODate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
 }
 
 // ─── Auto-detect column roles from header names ───────────────────────────────

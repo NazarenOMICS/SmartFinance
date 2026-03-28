@@ -51,12 +51,13 @@ function normHeader(h) {
 function toISO(str) {
   if (!str) return null;
   const s = str.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return isValidISODate(s) ? s : null;
   const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
   if (!m) return null;
   const [, d, mo, y] = m;
   const year = y.length === 2 ? `20${y}` : y;
-  return `${year}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  const iso = `${year}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  return isValidISODate(iso) ? iso : null;
 }
 
 /** Parse a money string → number (handles negative sign, ignores currency symbols). */
@@ -69,6 +70,17 @@ function toNumber(str) {
   // BROU uses period as decimal: "1220.00", "-2.02"
   const n = parseFloat(cleaned.replace(/,/g, ""));
   return Number.isFinite(n) ? n : null;
+}
+
+function isValidISODate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
 }
 
 // ─── Main export ─────────────────────────────────────────────────────────────

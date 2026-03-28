@@ -109,6 +109,7 @@ router.delete("/:key", async (c) => {
   const userId = c.get("userId");
   const key = c.req.param("key");
   const db = getDb(c.env);
+  await ensureTable(db);
   const result = await db.prepare(
     "DELETE FROM bank_formats WHERE user_id = ? AND format_key = ?"
   ).run(userId, key);

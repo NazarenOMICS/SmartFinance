@@ -1,8 +1,13 @@
 const { DEFAULT_PATTERNS } = require("../db");
 
 function parseDate(raw, period) {
+  if (!raw) return null;
   const [periodYear] = period.split("-").map(Number);
-  const date = raw.replace(/-/g, "/").split("/");
+  const clean = String(raw).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) {
+    return isValidISODate(clean) ? clean : null;
+  }
+  const date = clean.replace(/-/g, "/").split("/");
   const day = Number(date[0]);
   const month = Number(date[1]);
   let year = date[2] ? Number(date[2]) : periodYear;
@@ -11,7 +16,8 @@ function parseDate(raw, period) {
     year += 2000;
   }
 
-  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const iso = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return isValidISODate(iso) ? iso : null;
 }
 
 function parseAmount(raw) {
@@ -67,15 +73,16 @@ function extractTransactions(text, patterns, period) {
     }
 
     const [, rawDate, description, rawAmount] = match;
+    const fecha = parseDate(rawDate, period);
     const amount = parseAmount(rawAmount);
 
-    if (!Number.isFinite(amount)) {
+    if (!fecha || !Number.isFinite(amount)) {
       unmatched.push(line);
       return;
     }
 
     transactions.push({
-      fecha: parseDate(rawDate, period),
+      fecha,
       desc_banco: description.trim(),
       monto: amount
     });
@@ -88,4 +95,15 @@ module.exports = {
   extractTransactions,
   parseAmount
 };
+
+function isValidISODate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
 

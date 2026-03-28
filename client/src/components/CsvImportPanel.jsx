@@ -77,11 +77,15 @@ function parseRows(text) {
 
 function parseDate(str) {
   if (!str) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  const raw = str.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return isValidISODate(raw) ? raw : null;
+  }
   const m = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
   if (m) {
     const [, d, mo, y] = m;
-    return `${y.length===2?`20${y}`:y}-${mo.padStart(2,"0")}-${d.padStart(2,"0")}`;
+    const iso = `${y.length===2?`20${y}`:y}-${mo.padStart(2,"0")}-${d.padStart(2,"0")}`;
+    return isValidISODate(iso) ? iso : null;
   }
   return null;
 }
@@ -98,6 +102,17 @@ function parseAmount(str) {
   else                        normalized = clean;                                        // no separator
   const n = parseFloat(normalized);
   return isNaN(n) ? null : n;
+}
+
+function isValidISODate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
 }
 
 function guessColumnRoles(headers) {

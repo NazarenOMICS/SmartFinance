@@ -15,6 +15,10 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
   const { addToast } = useToast();
   const [state, setState] = useState({ loading: true, error: "", accounts: [], consolidated: null });
   const [localBalances, setLocalBalances] = useState({});
+  const [rateDrafts, setRateDrafts] = useState({
+    exchange_rate_usd_uyu: settings.exchange_rate_usd_uyu || "42.5",
+    exchange_rate_ars_uyu: settings.exchange_rate_ars_uyu || "0.045",
+  });
   const [newAccount, setNewAccount] = useState({ id: "", name: "", currency: "UYU", balance: "" });
   const [deleteError, setDeleteError] = useState(null);
   const confirm = useConfirm();
@@ -35,6 +39,13 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
   useEffect(() => {
     load();
   }, [settings.display_currency, settings.exchange_rate_usd_uyu, settings.exchange_rate_ars_uyu]);
+
+  useEffect(() => {
+    setRateDrafts({
+      exchange_rate_usd_uyu: settings.exchange_rate_usd_uyu || "42.5",
+      exchange_rate_ars_uyu: settings.exchange_rate_ars_uyu || "0.045",
+    });
+  }, [settings.exchange_rate_usd_uyu, settings.exchange_rate_ars_uyu]);
 
   async function handleBalanceBlur(id) {
     try {
@@ -79,8 +90,31 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
     try {
       await api.updateSetting(key, value);
       await refreshSettings();
+      return true;
     } catch (e) {
       addToast("error", e.message);
+      return false;
+    }
+  }
+
+  async function handleRateBlur(key) {
+    const rawValue = String(rateDrafts[key] || "").trim();
+    const numericValue = Number(rawValue);
+    if (!rawValue || !Number.isFinite(numericValue) || numericValue <= 0) {
+      setRateDrafts((prev) => ({
+        ...prev,
+        [key]: settings[key] || (key === "exchange_rate_usd_uyu" ? "42.5" : "0.045"),
+      }));
+      addToast("warning", "Ingresa un tipo de cambio mayor a 0.");
+      return;
+    }
+    if (String(settings[key] || "") === rawValue) return;
+    const updated = await handleSetting(key, rawValue);
+    if (updated === false) {
+      setRateDrafts((prev) => ({
+        ...prev,
+        [key]: settings[key] || (key === "exchange_rate_usd_uyu" ? "42.5" : "0.045"),
+      }));
     }
   }
 
@@ -99,8 +133,9 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
               <input
                 type="number"
                 className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
-                value={settings.exchange_rate_usd_uyu || "42.5"}
-                onChange={(e) => { if (Number(e.target.value) > 0) handleSetting("exchange_rate_usd_uyu", e.target.value); }}
+                value={rateDrafts.exchange_rate_usd_uyu}
+                onChange={(e) => setRateDrafts((prev) => ({ ...prev, exchange_rate_usd_uyu: e.target.value }))}
+                onBlur={() => handleRateBlur("exchange_rate_usd_uyu")}
               />
             </label>
             <label className="flex flex-col gap-1">
@@ -108,8 +143,9 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
               <input
                 type="number"
                 className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
-                value={settings.exchange_rate_ars_uyu || "0.045"}
-                onChange={(e) => { if (Number(e.target.value) > 0) handleSetting("exchange_rate_ars_uyu", e.target.value); }}
+                value={rateDrafts.exchange_rate_ars_uyu}
+                onChange={(e) => setRateDrafts((prev) => ({ ...prev, exchange_rate_ars_uyu: e.target.value }))}
+                onBlur={() => handleRateBlur("exchange_rate_ars_uyu")}
               />
             </label>
             <select className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100" value={settings.display_currency || "UYU"} onChange={(e) => handleSetting("display_currency", e.target.value)}>

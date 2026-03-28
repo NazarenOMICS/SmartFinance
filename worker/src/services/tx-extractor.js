@@ -39,7 +39,7 @@ function parseDate(raw, period) {
   const clean = raw.trim();
 
   // Already ISO
-  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return isValidISODate(clean) ? clean : null;
 
   const [periodYear] = period.split("-").map(Number);
   const parts = clean.replace(/-/g, "/").split("/");
@@ -52,7 +52,8 @@ function parseDate(raw, period) {
 
   if (day < 1 || day > 31 || month < 1 || month > 12 || year < 2000 || year > 2100) return null;
 
-  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const iso = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return isValidISODate(iso) ? iso : null;
 }
 
 // ─── Amount parser ────────────────────────────────────────────────────────────
@@ -88,6 +89,17 @@ function parseAmount(raw) {
 
   const n = Number.parseFloat(normalized);
   return Number.isFinite(n) ? n : 0;
+}
+
+function isValidISODate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
 }
 
 // ─── Main export ─────────────────────────────────────────────────────────────
