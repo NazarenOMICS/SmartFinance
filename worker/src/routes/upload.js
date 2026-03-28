@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getDb, isValidMonthString } from "../db.js";
+import { getDb, getSettingsObject, isValidMonthString } from "../db.js";
 import { buildDedupHash } from "../services/dedup.js";
 import { bumpRule, isLikelyReintegro, isLikelyTransfer } from "../services/categorizer.js";
 import { extractTransactions } from "../services/tx-extractor.js";
@@ -225,12 +225,10 @@ router.post("/", async (c) => {
         textToParse = await file.text();
       }
       if (textToParse) {
-        const settingsRow = await db.prepare(
-          "SELECT value FROM settings WHERE key='parsing_patterns' AND user_id=?"
-        ).get(userId);
+        const settings = await getSettingsObject(c.env, userId);
         let patterns = [];
         try {
-          patterns = JSON.parse(settingsRow?.value || "[]");
+          patterns = JSON.parse(settings.parsing_patterns || "[]");
         } catch (_) {
           patterns = [];
         }
