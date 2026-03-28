@@ -113,8 +113,11 @@ export default function TransactionTable({
 
   async function saveEditRow(tx) {
     const fecha = editRowData.fecha;
-    const monto = Number(editRowData.monto);
-    if (fecha && !isNaN(monto) && (fecha !== tx.fecha || monto !== tx.monto)) {
+    const rawAmount = String(editRowData.monto ?? "").trim();
+    if (!fecha || !rawAmount) return;
+    const monto = Number(rawAmount);
+    if (!Number.isFinite(monto)) return;
+    if (fecha !== tx.fecha || monto !== tx.monto) {
       const updated = await onUpdateFull?.(tx.id, { fecha, monto });
       if (updated === false) return;
     }

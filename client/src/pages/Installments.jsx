@@ -91,8 +91,21 @@ export default function Installments({ month }) {
   }
 
   async function handleUpdate(id, cuotaActual) {
+    const installment = state.installments.find((item) => item.id === id);
+    const rawValue = String(cuotaActual ?? "").trim();
+    if (!rawValue) {
+      setLocalCuotas((prev) => ({ ...prev, [id]: String(installment?.cuota_actual ?? 1) }));
+      addToast("warning", "La cuota actual no puede quedar vacia.");
+      return;
+    }
+    const parsedValue = Number(rawValue);
+    if (!Number.isInteger(parsedValue) || parsedValue < 1) {
+      setLocalCuotas((prev) => ({ ...prev, [id]: String(installment?.cuota_actual ?? 1) }));
+      addToast("warning", "Ingresa una cuota actual valida.");
+      return;
+    }
     try {
-      await api.updateInstallment(id, { cuota_actual: Number(cuotaActual) });
+      await api.updateInstallment(id, { cuota_actual: parsedValue });
       await load();
     } catch (e) {
       addToast("error", e.message);
