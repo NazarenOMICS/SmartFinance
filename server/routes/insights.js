@@ -83,7 +83,7 @@ router.get("/recurring", (req, res) => {
       return monthsSeen.size >= 2;
     })
     .map((g) => {
-      const monthsSeen = [...new Set(g.txs.map((tx) => tx.month))].sort();
+      const monthsSeen = [...new Set(g.txs.map((tx) => tx.month))].sort().reverse();
       const avg_amount = g.txs.reduce((s, tx) => s + Math.abs(tx.monto), 0) / g.txs.length;
       return {
         desc_banco: g.desc_banco,

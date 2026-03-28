@@ -98,8 +98,7 @@ router.get("/recurring", async (c) => {
         occurrences: group.txs.length,
       };
     })
-    .sort((left, right) => right.avg_amount - left.avg_amount)
-    .slice(0, 20);
+    .sort((left, right) => right.avg_amount - left.avg_amount);
 
   return c.json(recurring);
 });
