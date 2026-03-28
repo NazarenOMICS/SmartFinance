@@ -37,6 +37,8 @@ const DEFAULT_SETTINGS = [
   { key: "parsing_patterns", value: JSON.stringify(DEFAULT_PATTERNS) },
 ];
 
+const LEGACY_TABLES = ["transactions", "categories", "accounts", "rules", "installments", "uploads", "settings"];
+
 router.post("/", async (c) => {
   const userId = c.get("userId");
   const db = getDb(c.env);
@@ -83,29 +85,25 @@ router.post("/claim-legacy", async (c) => {
     return c.json({ error: "User already has data. Cannot claim legacy records." }, 409);
   }
 
-  const legacyCount = await db.prepare(
-    "SELECT COUNT(*) AS count FROM categories WHERE user_id = ''"
-  ).get();
-  if (legacyCount.count === 0) {
+  const legacyChecks = await Promise.all(
+    LEGACY_TABLES.map((table) =>
+      db.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE user_id = ''`).get()
+    )
+  );
+  if (legacyChecks.every((row) => row.count === 0)) {
     return c.json({ error: "No legacy data found" }, 404);
   }
 
   await db.prepare("DELETE FROM categories WHERE user_id = ?").run(userId);
   await db.prepare("DELETE FROM settings WHERE user_id = ?").run(userId);
 
-  const tables = ["transactions", "categories", "accounts", "rules", "installments", "uploads"];
   const counts = {};
-  for (const table of tables) {
+  for (const table of LEGACY_TABLES) {
     const result = await db.prepare(
       `UPDATE ${table} SET user_id = ? WHERE user_id = ''`
     ).run(userId);
     counts[table] = result.changes || 0;
   }
-
-  const settingsResult = await db.prepare(
-    "UPDATE settings SET user_id = ? WHERE user_id = ''"
-  ).run(userId);
-  counts.settings = settingsResult.changes || 0;
 
   for (const setting of DEFAULT_SETTINGS) {
     await c.env.DB.prepare(

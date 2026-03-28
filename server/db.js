@@ -3,7 +3,9 @@ const Database = require("better-sqlite3");
 
 const DB_PATH = path.join(__dirname, "finance-tracker.db");
 const DEFAULT_PATTERNS = [
-  String.raw`^(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)\s+(.+?)\s+([\-]?\$?\s?[\d.,]+(?:\.\d{2})?)\s*$`
+  String.raw`^(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)\s+(.+?)\s+([-]?[\d.,]+)\s+[\d.,]+\s*$`,
+  String.raw`^(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)\s+(.+?)\s+([-]?[\d.,]+)\s*$`,
+  String.raw`^(\d{4}-\d{2}-\d{2})\s+(.+?)\s+([-]?[\d.,]+)\s*$`
 ];
 const DEFAULT_SETTINGS = {
   exchange_rate_usd_uyu: "42.5",

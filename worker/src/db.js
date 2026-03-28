@@ -1,13 +1,12 @@
+import { DEFAULT_PATTERNS } from "./services/tx-extractor.js";
+
 // Wraps Cloudflare D1 to match the better-sqlite3 interface used in routes.
 // All methods are async (D1 is always async).
-export const DEFAULT_PATTERNS = [
-  String.raw`^(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)\s+(.+?)\s+([\-]?\$?\s?[\d.,]+(?:\.\d{2})?)\s*$`
-];
 export const DEFAULT_SETTINGS = {
   exchange_rate_usd_uyu: "42.5",
   exchange_rate_ars_uyu: "0.045",
   display_currency: "UYU",
-  savings_initial: "50000",
+  savings_initial: "0",
   savings_goal: "200000",
   savings_currency: "UYU",
   parsing_patterns: JSON.stringify(DEFAULT_PATTERNS)
