@@ -53,6 +53,10 @@ router.post("/", (req, res) => {
   if (colFecha < 0 || colDesc < 0 || (colMonto < 0 && colDebit < 0 && colCredit < 0)) {
     return res.status(400).json({ error: "format must include fecha, descripcion and at least one amount column" });
   }
+  const assignedColumns = [colFecha, colDesc, colDebit, colCredit, colMonto].filter((value) => value >= 0);
+  if (new Set(assignedColumns).size !== assignedColumns.length) {
+    return res.status(400).json({ error: "each role must use a different column" });
+  }
 
   const config = {
     bank_name: bankName,

@@ -155,6 +155,9 @@ router.get("/", (req, res) => {
   let where = "";
 
   if (req.query.period) {
+    if (!isValidPeriod(req.query.period)) {
+      return res.status(400).json({ error: "period must be in YYYY-MM format" });
+    }
     where = "WHERE u.period = ?";
     params.push(req.query.period);
   }
@@ -175,10 +178,13 @@ router.get("/", (req, res) => {
 });
 
 router.post("/", upload.single("file"), async (req, res, next) => {
+  let uploadId = null;
   try {
-    const { account_id = null, period } = req.body;
-    if (!req.file || !period) {
-      return res.status(400).json({ error: "file and period are required" });
+    const account_id = String(req.body.account_id || "").trim();
+    const period = req.body.period;
+    if (!req.file || !period || !account_id) {
+      cleanupUploadedFile(req.file?.path);
+      return res.status(400).json({ error: "file, period and account_id are required" });
     }
     if (!isValidPeriod(period)) {
       cleanupUploadedFile(req.file.path);
@@ -200,6 +206,7 @@ router.post("/", upload.single("file"), async (req, res, next) => {
     const uploadResult = db
       .prepare("INSERT INTO uploads (filename, account_id, period, status) VALUES (?, ?, ?, 'pending')")
       .run(req.file.filename, account_id, period);
+    uploadId = uploadResult.lastInsertRowid;
 
     let newTransactions = 0;
     let duplicatesSkipped = 0;
@@ -370,6 +377,9 @@ router.post("/", upload.single("file"), async (req, res, next) => {
       pending_review: pendingReview
     });
   } catch (error) {
+    if (uploadId != null) {
+      db.prepare("UPDATE uploads SET status = 'error' WHERE id = ?").run(uploadId);
+    }
     cleanupUploadedFile(req.file?.path);
     next(error);
   }
