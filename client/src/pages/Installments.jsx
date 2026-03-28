@@ -87,8 +87,13 @@ export default function Installments({ month }) {
   }
 
   async function handleUpdate(id, cuotaActual) {
-    await api.updateInstallment(id, { cuota_actual: Number(cuotaActual) });
-    await load();
+    try {
+      await api.updateInstallment(id, { cuota_actual: Number(cuotaActual) });
+      await load();
+    } catch (e) {
+      addToast("error", e.message);
+      await load();
+    }
   }
 
   if (state.loading) return <div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel dark:bg-neutral-900/80">Cargando cuotas…</div>;

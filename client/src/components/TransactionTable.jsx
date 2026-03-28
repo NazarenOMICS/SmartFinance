@@ -86,9 +86,9 @@ export default function TransactionTable({
     ? "grid grid-cols-[20px_90px_1.5fr_120px_130px_170px_44px] gap-3"
     : "grid grid-cols-[90px_1.5fr_120px_130px_170px_44px] gap-3";
 
-  function handleDeleteClick(id) {
+  async function handleDeleteClick(id) {
     if (confirmDelete === id) {
-      onDelete(id);
+      await onDelete?.(id);
       setConfirmDelete(null);
       setSelectedIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
     } else {
@@ -96,8 +96,8 @@ export default function TransactionTable({
     }
   }
 
-  function handleCategoryChange(txId, value) {
-    onCategorize(txId, value);
+  async function handleCategoryChange(txId, value) {
+    await onCategorize?.(txId, value);
     setEditingCategory(null);
     setSelectedIds((prev) => { const next = new Set(prev); next.delete(txId); return next; });
   }

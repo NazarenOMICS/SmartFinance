@@ -37,9 +37,14 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
   }, [settings.display_currency, settings.exchange_rate_usd_uyu, settings.exchange_rate_ars_uyu]);
 
   async function handleBalanceBlur(id) {
-    const balance = Number(localBalances[id] ?? 0);
-    await api.updateAccount(id, { balance });
-    await load();
+    try {
+      const balance = Number(localBalances[id] ?? 0);
+      await api.updateAccount(id, { balance });
+      await load();
+    } catch (e) {
+      addToast("error", e.message);
+      await load();
+    }
   }
 
   async function handleCreate(event) {
@@ -124,7 +129,17 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
                   className="rounded-xl border border-transparent px-2 py-1 font-semibold text-finance-ink hover:border-neutral-200 focus:border-finance-purple focus:outline-none w-full bg-transparent dark:hover:border-neutral-700"
                   defaultValue={account.name}
                   key={account.name}
-                  onBlur={(e) => { if (e.target.value.trim() && e.target.value !== account.name) api.updateAccount(account.id, { name: e.target.value.trim() }).then(load); }}
+                  onBlur={async (e) => {
+                    const nextName = e.target.value.trim();
+                    if (!nextName || nextName === account.name) return;
+                    try {
+                      await api.updateAccount(account.id, { name: nextName });
+                      await load();
+                    } catch (error) {
+                      addToast("error", error.message);
+                      await load();
+                    }
+                  }}
                 />
                 <span className="text-neutral-500">{account.currency}</span>
                 <input

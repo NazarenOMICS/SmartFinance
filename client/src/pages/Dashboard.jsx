@@ -56,26 +56,35 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
   useEffect(() => { load(); }, [month]);
 
   async function handleCategorize(id, categoryId) {
-    const result = await api.updateTransaction(id, { category_id: Number(categoryId) });
+    try {
+      const result = await api.updateTransaction(id, { category_id: Number(categoryId) });
     if (result?.rule?.conflict) {
       addToast("warning", `Regla "${result.rule.rule?.pattern}" existe para otra categoría — la transacción fue categorizada sin modificar la regla.`);
     } else if (result?.rule?.created && result.rule.retro_count > 0) {
       addToast("success", `Regla "${result.rule.rule?.pattern}" aplicada a ${result.rule.retro_count} transacciones anteriores.`);
     }
-    await load();
+      await load();
+    } catch (e) {
+      addToast("error", e.message);
+    }
   }
 
   async function handleBulkCategorize(ids, categoryId) {
-    await Promise.all(ids.map((id) => api.updateTransaction(id, { category_id: Number(categoryId) })));
-    addToast("success", `${ids.length} transacciones categorizadas.`);
-    await load();
+    try {
+      await Promise.all(ids.map((id) => api.updateTransaction(id, { category_id: Number(categoryId) })));
+      addToast("success", `${ids.length} transacciones categorizadas.`);
+      await load();
+    } catch (e) {
+      addToast("error", e.message);
+    }
   }
 
   async function handleDeleteTransaction(id) {
-    const tx = state.transactions.find((t) => t.id === id);
-    await api.deleteTransaction(id);
-    await load();
-    if (tx) {
+    try {
+      const tx = state.transactions.find((t) => t.id === id);
+      await api.deleteTransaction(id);
+      await load();
+      if (tx) {
       addToast("info", `"${(tx.desc_usuario || tx.desc_banco).slice(0, 32)}" eliminada`, {
         label: "Deshacer",
         fn: async () => {
@@ -92,17 +101,28 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
           addToast("success", "Transacción restaurada.");
         },
       });
+      }
+    } catch (e) {
+      addToast("error", e.message);
     }
   }
 
   async function handleUpdateDesc(id, desc) {
-    await api.updateTransaction(id, { desc_usuario: desc });
-    await load();
+    try {
+      await api.updateTransaction(id, { desc_usuario: desc });
+      await load();
+    } catch (e) {
+      addToast("error", e.message);
+    }
   }
 
   async function handleUpdateFull(id, changes) {
-    await api.updateTransaction(id, changes);
-    await load();
+    try {
+      await api.updateTransaction(id, changes);
+      await load();
+    } catch (e) {
+      addToast("error", e.message);
+    }
   }
 
   if (state.loading) return <SkeletonDashboard />;
