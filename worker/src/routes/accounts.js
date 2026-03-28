@@ -129,7 +129,7 @@ router.delete("/:id", async (c) => {
     }
   }
   await db.prepare("DELETE FROM accounts WHERE id=? AND user_id=?").run(id, userId);
-  return c.json({ ok: true });
+  return new Response(null, { status: 204 });
 });
 
 export default router;

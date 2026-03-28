@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../contexts/ToastContext";
 
@@ -8,16 +8,20 @@ export default function Rules() {
   const [localBudgets, setLocalBudgets] = useState({});
   const [ruleForm, setRuleForm] = useState({ pattern: "", category_id: "" });
   const [catForm, setCatForm] = useState({ name: "", budget: "", type: "variable", color: "#888780" });
+  const loadRequestIdRef = useRef(0);
 
   async function load() {
+    const requestId = ++loadRequestIdRef.current;
     setState((prev) => ({ ...prev, loading: true, error: "" }));
     try {
       const [categories, rules] = await Promise.all([api.getCategories(), api.getRules()]);
+      if (loadRequestIdRef.current !== requestId) return;
       setState({ loading: false, error: "", categories, rules });
       const map = {};
       categories.forEach((c) => { map[c.id] = String(c.budget); });
       setLocalBudgets(map);
     } catch (error) {
+      if (loadRequestIdRef.current !== requestId) return;
       setState((prev) => ({ ...prev, loading: false, error: error.message }));
     }
   }

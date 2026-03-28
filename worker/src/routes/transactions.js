@@ -348,7 +348,7 @@ router.delete("/:id", async (c) => {
   ).get(id, userId);
   if (!tx) return c.json({ error: "transaction not found" }, 404);
   await db.prepare("DELETE FROM transactions WHERE id = ? AND user_id = ?").run(id, userId);
-  return c.json({ ok: true });
+  return new Response(null, { status: 204 });
 });
 
 export default router;

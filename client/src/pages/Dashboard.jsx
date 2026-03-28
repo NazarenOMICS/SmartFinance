@@ -125,6 +125,8 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
                 moneda: tx.moneda,
                 ...(tx.category_id && { category_id: tx.category_id }),
                 ...(tx.account_id && { account_id: tx.account_id }),
+                ...(tx.es_cuota && { es_cuota: tx.es_cuota }),
+                ...(tx.installment_id && { installment_id: tx.installment_id }),
               });
               await load();
               addToast("success", "Transaccion restaurada.");
