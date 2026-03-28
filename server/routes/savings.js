@@ -98,7 +98,7 @@ router.get("/projection", (req, res) => {
   });
 
   res.json({
-    average_monthly_savings: Math.round(avgSavings),
+    average_monthly_savings: Number(avgSavings.toFixed(2)),
     initial,
     goal,
     currency: savingsCurrency,
@@ -195,11 +195,11 @@ router.get("/insights", (req, res) => {
 
   res.json({
     growth,
-    daily_average_spend: Math.round(totalExpenses / Math.max(1, activeDay)),
+    daily_average_spend: Number((totalExpenses / Math.max(1, activeDay)).toFixed(2)),
     days_left: daysLeft,
     remaining_budget: remainingBudget,
     budget_exhausted: remainingBudget < 0,
-    budget_per_day: daysLeft > 0 ? Math.round(remainingBudget / daysLeft) : 0,
+    budget_per_day: daysLeft > 0 ? Number((remainingBudget / daysLeft).toFixed(2)) : 0,
     eta_months: etaMonths,
     currency: savingsCurrency
   });

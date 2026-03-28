@@ -90,7 +90,7 @@ router.get("/recurring", (req, res) => {
         moneda: g.moneda,
         category_name: g.category_name,
         category_color: g.category_name ? (categoryColors[g.category_name] || null) : null,
-        avg_amount: Math.round(avg_amount),
+        avg_amount: Number(avg_amount.toFixed(2)),
         occurrences: g.txs.length,
         months_seen: monthsSeen,
       };

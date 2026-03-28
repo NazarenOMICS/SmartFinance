@@ -280,6 +280,10 @@ router.post("/", upload.single("file"), async (req, res, next) => {
     } else if (extension === ".csv") {
       const text = fs.readFileSync(req.file.path, "utf-8");
       const rows = parseCsvRows(text);
+      if (rows.length < 2 || rows[0].length < 2) {
+        db.prepare("UPDATE uploads SET status = 'error' WHERE id = ?").run(uploadId);
+        return res.status(400).json({ error: "CSV file is empty or malformed" });
+      }
 
       if (rows.length >= 2) {
         const headers = rows[0];
