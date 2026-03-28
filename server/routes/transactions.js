@@ -3,6 +3,7 @@ const { db, isValidMonthString } = require("../db");
 const { buildDedupHash } = require("../services/dedup");
 const { ensureRuleForManualCategorization, findMatchingRule, bumpRule, isLikelyReintegro, isLikelyTransfer } = require("../services/categorizer");
 const { computeMonthlyEvolution, computeSummary, getTransactionsForMonth } = require("../services/metrics");
+const { suggestSync } = require("../services/suggester");
 
 const router = express.Router();
 const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
@@ -99,7 +100,9 @@ router.get("/", (req, res) => {
   }
 
   const rows = getTransactionsForMonth(db, month, filters.join(" "), params);
-  res.json(rows);
+  const rules = db.prepare("SELECT id, pattern, category_id FROM rules ORDER BY LENGTH(pattern) DESC, match_count DESC, id ASC").all();
+  const categories = db.prepare("SELECT id, name FROM categories").all();
+  res.json(rows.map((tx) => suggestSync(tx, rules, categories)));
 });
 
 router.post("/", (req, res) => {

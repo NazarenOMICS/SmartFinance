@@ -192,7 +192,7 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
                 <span className="font-semibold text-finance-ink">
                   {(() => {
                     const display = settings.display_currency || "UYU";
-                    const usdRate = Number(settings.exchange_rate_usd_uyu || 1);
+                    const usdRate = Number(settings.exchange_rate_usd_uyu || 42.5);
                     const arsRate = Number(settings.exchange_rate_ars_uyu || 0.045);
                     if (account.currency === display) return fmtMoney(account.balance, display);
                     let inUYU = account.balance;

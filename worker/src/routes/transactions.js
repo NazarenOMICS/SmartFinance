@@ -314,10 +314,15 @@ router.put("/:id", async (c) => {
     ruleResult = await ensureRuleForManualCategorization(db, tx.desc_banco, body.category_id, userId);
   }
 
-  return c.json({
-    ...(await db.prepare("SELECT * FROM transactions WHERE id=? AND user_id=?").get(id, userId)),
-    rule: ruleResult
-  });
+  const updated = await db.prepare(
+    `SELECT t.*, c.name AS category_name, c.type AS category_type, a.name AS account_name
+     FROM transactions t
+     LEFT JOIN categories c ON c.id = t.category_id AND c.user_id = t.user_id
+     LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
+     WHERE t.id = ? AND t.user_id = ?`
+  ).get(id, userId);
+
+  return c.json({ transaction: updated, rule: ruleResult });
 });
 
 router.delete("/:id", async (c) => {
