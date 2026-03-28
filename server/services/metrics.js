@@ -184,6 +184,7 @@ function computeFutureCommitments(db, startMonth, months, options = {}) {
   const exchangeRate = Number(options.exchangeRateUsd || 1);
   const arsRate = Number(options.exchangeRateArs || 0.045);
   const [startYear, startMonthNum] = startMonth.split("-").map(Number);
+  const fallbackInstallmentStart = [startYear, startMonthNum];
   const result = [];
 
   for (let offset = 0; offset < months; offset += 1) {
@@ -192,7 +193,9 @@ function computeFutureCommitments(db, startMonth, months, options = {}) {
     const monthIndex = (totalMonths % 12) + 1;
     const month = `${year}-${String(monthIndex).padStart(2, "0")}`;
     const total = installments.reduce((sum, installment) => {
-      const installmentStart = installment.start_month ? installment.start_month.split("-").map(Number) : [year, monthIndex];
+      const installmentStart = installment.start_month
+        ? installment.start_month.split("-").map(Number)
+        : fallbackInstallmentStart;
       const startAbsolute = installmentStart[0] * 12 + (installmentStart[1] - 1);
       const absoluteMonth = year * 12 + (monthIndex - 1);
       const installmentNumber = absoluteMonth - startAbsolute + 1;

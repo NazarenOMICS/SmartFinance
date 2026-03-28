@@ -5,7 +5,8 @@ const router = express.Router();
 
 function csvEscape(value) {
   const raw = value == null ? "" : String(value);
-  return `"${raw.replace(/"/g, '""')}"`;
+  const escaped = /^[=+\-@]/.test(raw) ? `'${raw}` : raw;
+  return `"${escaped.replace(/"/g, '""')}"`;
 }
 
 router.get("/csv", (req, res) => {
