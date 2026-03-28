@@ -1,16 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { fmtMoney } from "../utils";
 
 export default function Recurring({ month }) {
   const [state, setState] = useState({ loading: true, error: "", data: [] });
+  const loadRequestIdRef = useRef(0);
 
   async function load() {
+    const requestId = ++loadRequestIdRef.current;
     setState((prev) => ({ ...prev, loading: true, error: "" }));
     try {
       const data = await api.getRecurring(month);
+      if (loadRequestIdRef.current !== requestId) return;
       setState({ loading: false, error: "", data });
     } catch (e) {
+      if (loadRequestIdRef.current !== requestId) return;
       setState((prev) => ({ ...prev, loading: false, error: e.message }));
     }
   }

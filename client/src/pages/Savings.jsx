@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Area, Bar, BarChart, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api";
 import { useToast } from "../contexts/ToastContext";
@@ -8,6 +8,7 @@ import { fmtMoney } from "../utils";
 export default function Savings({ month, settings, refreshSettings }) {
   const { addToast } = useToast();
   const [state, setState] = useState({ loading: true, error: "", projection: null, insights: null });
+  const loadRequestIdRef = useRef(0);
   const [form, setForm] = useState({
     savings_initial: settings.savings_initial || "50000",
     savings_goal: settings.savings_goal || "200000",
@@ -15,11 +16,14 @@ export default function Savings({ month, settings, refreshSettings }) {
   });
 
   async function load() {
+    const requestId = ++loadRequestIdRef.current;
     setState((prev) => ({ ...prev, loading: true, error: "" }));
     try {
       const [projection, insights] = await Promise.all([api.getProjection(month, 12), api.getInsights(month)]);
+      if (loadRequestIdRef.current !== requestId) return;
       setState({ loading: false, error: "", projection, insights });
     } catch (error) {
+      if (loadRequestIdRef.current !== requestId) return;
       setState((prev) => ({ ...prev, loading: false, error: error.message }));
     }
   }

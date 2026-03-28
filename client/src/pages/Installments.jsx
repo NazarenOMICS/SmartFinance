@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../contexts/ToastContext";
 import MetricCard from "../components/MetricCard";
@@ -34,8 +34,10 @@ export default function Installments({ month }) {
   const [localCuotas, setLocalCuotas] = useState({});
   const [accounts, setAccounts] = useState([]);
   const [form, setForm] = useState({ descripcion: "", monto_total: "", cantidad_cuotas: "", account_id: "", start_month: month });
+  const loadRequestIdRef = useRef(0);
 
   async function load() {
+    const requestId = ++loadRequestIdRef.current;
     setState((prev) => ({ ...prev, loading: true, error: "" }));
     try {
       const [installments, commitments, nextAccounts, settings] = await Promise.all([
@@ -44,12 +46,14 @@ export default function Installments({ month }) {
         api.getAccounts(),
         api.getSettings()
       ]);
+      if (loadRequestIdRef.current !== requestId) return;
       setAccounts(nextAccounts);
       setState({ loading: false, error: "", installments, commitments, settings });
       const map = {};
       installments.forEach((i) => { map[i.id] = String(i.cuota_actual); });
       setLocalCuotas(map);
     } catch (error) {
+      if (loadRequestIdRef.current !== requestId) return;
       setState((prev) => ({ ...prev, loading: false, error: error.message }));
     }
   }

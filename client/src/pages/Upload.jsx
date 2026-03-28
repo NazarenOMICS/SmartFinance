@@ -290,6 +290,7 @@ export default function Upload({ month, onDone }) {
   const [parsing, setParsing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const dragCounter = useRef(0);
+  const loadRequestIdRef = useRef(0);
 
   const [selectedAccount, setSelectedAccount] = useState("");
   const [uploadForm, setUploadForm] = useState({ file: null, period: month });
@@ -298,9 +299,11 @@ export default function Upload({ month, onDone }) {
   const [columnMapper, setColumnMapper] = useState(null); // null | { columns, sample, formatKey }
 
   async function load() {
+    const requestId = ++loadRequestIdRef.current;
     setLoading(true);
     try {
       const [nextAccounts, nextHistory] = await Promise.all([api.getAccounts(), api.getUploads()]);
+      if (loadRequestIdRef.current !== requestId) return;
       setAccounts(nextAccounts);
       setHistory(nextHistory);
       if (nextAccounts.every((account) => account.id !== selectedAccount)) {
@@ -309,8 +312,10 @@ export default function Upload({ month, onDone }) {
         setSelectedAccount(nextAccounts[0].id);
       }
     } catch (e) {
+      if (loadRequestIdRef.current !== requestId) return;
       addToast("error", e.message);
     } finally {
+      if (loadRequestIdRef.current !== requestId) return;
       setLoading(false);
     }
   }

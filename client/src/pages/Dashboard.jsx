@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api";
 import { useToast } from "../contexts/ToastContext";
@@ -27,8 +27,10 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
   const [clickedCategory, setClickedCategory] = useState(null);
   const [dismissedBudgetAlert, setDismissedBudgetAlert] = useState(false);
   const [drilldownFilter, setDrilldownFilter] = useState(null);
+  const loadRequestIdRef = useRef(0);
 
   async function load() {
+    const requestId = ++loadRequestIdRef.current;
     setState((prev) => ({ ...prev, loading: true, error: "" }));
     try {
       const [year, monthIndex] = month.split("-").map(Number);
@@ -53,6 +55,8 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
         });
       });
 
+      if (loadRequestIdRef.current !== requestId) return;
+
       setState({
         loading: false,
         error: "",
@@ -65,6 +69,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
       });
       onPendingChange?.(summary.pending_count || 0);
     } catch (error) {
+      if (loadRequestIdRef.current !== requestId) return;
       setState((prev) => ({ ...prev, loading: false, error: error.message }));
     }
   }
