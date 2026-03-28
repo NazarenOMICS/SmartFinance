@@ -8,7 +8,7 @@
  * to the current authenticated user. Safe to call only once.
  */
 import { Hono } from "hono";
-import { getDb, upsertSetting } from "../db.js";
+import { getDb } from "../db.js";
 import { DEFAULT_PATTERNS } from "../services/tx-extractor.js";
 
 const router = new Hono();
@@ -53,17 +53,29 @@ router.post("/", async (c) => {
     "SELECT name FROM categories WHERE user_id = ?"
   ).all(userId);
   const existingNames = new Set(existingCategories.map((row) => row.name.toLowerCase()));
+  const statements = [];
 
   for (let i = 0; i < DEFAULT_CATEGORIES.length; i += 1) {
     const cat = DEFAULT_CATEGORIES[i];
     if (existingNames.has(cat.name.toLowerCase())) continue;
-    await db.prepare(
-      "INSERT INTO categories (name,budget,type,color,sort_order,user_id) VALUES (?,?,?,?,?,?)"
-    ).run(cat.name, cat.budget, cat.type, cat.color, cat.sort_order ?? i, userId);
+    statements.push(
+      c.env.DB.prepare(
+        "INSERT INTO categories (name,budget,type,color,sort_order,user_id) VALUES (?,?,?,?,?,?)"
+      ).bind(cat.name, cat.budget, cat.type, cat.color, cat.sort_order ?? i, userId)
+    );
   }
 
   for (const setting of DEFAULT_SETTINGS) {
-    await upsertSetting(c.env, setting.key, setting.value, userId);
+    statements.push(
+      c.env.DB.prepare(
+        `INSERT INTO settings (user_id, key, value) VALUES (?, ?, ?)
+         ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value`
+      ).bind(userId, setting.key, setting.value)
+    );
+  }
+
+  if (statements.length > 0) {
+    await c.env.DB.batch(statements);
   }
 
   return c.json({
