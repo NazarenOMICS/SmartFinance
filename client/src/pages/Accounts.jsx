@@ -76,8 +76,12 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
   }
 
   async function handleSetting(key, value) {
-    await api.updateSetting(key, value);
-    await refreshSettings();
+    try {
+      await api.updateSetting(key, value);
+      await refreshSettings();
+    } catch (e) {
+      addToast("error", e.message);
+    }
   }
 
   if (state.loading) return <div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel dark:bg-neutral-900/80">Cargando cuentas…</div>;

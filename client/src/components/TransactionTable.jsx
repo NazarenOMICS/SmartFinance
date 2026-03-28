@@ -88,18 +88,22 @@ export default function TransactionTable({
 
   async function handleDeleteClick(id) {
     if (confirmDelete === id) {
-      await onDelete?.(id);
-      setConfirmDelete(null);
-      setSelectedIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+      const deleted = await onDelete?.(id);
+      if (deleted !== false) {
+        setConfirmDelete(null);
+        setSelectedIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+      }
     } else {
       setConfirmDelete(id);
     }
   }
 
   async function handleCategoryChange(txId, value) {
-    await onCategorize?.(txId, value);
-    setEditingCategory(null);
-    setSelectedIds((prev) => { const next = new Set(prev); next.delete(txId); return next; });
+    const updated = await onCategorize?.(txId, value);
+    if (updated !== false) {
+      setEditingCategory(null);
+      setSelectedIds((prev) => { const next = new Set(prev); next.delete(txId); return next; });
+    }
   }
 
   function openEditRow(tx) {
@@ -107,11 +111,12 @@ export default function TransactionTable({
     setEditRowData({ fecha: tx.fecha, monto: String(tx.monto) });
   }
 
-  function saveEditRow(tx) {
+  async function saveEditRow(tx) {
     const fecha = editRowData.fecha;
     const monto = Number(editRowData.monto);
     if (fecha && !isNaN(monto) && (fecha !== tx.fecha || monto !== tx.monto)) {
-      onUpdateFull?.(tx.id, { fecha, monto });
+      const updated = await onUpdateFull?.(tx.id, { fecha, monto });
+      if (updated === false) return;
     }
     setEditingRow(null);
   }
@@ -144,9 +149,11 @@ export default function TransactionTable({
 
   async function handleBulkSubmit() {
     if (!bulkCatId || selectedIds.size === 0) return;
-    await onBulkCategorize?.([...selectedIds], bulkCatId);
-    setSelectedIds(new Set());
-    setBulkCatId("");
+    const updated = await onBulkCategorize?.([...selectedIds], bulkCatId);
+    if (updated !== false) {
+      setSelectedIds(new Set());
+      setBulkCatId("");
+    }
   }
 
   return (
@@ -330,9 +337,12 @@ export default function TransactionTable({
                           className="w-full bg-transparent font-medium text-finance-ink focus:outline-none dark:text-neutral-100"
                           value={editingDesc[tx.id] ?? (tx.desc_usuario || tx.desc_banco)}
                           onChange={(e) => setEditingDesc((prev) => ({ ...prev, [tx.id]: e.target.value }))}
-                          onBlur={(e) => {
+                          onBlur={async (e) => {
                             const newDesc = e.target.value.trim();
-                            if (newDesc && newDesc !== (tx.desc_usuario || tx.desc_banco)) onUpdateDesc?.(tx.id, newDesc);
+                            if (newDesc && newDesc !== (tx.desc_usuario || tx.desc_banco)) {
+                              const updated = await onUpdateDesc?.(tx.id, newDesc);
+                              if (updated === false) return;
+                            }
                             setEditingDesc((prev) => { const next = { ...prev }; delete next[tx.id]; return next; });
                           }}
                         />
@@ -397,10 +407,11 @@ export default function TransactionTable({
                     className="w-full bg-transparent font-medium text-finance-ink focus:outline-none focus:underline focus:decoration-finance-purple/40 placeholder:text-neutral-400 dark:text-neutral-100"
                     value={editingDesc[tx.id] ?? (tx.desc_usuario || tx.desc_banco)}
                     onChange={(e) => setEditingDesc((prev) => ({ ...prev, [tx.id]: e.target.value }))}
-                    onBlur={(e) => {
+                    onBlur={async (e) => {
                       const newDesc = e.target.value.trim();
                       if (newDesc && newDesc !== (tx.desc_usuario || tx.desc_banco)) {
-                        onUpdateDesc?.(tx.id, newDesc);
+                        const updated = await onUpdateDesc?.(tx.id, newDesc);
+                        if (updated === false) return;
                       }
                       setEditingDesc((prev) => { const next = { ...prev }; delete next[tx.id]; return next; });
                     }}

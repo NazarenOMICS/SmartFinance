@@ -28,8 +28,11 @@ export default function Rules() {
     try {
       await api.updateCategory(category.id, { ...category, ...changes });
       await load();
+      return true;
     } catch (e) {
       addToast("error", e.message);
+      await load();
+      return false;
     }
   }
 
@@ -120,7 +123,11 @@ export default function Rules() {
                 placeholder="Presupuesto"
                 value={localBudgets[category.id] ?? category.budget}
                 onChange={(e) => setLocalBudgets((prev) => ({ ...prev, [category.id]: e.target.value }))}
-                onBlur={(e) => updateCategory(category, { budget: Number(e.target.value) })}
+                onBlur={(e) => {
+                  const nextBudget = Number(e.target.value);
+                  if (nextBudget === Number(category.budget)) return;
+                  updateCategory(category, { budget: nextBudget });
+                }}
               />
               <button
                 onClick={() => handleDeleteCategory(category.id)}

@@ -303,7 +303,11 @@ export default function Upload({ month, onDone }) {
       const [nextAccounts, nextHistory] = await Promise.all([api.getAccounts(), api.getUploads()]);
       setAccounts(nextAccounts);
       setHistory(nextHistory);
-      if (!selectedAccount && nextAccounts.length === 1) setSelectedAccount(nextAccounts[0].id);
+      if (nextAccounts.every((account) => account.id !== selectedAccount)) {
+        setSelectedAccount(nextAccounts.length === 1 ? nextAccounts[0].id : "");
+      } else if (!selectedAccount && nextAccounts.length === 1) {
+        setSelectedAccount(nextAccounts[0].id);
+      }
     } catch (e) {
       addToast("error", e.message);
     } finally {
@@ -362,7 +366,7 @@ export default function Upload({ month, onDone }) {
       if (file.name.toLowerCase().endsWith(".pdf")) {
         const text = await extractPdfText(file);
         formData.append("extracted_text", text);
-        formData.append("file", new Blob([file.name], { type: "text/plain" }), file.name);
+        formData.append("file", file, file.name);
       } else {
         formData.append("file", file);
       }

@@ -339,7 +339,7 @@ router.post("/", upload.single("file"), async (req, res, next) => {
             } else if (cfg.col_debit >= 0 || cfg.col_credit >= 0) {
               const d = cfg.col_debit  >= 0 ? parseCsvAmount(row[cfg.col_debit])  : null;
               const c = cfg.col_credit >= 0 ? parseCsvAmount(row[cfg.col_credit]) : null;
-              if (d !== null && d !== 0) monto = d;
+              if (d !== null && d !== 0) monto = -Math.abs(d);
               else if (c !== null && c !== 0) monto = Math.abs(c);
             }
             if (monto === null || !Number.isFinite(Number(monto))) continue;

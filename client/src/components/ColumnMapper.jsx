@@ -128,7 +128,7 @@ export default function ColumnMapper({
         } else if (roles.debit !== undefined || roles.credit !== undefined) {
           const d = roles.debit  !== undefined ? parseAmt(row[roles.debit])  : null;
           const c = roles.credit !== undefined ? parseAmt(row[roles.credit]) : null;
-          if (d !== null && d !== 0) monto = d;
+          if (d !== null && d !== 0) monto = -Math.abs(d);
           else if (c !== null)       monto = Math.abs(c);
         }
         if (monto === null) return null;

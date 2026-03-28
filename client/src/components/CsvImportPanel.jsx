@@ -187,7 +187,7 @@ export default function CsvImportPanel({ selectedAccount, selectedCurrency = "UY
           // BROU-style split: debit column already has minus sign, credit is positive
           const d = colRoles.debit  !== undefined ? parseAmount(row[colRoles.debit])  : null;
           const c = colRoles.credit !== undefined ? parseAmount(row[colRoles.credit]) : null;
-          if (d !== null && d !== 0) monto = d;         // already negative
+          if (d !== null && d !== 0) monto = -Math.abs(d);
           else if (c !== null && c !== 0) monto = Math.abs(c); // force positive
         }
 

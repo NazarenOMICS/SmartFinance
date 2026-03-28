@@ -315,7 +315,7 @@ export function applyColumnMap(rows, columns, period) {
     if (mi >= 0) {
       monto = parseAmt(row[mi]);
     } else {
-      if (bi >= 0) { const d = parseAmt(row[bi]); if (d !== null) monto = d; }
+      if (bi >= 0) { const d = parseAmt(row[bi]); if (d !== null) monto = -Math.abs(d); }
       if (monto === null && ci >= 0) { const c = parseAmt(row[ci]); if (c !== null) monto = Math.abs(c); }
     }
     if (monto === null) { unmatched.push(row.join(",")); continue; }
