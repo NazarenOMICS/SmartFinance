@@ -494,7 +494,7 @@ export default function Upload({ month, onDone }) {
             Paso 2a — Subir resumen
             {selectedAccountData ? <span className="ml-2 font-semibold text-finance-purple">({selectedAccountData.name})</span> : null}
           </p>
-          <h2 className="font-display text-3xl text-finance-ink">PDF, CSV o imagen</h2>
+          <h2 className="font-display text-3xl text-finance-ink">PDF, CSV o TXT</h2>
 
           <div className={`mt-6 flex flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-8 text-center transition ${
             isDragging
@@ -510,7 +510,7 @@ export default function Upload({ month, onDone }) {
             )}
             <input
               type="file"
-              accept=".pdf,image/*,.txt,.csv"
+              accept=".pdf,.txt,.csv"
               onChange={(e) => setUploadForm((prev) => ({ ...prev, file: e.target.files?.[0] || null }))}
               className="mt-3 text-sm"
             />

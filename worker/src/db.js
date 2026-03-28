@@ -52,6 +52,13 @@ export function monthWindow(month) {
   return { start, end };
 }
 
+export function isValidMonthString(value) {
+  const raw = String(value || "");
+  if (!/^\d{4}-\d{2}$/.test(raw)) return false;
+  const [, month] = raw.split("-").map(Number);
+  return month >= 1 && month <= 12;
+}
+
 export function normalizeSettingValue(key, value) {
   const raw = value == null ? "" : String(value).trim();
 

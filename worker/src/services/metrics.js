@@ -168,6 +168,7 @@ export async function computeFutureCommitments(db, startMonth, months, userId, o
   const exchangeRate = Number(options.exchangeRateUsd || 42.5);
   const exchangeRateArs = Number(options.exchangeRateArs || 0.045);
   const [startYear, startMonthNum] = startMonth.split("-").map(Number);
+  const fallbackInstallmentStart = [startYear, startMonthNum];
   const result = [];
   for (let offset = 0; offset < months; offset += 1) {
     const total = startYear * 12 + (startMonthNum - 1) + offset;
@@ -175,7 +176,7 @@ export async function computeFutureCommitments(db, startMonth, months, userId, o
     const monthIndex = (total % 12) + 1;
     const month = `${year}-${String(monthIndex).padStart(2, "0")}`;
     const monthTotal = installments.reduce((sum, inst) => {
-      const instStart = inst.start_month ? inst.start_month.split("-").map(Number) : [year, monthIndex];
+      const instStart = inst.start_month ? inst.start_month.split("-").map(Number) : fallbackInstallmentStart;
       const startAbs = instStart[0] * 12 + (instStart[1] - 1);
       const absMonth = year * 12 + (monthIndex - 1);
       const instNum = absMonth - startAbs + 1;

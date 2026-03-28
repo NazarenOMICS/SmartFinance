@@ -1,17 +1,18 @@
 import { Hono } from "hono";
-import { getDb, monthWindow } from "../db.js";
+import { getDb, isValidMonthString, monthWindow } from "../db.js";
 
 const router = new Hono();
 
 function csvEscape(value) {
   const raw = value == null ? "" : String(value);
-  return `"${raw.replace(/"/g, '""')}"`;
+  const escaped = /^[=+\-@]/.test(raw) ? `'${raw}` : raw;
+  return `"${escaped.replace(/"/g, '""')}"`;
 }
 
 router.get("/csv", async (c) => {
   const userId = c.get("userId");
   const month  = c.req.query("month");
-  if (!month || !/^\d{4}-\d{2}$/.test(month)) return c.json({ error: "month is required in YYYY-MM format" }, 400);
+  if (!isValidMonthString(month)) return c.json({ error: "month is required in YYYY-MM format" }, 400);
 
   const { start, end } = monthWindow(month);
   const db   = getDb(c.env);

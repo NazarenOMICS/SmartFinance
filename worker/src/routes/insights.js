@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getDb, getSettingsObject } from "../db.js";
+import { getDb, getSettingsObject, isValidMonthString } from "../db.js";
 
 const router = new Hono();
 
@@ -33,7 +33,7 @@ function normalizeDesc(desc) {
 router.get("/recurring", async (c) => {
   const userId = c.get("userId");
   const month = c.req.query("month");
-  if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+  if (!isValidMonthString(month)) {
     return c.json({ error: "month is required in YYYY-MM format" }, 400);
   }
   const db = getDb(c.env);
@@ -93,7 +93,7 @@ router.get("/recurring", async (c) => {
         category_name: group.category_name,
         category_color: group.category_color,
         moneda: latest.moneda,
-        avg_amount: Math.round(avgAmount),
+        avg_amount: Number(avgAmount.toFixed(2)),
         months_seen: [...group.months].sort().reverse(),
         occurrences: group.txs.length,
       };
@@ -109,7 +109,7 @@ router.get("/category-trend", async (c) => {
   const end = c.req.query("end") || c.req.query("month");
   const parsedMonths = Number(c.req.query("months") || 3);
   const monthsCount = Number.isInteger(parsedMonths) ? Math.max(1, Math.min(parsedMonths, 12)) : 3;
-  if (!end || !/^\d{4}-\d{2}$/.test(end)) {
+  if (!isValidMonthString(end)) {
     return c.json({ error: "end is required in YYYY-MM format" }, 400);
   }
   const db = getDb(c.env);

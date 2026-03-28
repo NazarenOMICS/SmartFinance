@@ -92,6 +92,7 @@ export default function Savings({ month, settings, refreshSettings }) {
             >
               <option value="UYU">UYU</option>
               <option value="USD">USD</option>
+              <option value="ARS">ARS</option>
             </select>
           </label>
         </div>

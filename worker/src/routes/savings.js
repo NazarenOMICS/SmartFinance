@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getDb, getSettingsObject, monthWindow } from "../db.js";
+import { getDb, getSettingsObject, isValidMonthString, monthWindow } from "../db.js";
 import { computeFutureCommitments, previousMonth } from "../services/metrics.js";
 
 const router = new Hono();
@@ -64,7 +64,7 @@ router.get("/projection", async (c) => {
   const now     = new Date();
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const baseMonth    = c.req.query("end") || currentMonth;
-  if (c.req.query("end") && !/^\d{4}-\d{2}$/.test(c.req.query("end"))) {
+  if (c.req.query("end") && !isValidMonthString(c.req.query("end"))) {
     return c.json({ error: "end must be in YYYY-MM format" }, 400);
   }
   const db       = getDb(c.env);
@@ -97,7 +97,7 @@ router.get("/projection", async (c) => {
   });
 
   return c.json({
-    average_monthly_savings: Math.round(avgSavings),
+    average_monthly_savings: Number(avgSavings.toFixed(2)),
     initial, goal,
     currency: savingsCurrency,
     commitments,
@@ -108,7 +108,7 @@ router.get("/projection", async (c) => {
 router.get("/insights", async (c) => {
   const userId = c.get("userId");
   const month  = c.req.query("month");
-  if (!month || !/^\d{4}-\d{2}$/.test(month)) return c.json({ error: "month is required in YYYY-MM format" }, 400);
+  if (!isValidMonthString(month)) return c.json({ error: "month is required in YYYY-MM format" }, 400);
 
   const db       = getDb(c.env);
   const settings = await getSettingsObject(c.env, userId);
@@ -187,11 +187,11 @@ router.get("/insights", async (c) => {
 
   return c.json({
     growth,
-    daily_average_spend: Math.round(totalExpenses / Math.max(1, activeDay)),
+    daily_average_spend: Number((totalExpenses / Math.max(1, activeDay)).toFixed(2)),
     days_left:     daysLeft,
     remaining_budget: remainingBudget,
     budget_exhausted: remainingBudget < 0,
-    budget_per_day: daysLeft > 0 && remainingBudget > 0 ? Math.round(remainingBudget / daysLeft) : 0,
+    budget_per_day: daysLeft > 0 ? Number((remainingBudget / daysLeft).toFixed(2)) : 0,
     eta_months:    etaMonths,
     currency: savingsCurrency
   });

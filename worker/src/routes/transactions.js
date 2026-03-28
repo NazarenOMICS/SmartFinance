@@ -1,15 +1,16 @@
 import { Hono } from "hono";
-import { getDb } from "../db.js";
+import { getDb, isValidMonthString } from "../db.js";
 import { buildDedupHash } from "../services/dedup.js";
 import { ensureRuleForManualCategorization, findMatchingRule, bumpRule, isLikelyReintegro, isLikelyTransfer } from "../services/categorizer.js";
 import { computeMonthlyEvolution, computeSummary, getTransactionsForMonth } from "../services/metrics.js";
 import { suggestSync } from "../services/suggester.js";
 
 const router = new Hono();
+const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
 
 function getMonth(c) {
   const month = c.req.query("month");
-  return month && /^\d{4}-\d{2}$/.test(month) ? month : null;
+  return isValidMonthString(month) ? month : null;
 }
 
 function parsePositiveInt(rawValue, fallback, max = null) {
@@ -19,7 +20,15 @@ function parsePositiveInt(rawValue, fallback, max = null) {
 }
 
 function isValidISODate(value) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
+  const raw = String(value || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  const [year, month, day] = raw.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
 }
 
 // Global full-text search across all months
@@ -37,9 +46,9 @@ router.get("/search", async (c) => {
      LEFT JOIN categories c ON c.id = t.category_id AND c.user_id = t.user_id
      LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
      WHERE t.user_id = ?
-       AND (LOWER(t.desc_banco) LIKE LOWER(?) OR LOWER(COALESCE(t.desc_usuario,'')) LIKE LOWER(?))
+       AND (LOWER(t.desc_banco) LIKE LOWER(?) OR LOWER(COALESCE(t.desc_usuario,'')) LIKE LOWER(?) OR CAST(t.monto AS TEXT) LIKE ?)
      ORDER BY t.fecha DESC LIMIT ?`
-  ).all(userId, term, term, limit);
+  ).all(userId, term, term, term, limit);
   return c.json(rows);
 });
 
@@ -63,7 +72,7 @@ router.get("/summary", async (c) => {
 router.get("/monthly-evolution", async (c) => {
   const userId = c.get("userId");
   const end    = c.req.query("end");
-  if (!end || !/^\d{4}-\d{2}$/.test(end)) {
+  if (!isValidMonthString(end)) {
     return c.json({ error: "end is required in YYYY-MM format" }, 400);
   }
   const months = parsePositiveInt(c.req.query("months") || 6, 6, 24);
@@ -105,7 +114,9 @@ router.post("/", async (c) => {
   const body   = await c.req.json();
   const { fecha, desc_banco, desc_usuario = null, monto, moneda = "UYU",
           category_id = null, account_id = null, es_cuota = 0 } = body;
-  if (!fecha || !desc_banco || monto == null) {
+  const normalizedDescBanco = String(desc_banco || "").trim();
+  const normalizedDescUsuario = desc_usuario == null ? null : String(desc_usuario).trim() || null;
+  if (!fecha || !normalizedDescBanco || monto == null) {
     return c.json({ error: "fecha, desc_banco and monto are required" }, 400);
   }
   if (!isValidISODate(fecha)) {
@@ -113,6 +124,9 @@ router.post("/", async (c) => {
   }
   if (!Number.isFinite(Number(monto))) {
     return c.json({ error: "monto must be a finite number" }, 400);
+  }
+  if (!SUPPORTED_CURRENCIES.has(moneda)) {
+    return c.json({ error: "moneda must be UYU, USD or ARS" }, 400);
   }
   const db   = getDb(c.env);
   if (account_id) {
@@ -127,7 +141,7 @@ router.post("/", async (c) => {
     ).get(Number(category_id), userId);
     if (!category) return c.json({ error: "category not found" }, 404);
   }
-  const hash = await buildDedupHash({ fecha, monto, desc_banco });
+  const hash = await buildDedupHash({ fecha, monto, desc_banco: normalizedDescBanco });
   const dup  = await db.prepare(
     "SELECT id FROM transactions WHERE dedup_hash = ? AND user_id = ? AND substr(fecha, 1, 7) = substr(?, 1, 7)"
   ).get(hash, userId, fecha);
@@ -136,16 +150,16 @@ router.post("/", async (c) => {
   // Auto-categorize
   let resolvedCategoryId = category_id;
   if (!resolvedCategoryId) {
-    const rule = await findMatchingRule(db, desc_banco, userId);
+    const rule = await findMatchingRule(db, normalizedDescBanco, userId);
     if (rule) {
       resolvedCategoryId = rule.category_id;
       await bumpRule(db, rule.id);
-    } else if (isLikelyTransfer(desc_banco)) {
+    } else if (isLikelyTransfer(normalizedDescBanco)) {
       const transferCategory = await db.prepare(
         "SELECT id FROM categories WHERE user_id = ? AND name = 'Transferencia'"
       ).get(userId);
       if (transferCategory) resolvedCategoryId = transferCategory.id;
-    } else if (await isLikelyReintegro(db, desc_banco, Number(monto), moneda, userId)) {
+    } else if (await isLikelyReintegro(db, normalizedDescBanco, Number(monto), moneda, userId)) {
       const reintegroCategory = await db.prepare(
         "SELECT id FROM categories WHERE user_id = ? AND name = 'Reintegro'"
       ).get(userId);
@@ -156,7 +170,7 @@ router.post("/", async (c) => {
   const result = await db.prepare(
     `INSERT INTO transactions (fecha,desc_banco,desc_usuario,monto,moneda,category_id,account_id,es_cuota,dedup_hash,user_id)
      VALUES (?,?,?,?,?,?,?,?,?,?)`
-  ).run(fecha, desc_banco.trim(), desc_usuario, Number(monto), moneda,
+  ).run(fecha, normalizedDescBanco, normalizedDescUsuario, Number(monto), moneda,
         resolvedCategoryId, account_id, es_cuota ? 1 : 0, hash, userId);
 
   return c.json(await db.prepare("SELECT * FROM transactions WHERE id=? AND user_id=?").get(result.lastInsertRowid, userId), 201);
@@ -197,10 +211,12 @@ router.post("/batch", async (c) => {
   for (const tx of txList) {
     try {
       const { fecha, desc_banco, monto, moneda, account_id } = tx;
-      if (!fecha || !desc_banco || monto == null) { errors++; continue; }
+      const normalizedDescBanco = String(desc_banco || "").trim();
+      if (!fecha || !normalizedDescBanco || monto == null) { errors++; continue; }
       if (!isValidISODate(fecha) || !Number.isFinite(Number(monto))) { errors++; continue; }
+      if (moneda != null && !SUPPORTED_CURRENCIES.has(moneda)) { errors++; continue; }
       if (tx.category_id != null && !categoryIds.has(Number(tx.category_id))) { errors++; continue; }
-      const hash = await buildDedupHash({ fecha, monto, desc_banco });
+      const hash = await buildDedupHash({ fecha, monto, desc_banco: normalizedDescBanco });
       const dup  = await db.prepare(
         "SELECT id FROM transactions WHERE dedup_hash = ? AND user_id = ? AND substr(fecha, 1, 7) = substr(?, 1, 7)"
       ).get(hash, userId, fecha);
@@ -215,19 +231,19 @@ router.post("/batch", async (c) => {
         if (accountRow?.currency) accountCurrencyCache.set(resolvedAccountId, accountRow.currency);
       }
       const resolvedCurrency = moneda || accountCurrencyCache.get(resolvedAccountId) || "UYU";
-      const rule = rules.find((r) => desc_banco.toLowerCase().includes(r.pattern.toLowerCase()));
+      const rule = rules.find((r) => normalizedDescBanco.toLowerCase().includes(r.pattern.toLowerCase()));
       let resolvedCategoryId = rule?.category_id ?? null;
       if (rule) {
         await bumpRule(db, rule.id);
-      } else if (isLikelyTransfer(desc_banco)) {
+      } else if (isLikelyTransfer(normalizedDescBanco)) {
         resolvedCategoryId = transferCategory?.id ?? null;
-      } else if (await isLikelyReintegro(db, desc_banco, Number(monto), resolvedCurrency, userId)) {
+      } else if (await isLikelyReintegro(db, normalizedDescBanco, Number(monto), resolvedCurrency, userId)) {
         resolvedCategoryId = reintegroCategory?.id ?? null;
       }
       await db.prepare(
         `INSERT INTO transactions (fecha,desc_banco,monto,moneda,category_id,account_id,dedup_hash,user_id)
          VALUES (?,?,?,?,?,?,?,?)`
-      ).run(fecha, desc_banco.trim(), Number(monto), resolvedCurrency,
+      ).run(fecha, normalizedDescBanco, Number(monto), resolvedCurrency,
             resolvedCategoryId, resolvedAccountId, hash, userId);
       created++;
     } catch { errors++; }
@@ -257,6 +273,9 @@ router.put("/:id", async (c) => {
   if (body.monto !== undefined && !Number.isFinite(Number(body.monto))) {
     return c.json({ error: "monto must be a finite number" }, 400);
   }
+  if (body.desc_usuario !== undefined && body.desc_usuario !== null && !String(body.desc_usuario).trim()) {
+    return c.json({ error: "desc_usuario cannot be blank" }, 400);
+  }
   if (body.category_id !== undefined && body.category_id !== null) {
     const category = await db.prepare(
       "SELECT id FROM categories WHERE id = ? AND user_id = ?"
@@ -265,7 +284,7 @@ router.put("/:id", async (c) => {
   }
   const next = {
     category_id:  body.category_id  !== undefined ? body.category_id  : tx.category_id,
-    desc_usuario: body.desc_usuario !== undefined ? body.desc_usuario : tx.desc_usuario,
+    desc_usuario: body.desc_usuario !== undefined ? (String(body.desc_usuario).trim() || null) : tx.desc_usuario,
     account_id:   body.account_id   !== undefined ? body.account_id   : tx.account_id,
     fecha:        body.fecha        !== undefined ? body.fecha        : tx.fecha,
     monto:        body.monto        !== undefined ? Number(body.monto): tx.monto,

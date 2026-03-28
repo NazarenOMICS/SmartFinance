@@ -125,7 +125,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
             onClick={() => onNavigate?.("upload")}
             className="rounded-full bg-finance-purple px-6 py-3 font-semibold text-white hover:opacity-90 transition"
           >
-            Subir PDF o imagen
+            Subir archivo bancario
           </button>
           <button
             onClick={() => onNavigate?.("upload")}

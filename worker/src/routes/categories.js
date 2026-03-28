@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { getDb } from "../db.js";
 
 const router = new Hono();
+const SUPPORTED_CATEGORY_TYPES = new Set(["variable", "fijo", "transferencia"]);
 
 router.get("/", async (c) => {
   const userId = c.get("userId");
@@ -14,15 +15,21 @@ router.get("/", async (c) => {
 router.post("/", async (c) => {
   const userId = c.get("userId");
   const { name, budget = 0, type = "variable", color = null } = await c.req.json();
-  if (!name) return c.json({ error: "name is required" }, 400);
+  const normalizedName = String(name || "").trim();
+  const normalizedBudget = Number(budget);
+  if (!normalizedName) return c.json({ error: "name is required" }, 400);
+  if (!Number.isFinite(normalizedBudget)) return c.json({ error: "budget must be a finite number" }, 400);
+  if (!SUPPORTED_CATEGORY_TYPES.has(type)) {
+    return c.json({ error: "type must be fijo, variable or transferencia" }, 400);
+  }
   const db = getDb(c.env);
   const existing = await db.prepare(
     "SELECT id FROM categories WHERE user_id = ? AND name = ? COLLATE NOCASE"
-  ).get(userId, name.trim());
-  if (existing) return c.json({ error: `Ya existe una categoría con el nombre "${name}"` }, 409);
+  ).get(userId, normalizedName);
+  if (existing) return c.json({ error: `Ya existe una categoría con el nombre "${normalizedName}"` }, 409);
   const result = await db.prepare(
     "INSERT INTO categories (name,budget,type,color,user_id) VALUES (?,?,?,?,?)"
-  ).run(name.trim(), budget, type, color, userId);
+  ).run(normalizedName, normalizedBudget, type, color, userId);
   return c.json(await db.prepare("SELECT * FROM categories WHERE id=? AND user_id=?").get(result.lastInsertRowid, userId), 201);
 });
 
@@ -36,15 +43,20 @@ router.put("/:id", async (c) => {
   if (!current) return c.json({ error: "category not found" }, 404);
   const body = await c.req.json();
   const next = {
-    name:   body.name?.trim() ?? current.name,
-    budget: body.budget ?? current.budget,
-    type:   body.type   ?? current.type,
-    color:  body.color  ?? current.color
+    name: body.name !== undefined ? String(body.name).trim() : current.name,
+    budget: body.budget !== undefined ? Number(body.budget) : current.budget,
+    type: body.type ?? current.type,
+    color: body.color ?? current.color
   };
+  if (!next.name) return c.json({ error: "name is required" }, 400);
+  if (!Number.isFinite(next.budget)) return c.json({ error: "budget must be a finite number" }, 400);
+  if (!SUPPORTED_CATEGORY_TYPES.has(next.type)) {
+    return c.json({ error: "type must be fijo, variable or transferencia" }, 400);
+  }
   const duplicate = await db.prepare(
     "SELECT id FROM categories WHERE user_id = ? AND name = ? COLLATE NOCASE AND id != ?"
   ).get(userId, next.name, id);
-  if (duplicate) return c.json({ error: `Ya existe una categorÃ­a con el nombre "${next.name}"` }, 409);
+  if (duplicate) return c.json({ error: `Ya existe una categoría con el nombre "${next.name}"` }, 409);
   await db.prepare(
     "UPDATE categories SET name=?,budget=?,type=?,color=? WHERE id=? AND user_id=?"
   ).run(next.name, next.budget, next.type, next.color, id, userId);

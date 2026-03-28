@@ -2,10 +2,10 @@ import { useState } from "react";
 import { api } from "../api";
 
 const PRESETS = [
-  { label: "Cuenta bancaria", icon: "🏦", currency: "UYU", idSuffix: "banco" },
-  { label: "Tarjeta de crédito", icon: "💳", currency: "UYU", idSuffix: "tc" },
-  { label: "Efectivo", icon: "💵", currency: "UYU", idSuffix: "efectivo" },
-  { label: "Cuenta USD", icon: "🌐", currency: "USD", idSuffix: "usd" },
+  { label: "Cuenta bancaria", icon: "CB", currency: "UYU", idSuffix: "banco" },
+  { label: "Tarjeta de credito", icon: "TC", currency: "UYU", idSuffix: "tc" },
+  { label: "Efectivo", icon: "EF", currency: "UYU", idSuffix: "efectivo" },
+  { label: "Cuenta USD", icon: "US", currency: "USD", idSuffix: "usd" },
 ];
 
 function slugify(str) {
@@ -20,21 +20,24 @@ export default function Onboarding({ onComplete }) {
   const [createdAccount, setCreatedAccount] = useState(null);
 
   function applyPreset(preset) {
-    setForm((p) => ({ ...p, name: preset.label, currency: preset.currency }));
+    setForm((prev) => ({ ...prev, name: preset.label, currency: preset.currency }));
   }
 
   async function handleCreateAccount(e) {
     e.preventDefault();
     setError("");
-    if (!form.name.trim()) { setError("Ingresá un nombre para la cuenta."); return; }
+    if (!form.name.trim()) {
+      setError("Ingresa un nombre para la cuenta.");
+      return;
+    }
     setSaving(true);
     try {
-      const id = slugify(form.name) + "_" + Date.now().toString(36);
+      const id = `${slugify(form.name)}_${Date.now().toString(36)}`;
       const account = await api.createAccount({
         id,
         name: form.name.trim(),
         currency: form.currency,
-        balance: Number(form.balance || 0)
+        balance: Number(form.balance || 0),
       });
       setCreatedAccount(account);
       setStep(2);
@@ -47,47 +50,49 @@ export default function Onboarding({ onComplete }) {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-finance-cream px-4 py-12">
-      {/* Progress */}
       <div className="mb-10 flex gap-2">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className={`h-1.5 rounded-full transition-all ${i <= step ? "w-10 bg-finance-purple" : "w-4 bg-neutral-200 dark:bg-neutral-700"}`} />
+        {[0, 1, 2].map((index) => (
+          <div
+            key={index}
+            className={`h-1.5 rounded-full transition-all ${index <= step ? "w-10 bg-finance-purple" : "w-4 bg-neutral-200 dark:bg-neutral-700"}`}
+          />
         ))}
       </div>
 
-      {/* Step 0 — Welcome */}
       {step === 0 && (
         <div className="w-full max-w-md text-center">
-          <p className="text-5xl">◈</p>
+          <p className="text-5xl">SF</p>
           <h1 className="mt-4 font-display text-5xl text-finance-ink">SmartFinance</h1>
-          <p className="mt-4 text-lg text-neutral-500">Tu mapa financiero personal. Empezamos desde cero — vos cargás los datos, la app aprende.</p>
+          <p className="mt-4 text-lg text-neutral-500">
+            Tu mapa financiero personal. Empezamos desde cero: vos cargas los datos, la app aprende.
+          </p>
           <ul className="mt-8 space-y-3 text-left text-sm text-neutral-500">
             {[
-              "Subís un PDF o agregás gastos a mano",
-              "Categorizás una vez — la app aprende para siempre",
-              "Ves en qué gastás, cuánto ahorrás, cuándo llegás a tu meta",
+              "Subis un PDF, CSV o TXT, o cargas gastos a mano",
+              "Categorizas una vez y la app aprende para siempre",
+              "Ves en que gastas, cuanto ahorras y cuando llegas a tu meta",
             ].map((line) => (
               <li key={line} className="flex items-start gap-2">
-                <span className="mt-0.5 text-finance-purple">✓</span> {line}
+                <span className="mt-0.5 text-finance-purple">OK</span>
+                <span>{line}</span>
               </li>
             ))}
           </ul>
           <button
             onClick={() => setStep(1)}
-            className="mt-10 w-full rounded-full bg-finance-purple py-4 font-semibold text-white text-lg hover:opacity-90 transition"
+            className="mt-10 w-full rounded-full bg-finance-purple py-4 text-lg font-semibold text-white transition hover:opacity-90"
           >
-            Empezar →
+            Empezar
           </button>
         </div>
       )}
 
-      {/* Step 1 — Create first account */}
       {step === 1 && (
         <div className="w-full max-w-md">
-          <p className="text-center text-3xl">◎</p>
+          <p className="text-center text-3xl">01</p>
           <h2 className="mt-3 text-center font-display text-4xl text-finance-ink">Tu primera cuenta</h2>
-          <p className="mt-2 text-center text-neutral-500">Donde tenés tu plata. Podés agregar más después.</p>
+          <p className="mt-2 text-center text-neutral-500">Donde tenes tu plata. Podes agregar mas despues.</p>
 
-          {/* Presets */}
           <div className="mt-6 grid grid-cols-2 gap-3">
             {PRESETS.map((preset) => (
               <button
@@ -99,75 +104,79 @@ export default function Onboarding({ onComplete }) {
                     : "border-neutral-200 bg-white hover:border-finance-purple/40 dark:border-neutral-700 dark:bg-neutral-800 dark:hover:border-finance-purple/40"
                 }`}
               >
-                <span className="text-xl">{preset.icon}</span>
+                <span className="text-xl font-semibold">{preset.icon}</span>
                 <p className="mt-1 text-sm font-semibold text-finance-ink">{preset.label}</p>
                 <p className="text-xs text-neutral-400">{preset.currency}</p>
               </button>
             ))}
           </div>
 
-          {/* Form */}
           <form onSubmit={handleCreateAccount} className="mt-6 space-y-4">
             <input
               className="w-full rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-finance-ink dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
               placeholder="Nombre (ej: BROU Caja de Ahorro)"
               value={form.name}
-              onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+              onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
             />
             <div className="grid grid-cols-2 gap-3">
               <select
                 className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-finance-ink dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
                 value={form.currency}
-                onChange={(e) => setForm((p) => ({ ...p, currency: e.target.value }))}
+                onChange={(e) => setForm((prev) => ({ ...prev, currency: e.target.value }))}
               >
-                <option value="UYU">UYU — Pesos</option>
-                <option value="USD">USD — Dólares</option>
-                <option value="ARS">ARS — Pesos AR</option>
+                <option value="UYU">UYU - Pesos</option>
+                <option value="USD">USD - Dolares</option>
+                <option value="ARS">ARS - Pesos AR</option>
               </select>
               <input
                 className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-finance-ink dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
                 type="number"
                 placeholder="Balance actual"
                 value={form.balance}
-                onChange={(e) => setForm((p) => ({ ...p, balance: e.target.value }))}
+                onChange={(e) => setForm((prev) => ({ ...prev, balance: e.target.value }))}
               />
             </div>
-            {error && <p className="rounded-xl bg-finance-redSoft px-4 py-2 text-sm text-finance-red dark:bg-red-900/30 dark:text-red-300">{error}</p>}
+            {error && (
+              <p className="rounded-xl bg-finance-redSoft px-4 py-2 text-sm text-finance-red dark:bg-red-900/30 dark:text-red-300">
+                {error}
+              </p>
+            )}
             <button
               disabled={saving}
-              className="w-full rounded-full bg-finance-purple py-4 font-semibold text-white hover:opacity-90 transition disabled:opacity-60"
+              className="w-full rounded-full bg-finance-purple py-4 font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
             >
-              {saving ? "Creando…" : "Crear cuenta →"}
+              {saving ? "Creando..." : "Crear cuenta"}
             </button>
           </form>
         </div>
       )}
 
-      {/* Step 2 — Done, choose next action */}
       {step === 2 && (
         <div className="w-full max-w-md text-center">
-          <p className="text-5xl">◉</p>
+          <p className="text-5xl">02</p>
           <h2 className="mt-4 font-display text-4xl text-finance-ink">
             {createdAccount?.name || "Cuenta"} creada
           </h2>
-          <p className="mt-3 text-neutral-500">Ahora cargá tus primeras transacciones. Podés subir un PDF bancario o agregar gastos a mano.</p>
+          <p className="mt-3 text-neutral-500">
+            Ahora carga tus primeras transacciones. Podes subir un PDF, CSV o TXT bancario, o agregar gastos a mano.
+          </p>
 
           <div className="mt-8 grid gap-4">
             <button
               onClick={() => onComplete("upload")}
-              className="flex items-center gap-4 rounded-[24px] border-2 border-finance-purple bg-finance-purpleSoft px-6 py-5 text-left hover:bg-finance-purple/20 transition dark:bg-purple-900/30 dark:hover:bg-purple-900/40"
+              className="flex items-center gap-4 rounded-[24px] border-2 border-finance-purple bg-finance-purpleSoft px-6 py-5 text-left transition hover:bg-finance-purple/20 dark:bg-purple-900/30 dark:hover:bg-purple-900/40"
             >
-              <span className="text-3xl">◱</span>
+              <span className="text-3xl">UP</span>
               <div>
-                <p className="font-semibold text-finance-ink">Subir PDF o imagen</p>
-                <p className="text-sm text-neutral-500">La app extrae las transacciones automáticamente</p>
+                <p className="font-semibold text-finance-ink">Subir archivo bancario</p>
+                <p className="text-sm text-neutral-500">Soporta PDF, CSV y TXT para extraer transacciones</p>
               </div>
             </button>
             <button
               onClick={() => onComplete("upload")}
-              className="flex items-center gap-4 rounded-[24px] border-2 border-neutral-200 bg-white px-6 py-5 text-left hover:border-finance-purple/40 transition dark:border-neutral-700 dark:bg-neutral-800 dark:hover:border-finance-purple/40"
+              className="flex items-center gap-4 rounded-[24px] border-2 border-neutral-200 bg-white px-6 py-5 text-left transition hover:border-finance-purple/40 dark:border-neutral-700 dark:bg-neutral-800 dark:hover:border-finance-purple/40"
             >
-              <span className="text-3xl">✏</span>
+              <span className="text-3xl">+</span>
               <div>
                 <p className="font-semibold text-finance-ink">Cargar gasto manualmente</p>
                 <p className="text-sm text-neutral-500">Para efectivo, gastos sueltos o sin resumen</p>
@@ -175,7 +184,7 @@ export default function Onboarding({ onComplete }) {
             </button>
             <button
               onClick={() => onComplete("dashboard")}
-              className="text-sm text-neutral-400 hover:text-neutral-500 transition mt-2"
+              className="mt-2 text-sm text-neutral-400 transition hover:text-neutral-500"
             >
               Ir al Dashboard sin cargar nada por ahora
             </button>

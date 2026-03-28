@@ -7,6 +7,8 @@ const STYLES = {
   Alquiler:      "bg-finance-greenSoft text-finance-green dark:bg-green-900/40 dark:text-green-300",
   Salud:         "bg-finance-redSoft text-finance-red dark:bg-red-900/40 dark:text-red-300",
   Ingreso:       "bg-finance-greenSoft text-finance-green dark:bg-green-900/40 dark:text-green-300",
+  Reintegro:     "bg-finance-tealSoft text-finance-teal dark:bg-teal-900/40 dark:text-teal-300",
+  Transferencia: "bg-finance-graySoft text-finance-gray dark:bg-neutral-800 dark:text-neutral-300",
   Otros:         "bg-finance-graySoft text-finance-gray dark:bg-neutral-800 dark:text-neutral-400",
 };
 

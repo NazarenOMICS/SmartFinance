@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getDb, getSettingsObject } from "../db.js";
+import { getDb, getSettingsObject, isValidMonthString } from "../db.js";
 import { computeFutureCommitments } from "../services/metrics.js";
 
 const router = new Hono();
@@ -13,7 +13,7 @@ function parsePositiveInt(rawValue, fallback, max = null) {
 router.get("/commitments", async (c) => {
   const userId = c.get("userId");
   const start  = c.req.query("start");
-  if (!start || !/^\d{4}-\d{2}$/.test(start)) return c.json({ error: "start is required in YYYY-MM format" }, 400);
+  if (!isValidMonthString(start)) return c.json({ error: "start is required in YYYY-MM format" }, 400);
   const months = parsePositiveInt(c.req.query("months") || 6, 6, 24);
   const settings = await getSettingsObject(c.env, userId);
   return c.json(await computeFutureCommitments(getDb(c.env), start, months, userId, {
@@ -36,17 +36,19 @@ router.get("/", async (c) => {
 
 router.post("/", async (c) => {
   const userId = c.get("userId");
-  const { descripcion, monto_total, cantidad_cuotas, account_id = null, start_month } = await c.req.json();
-  if (!descripcion || !monto_total || !cantidad_cuotas || !start_month) {
+  const body = await c.req.json();
+  const descripcion = String(body.descripcion || "").trim();
+  const { monto_total, cantidad_cuotas, account_id = null, start_month } = body;
+  if (!descripcion || monto_total == null || cantidad_cuotas == null || !start_month) {
     return c.json({ error: "descripcion, monto_total, cantidad_cuotas and start_month are required" }, 400);
   }
-  if (!/^\d{4}-\d{2}$/.test(start_month)) {
+  if (!isValidMonthString(start_month)) {
     return c.json({ error: "start_month must be in YYYY-MM format" }, 400);
   }
   const cuotas = parsePositiveInt(cantidad_cuotas, null);
   const total = Number(monto_total);
-  if (!cuotas || !Number.isFinite(total)) {
-    return c.json({ error: "monto_total and cantidad_cuotas must be valid numbers" }, 400);
+  if (!cuotas || !Number.isFinite(total) || total <= 0) {
+    return c.json({ error: "monto_total must be a positive number and cantidad_cuotas must be a positive integer" }, 400);
   }
   const db = getDb(c.env);
   if (account_id) {
@@ -91,6 +93,7 @@ router.delete("/:id", async (c) => {
     "SELECT id FROM installments WHERE id=? AND user_id=?"
   ).get(id, userId);
   if (!existing) return c.json({ error: "installment not found" }, 404);
+  await db.prepare("UPDATE transactions SET installment_id = NULL WHERE installment_id = ? AND user_id = ?").run(id, userId);
   await db.prepare("DELETE FROM installments WHERE id=? AND user_id=?").run(id, userId);
   return new Response(null, { status: 204 });
 });

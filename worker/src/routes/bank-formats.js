@@ -2,12 +2,6 @@
  * Bank format memory.
  * Saves and retrieves custom column mappings so the user only has to map
  * columns once for each unknown bank format.
- *
- * Routes:
- *   GET  /api/bank-formats              → list all saved formats for the user
- *   GET  /api/bank-formats/:key         → get one format by its key
- *   POST /api/bank-formats              → save / update a format mapping
- *   DELETE /api/bank-formats/:key       → forget a saved format
  */
 
 import { Hono } from "hono";
@@ -15,7 +9,12 @@ import { getDb } from "../db.js";
 
 const router = new Hono();
 
-// Ensure the table exists (idempotent — safe to call on every request).
+function parseColumnIndex(value) {
+  if (value == null || value === "") return -1;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= -1 ? parsed : null;
+}
+
 async function ensureTable(db) {
   await db.exec(`
     CREATE TABLE IF NOT EXISTS bank_formats (
@@ -34,7 +33,6 @@ async function ensureTable(db) {
   `);
 }
 
-// GET /api/bank-formats
 router.get("/", async (c) => {
   const userId = c.get("userId");
   const db = getDb(c.env);
@@ -45,11 +43,10 @@ router.get("/", async (c) => {
   return c.json(rows);
 });
 
-// GET /api/bank-formats/:key
 router.get("/:key", async (c) => {
   const userId = c.get("userId");
-  const key    = c.req.param("key");
-  const db     = getDb(c.env);
+  const key = c.req.param("key");
+  const db = getDb(c.env);
   await ensureTable(db);
   const row = await db.prepare(
     "SELECT * FROM bank_formats WHERE user_id = ? AND format_key = ?"
@@ -58,14 +55,28 @@ router.get("/:key", async (c) => {
   return c.json(row);
 });
 
-// POST /api/bank-formats  — upsert
 router.post("/", async (c) => {
   const userId = c.get("userId");
-  const { format_key, bank_name, col_fecha, col_desc, col_debit, col_credit, col_monto } =
-    await c.req.json();
+  const body = await c.req.json();
+  const formatKey = String(body.format_key || "").trim();
+  const bankName = body.bank_name == null ? null : String(body.bank_name).trim() || null;
+  const colFecha = parseColumnIndex(body.col_fecha);
+  const colDesc = parseColumnIndex(body.col_desc);
+  const colDebit = parseColumnIndex(body.col_debit);
+  const colCredit = parseColumnIndex(body.col_credit);
+  const colMonto = parseColumnIndex(body.col_monto);
 
-  if (!format_key) return c.json({ error: "format_key required" }, 400);
-  if (col_fecha == null) return c.json({ error: "col_fecha required" }, 400);
+  if (!formatKey) return c.json({ error: "format_key required" }, 400);
+  if ([colFecha, colDesc, colDebit, colCredit, colMonto].some((value) => value === null)) {
+    return c.json({ error: "column indexes must be integers greater than or equal to -1" }, 400);
+  }
+  if (colFecha < 0 || colDesc < 0 || (colMonto < 0 && colDebit < 0 && colCredit < 0)) {
+    return c.json({ error: "format must include fecha, descripcion and at least one amount column" }, 400);
+  }
+  const assignedColumns = [colFecha, colDesc, colDebit, colCredit, colMonto].filter((value) => value >= 0);
+  if (new Set(assignedColumns).size !== assignedColumns.length) {
+    return c.json({ error: "each role must use a different column" }, 400);
+  }
 
   const db = getDb(c.env);
   await ensureTable(db);
@@ -82,27 +93,27 @@ router.post("/", async (c) => {
                   col_monto  = excluded.col_monto
   `).run(
     userId,
-    format_key,
-    bank_name || null,
-    col_fecha  ?? 0,
-    col_desc   ?? 1,
-    col_debit  ?? -1,
-    col_credit ?? -1,
-    col_monto  ?? -1,
+    formatKey,
+    bankName,
+    colFecha,
+    colDesc,
+    colDebit,
+    colCredit,
+    colMonto,
   );
 
-  return c.json({ ok: true, format_key });
+  return c.json({ ok: true, format_key: formatKey });
 });
 
-// DELETE /api/bank-formats/:key
 router.delete("/:key", async (c) => {
   const userId = c.get("userId");
-  const key    = c.req.param("key");
-  const db     = getDb(c.env);
-  await db.prepare(
+  const key = c.req.param("key");
+  const db = getDb(c.env);
+  const result = await db.prepare(
     "DELETE FROM bank_formats WHERE user_id = ? AND format_key = ?"
   ).run(userId, key);
-  return c.json({ ok: true });
+  if ((result.changes || 0) === 0) return c.json({ error: "Not found" }, 404);
+  return new Response(null, { status: 204 });
 });
 
 export default router;
