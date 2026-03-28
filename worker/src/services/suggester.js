@@ -41,7 +41,7 @@ const KEYWORD_MAP = [
  * Returns { category_name, source } or null.
  */
 function suggestFromKeywords(descBanco) {
-  const desc = descBanco.toLowerCase();
+  const desc = String(descBanco || "").toLowerCase();
   for (const entry of KEYWORD_MAP) {
     for (const kw of entry.keywords) {
       if (desc.includes(kw)) {
@@ -56,9 +56,9 @@ function suggestFromKeywords(descBanco) {
  * Extract meaningful words (4+ chars, no digits) from a description.
  */
 function meaningfulWords(desc) {
-  return desc
+  return String(desc || "")
     .toLowerCase()
-    .replace(/[^a-záéíóúüñ\s]/gi, " ")
+    .replace(/[^\p{L}\s]/gu, " ")
     .split(/\s+/)
     .filter((w) => w.length >= 4 && !/\d/.test(w));
 }

@@ -128,6 +128,9 @@ router.post("/", async (c) => {
     if (!SUPPORTED_IMPORT_EXTENSIONS.has(ext)) {
       return c.json({ error: "unsupported file type" }, 400);
     }
+    if (ext === "pdf" && !extracted_text) {
+      return c.json({ error: "pdf uploads require extracted_text" }, 400);
+    }
 
     const account = await db.prepare("SELECT currency FROM accounts WHERE id=? AND user_id=?").get(account_id, userId);
     if (!account) {
