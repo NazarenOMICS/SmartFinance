@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import {
   ClerkProvider,
   SignIn,
@@ -91,6 +91,8 @@ function AppInner() {
   const [legacyAvailable, setLegacyAvailable] = useState(false);
   const [claimingLegacy, setClaimingLegacy]   = useState(false);
   const [apiDown, setApiDown] = useState(false);
+  const settingsRequestIdRef = useRef(0);
+  const pendingRequestIdRef = useRef(0);
 
   // Apply dark mode class
   useEffect(() => {
@@ -123,13 +125,18 @@ function AppInner() {
   }, [showSearch, showShortcuts, showTutorial]);
 
   async function refreshSettings() {
+    const requestId = ++settingsRequestIdRef.current;
     const s = await api.getSettings();
+    if (settingsRequestIdRef.current !== requestId) return s;
     setSettings(s);
+    return s;
   }
 
-  async function refreshPendingCount() {
+  async function refreshPendingCount(targetMonth = month) {
+    const requestId = ++pendingRequestIdRef.current;
     try {
-      const summary = await api.getSummary(month);
+      const summary = await api.getSummary(targetMonth);
+      if (pendingRequestIdRef.current !== requestId) return;
       setPendingCount(summary.pending_count || 0);
     } catch { /* silent */ }
   }
@@ -149,7 +156,7 @@ function AppInner() {
         const [accounts] = await Promise.all([
           api.getAccounts(),
           refreshSettings(),
-          refreshPendingCount(),
+          refreshPendingCount(month),
         ]);
         setApiDown(false);
         if (accounts.length === 0) {
