@@ -124,7 +124,18 @@ export default function Rules() {
                 value={localBudgets[category.id] ?? category.budget}
                 onChange={(e) => setLocalBudgets((prev) => ({ ...prev, [category.id]: e.target.value }))}
                 onBlur={(e) => {
-                  const nextBudget = Number(e.target.value);
+                  const rawValue = String(e.target.value || "").trim();
+                  if (!rawValue) {
+                    setLocalBudgets((prev) => ({ ...prev, [category.id]: String(category.budget) }));
+                    addToast("warning", "El presupuesto no puede quedar vacio.");
+                    return;
+                  }
+                  const nextBudget = Number(rawValue);
+                  if (!Number.isFinite(nextBudget)) {
+                    setLocalBudgets((prev) => ({ ...prev, [category.id]: String(category.budget) }));
+                    addToast("warning", "Ingresa un presupuesto valido.");
+                    return;
+                  }
                   if (nextBudget === Number(category.budget)) return;
                   updateCategory(category, { budget: nextBudget });
                 }}

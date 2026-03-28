@@ -37,7 +37,9 @@ const DEFAULT_SETTINGS = [
   { key: "parsing_patterns", value: JSON.stringify(DEFAULT_PATTERNS) },
 ];
 
-const LEGACY_TABLES = ["transactions", "categories", "accounts", "rules", "installments", "uploads", "settings"];
+// Update parents before children so the composite (id, user_id) foreign keys
+// remain valid while legacy rows are reassigned to the authenticated user.
+const LEGACY_TABLES = ["categories", "accounts", "settings", "rules", "installments", "uploads", "transactions"];
 
 router.post("/", async (c) => {
   const userId = c.get("userId");

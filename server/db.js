@@ -11,7 +11,7 @@ const DEFAULT_SETTINGS = {
   exchange_rate_usd_uyu: "42.5",
   exchange_rate_ars_uyu: "0.045",
   display_currency: "UYU",
-  savings_initial: "50000",
+  savings_initial: "0",
   savings_goal: "200000",
   savings_currency: "UYU",
   parsing_patterns: JSON.stringify(DEFAULT_PATTERNS)

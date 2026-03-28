@@ -113,7 +113,7 @@ router.post("/", async (c) => {
   const userId = c.get("userId");
   const body   = await c.req.json();
   const { fecha, desc_banco, desc_usuario = null, monto, moneda = "UYU",
-          category_id = null, account_id = null, es_cuota = 0 } = body;
+          category_id = null, account_id = null, es_cuota = 0, installment_id = null } = body;
   const normalizedDescBanco = String(desc_banco || "").trim();
   const normalizedDescUsuario = desc_usuario == null ? null : String(desc_usuario).trim() || null;
   if (!fecha || !normalizedDescBanco || monto == null) {
@@ -140,6 +140,12 @@ router.post("/", async (c) => {
       "SELECT id FROM categories WHERE id = ? AND user_id = ?"
     ).get(Number(category_id), userId);
     if (!category) return c.json({ error: "category not found" }, 404);
+  }
+  if (installment_id != null) {
+    const installment = await db.prepare(
+      "SELECT id FROM installments WHERE id = ? AND user_id = ?"
+    ).get(Number(installment_id), userId);
+    if (!installment) return c.json({ error: "installment not found" }, 404);
   }
   const hash = await buildDedupHash({ fecha, monto, desc_banco: normalizedDescBanco });
   const dup  = await db.prepare(
@@ -168,12 +174,20 @@ router.post("/", async (c) => {
   }
 
   const result = await db.prepare(
-    `INSERT INTO transactions (fecha,desc_banco,desc_usuario,monto,moneda,category_id,account_id,es_cuota,dedup_hash,user_id)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`
+    `INSERT INTO transactions (fecha,desc_banco,desc_usuario,monto,moneda,category_id,account_id,es_cuota,installment_id,dedup_hash,user_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`
   ).run(fecha, normalizedDescBanco, normalizedDescUsuario, Number(monto), moneda,
-        resolvedCategoryId, account_id, es_cuota ? 1 : 0, hash, userId);
+        resolvedCategoryId, account_id, es_cuota ? 1 : 0, installment_id, hash, userId);
 
-  return c.json(await db.prepare("SELECT * FROM transactions WHERE id=? AND user_id=?").get(result.lastInsertRowid, userId), 201);
+  const created = await db.prepare(
+    `SELECT t.*, c.name AS category_name, c.type AS category_type, a.name AS account_name
+     FROM transactions t
+     LEFT JOIN categories c ON c.id = t.category_id AND c.user_id = t.user_id
+     LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
+     WHERE t.id = ? AND t.user_id = ?`
+  ).get(result.lastInsertRowid, userId);
+
+  return c.json(created, 201);
 });
 
 // Batch create (CSV import)

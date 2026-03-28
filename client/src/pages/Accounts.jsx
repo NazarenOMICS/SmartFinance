@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../contexts/ToastContext";
 import MetricCard from "../components/MetricCard";
@@ -15,6 +15,7 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
   const { addToast } = useToast();
   const [state, setState] = useState({ loading: true, error: "", accounts: [], consolidated: null });
   const [localBalances, setLocalBalances] = useState({});
+  const [nameDrafts, setNameDrafts] = useState({});
   const [rateDrafts, setRateDrafts] = useState({
     exchange_rate_usd_uyu: settings.exchange_rate_usd_uyu || "42.5",
     exchange_rate_ars_uyu: settings.exchange_rate_ars_uyu || "0.045",
@@ -22,16 +23,25 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
   const [newAccount, setNewAccount] = useState({ id: "", name: "", currency: "UYU", balance: "" });
   const [deleteError, setDeleteError] = useState(null);
   const confirm = useConfirm();
+  const loadRequestIdRef = useRef(0);
 
   async function load() {
+    const requestId = ++loadRequestIdRef.current;
     setState((prev) => ({ ...prev, loading: true, error: "" }));
     try {
       const [accounts, consolidated] = await Promise.all([api.getAccounts(), api.getConsolidatedAccounts()]);
+      if (loadRequestIdRef.current !== requestId) return;
       setState({ loading: false, error: "", accounts, consolidated });
-      const map = {};
-      accounts.forEach((a) => { map[a.id] = String(a.balance); });
-      setLocalBalances(map);
+      const nextBalances = {};
+      const nextNames = {};
+      accounts.forEach((account) => {
+        nextBalances[account.id] = String(account.balance);
+        nextNames[account.id] = account.name;
+      });
+      setLocalBalances(nextBalances);
+      setNameDrafts(nextNames);
     } catch (error) {
+      if (loadRequestIdRef.current !== requestId) return;
       setState((prev) => ({ ...prev, loading: false, error: error.message }));
     }
   }
@@ -48,8 +58,20 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
   }, [settings.exchange_rate_usd_uyu, settings.exchange_rate_ars_uyu]);
 
   async function handleBalanceBlur(id) {
+    const account = state.accounts.find((item) => item.id === id);
+    const rawValue = String(localBalances[id] ?? "").trim();
+    if (!rawValue) {
+      setLocalBalances((prev) => ({ ...prev, [id]: String(account?.balance ?? 0) }));
+      addToast("warning", "El balance no puede quedar vacio.");
+      return;
+    }
+    const balance = Number(rawValue);
+    if (!Number.isFinite(balance)) {
+      setLocalBalances((prev) => ({ ...prev, [id]: String(account?.balance ?? 0) }));
+      addToast("warning", "Ingresa un balance valido.");
+      return;
+    }
     try {
-      const balance = Number(localBalances[id] ?? 0);
       await api.updateAccount(id, { balance });
       await load();
     } catch (e) {
@@ -166,12 +188,20 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
             <div key={account.id}>
               <div className="grid grid-cols-[1.4fr_80px_140px_130px_80px] gap-4 py-4">
                 <input
-                  className="rounded-xl border border-transparent px-2 py-1 font-semibold text-finance-ink hover:border-neutral-200 focus:border-finance-purple focus:outline-none w-full bg-transparent dark:hover:border-neutral-700"
-                  defaultValue={account.name}
-                  key={account.name}
+                  className="w-full rounded-xl border border-transparent bg-transparent px-2 py-1 font-semibold text-finance-ink hover:border-neutral-200 focus:border-finance-purple focus:outline-none dark:hover:border-neutral-700"
+                  value={nameDrafts[account.id] ?? account.name}
+                  onChange={(e) => setNameDrafts((prev) => ({ ...prev, [account.id]: e.target.value }))}
                   onBlur={async (e) => {
                     const nextName = e.target.value.trim();
-                    if (!nextName || nextName === account.name) return;
+                    if (!nextName) {
+                      setNameDrafts((prev) => ({ ...prev, [account.id]: account.name }));
+                      addToast("warning", "El nombre no puede quedar vacio.");
+                      return;
+                    }
+                    if (nextName === account.name) {
+                      setNameDrafts((prev) => ({ ...prev, [account.id]: account.name }));
+                      return;
+                    }
                     try {
                       await api.updateAccount(account.id, { name: nextName });
                       await load();

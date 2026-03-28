@@ -10,7 +10,7 @@ export default function Savings({ month, settings, refreshSettings }) {
   const [state, setState] = useState({ loading: true, error: "", projection: null, insights: null });
   const loadRequestIdRef = useRef(0);
   const [form, setForm] = useState({
-    savings_initial: settings.savings_initial || "50000",
+    savings_initial: settings.savings_initial || "0",
     savings_goal: settings.savings_goal || "200000",
     savings_currency: settings.savings_currency || "UYU"
   });
@@ -30,7 +30,7 @@ export default function Savings({ month, settings, refreshSettings }) {
 
   useEffect(() => {
     setForm({
-      savings_initial: settings.savings_initial || "50000",
+      savings_initial: settings.savings_initial || "0",
       savings_goal: settings.savings_goal || "200000",
       savings_currency: settings.savings_currency || "UYU"
     });
