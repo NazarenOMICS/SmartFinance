@@ -6,7 +6,7 @@ const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
 
 router.get("/consolidated", (req, res) => {
   const settings = getSettingsObject();
-  const usdRate = Number(settings.exchange_rate_usd_uyu || 1);
+  const usdRate = Number(settings.exchange_rate_usd_uyu || 42.5);
   const arsRate = Number(settings.exchange_rate_ars_uyu || 0.045);
   const displayCurrency = settings.display_currency || "UYU";
   const rows = db.prepare("SELECT * FROM accounts ORDER BY created_at ASC").all();

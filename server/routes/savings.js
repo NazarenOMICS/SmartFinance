@@ -24,7 +24,7 @@ function getMonthSeries(months, endMonth) {
 function convertAmount(amount, currency, targetCurrency, usdRate, arsRate) {
   const value = Number(amount || 0);
   const sourceCurrency = currency || targetCurrency || "UYU";
-  const safeUsdRate = usdRate > 0 ? usdRate : 1;
+  const safeUsdRate = usdRate > 0 ? usdRate : 42.5;
   const safeArsRate = arsRate > 0 ? arsRate : 0.045;
 
   if (!targetCurrency || sourceCurrency === targetCurrency) return value;
@@ -73,7 +73,7 @@ router.get("/projection", (req, res) => {
     return res.status(400).json({ error: "end must be in YYYY-MM format" });
   }
   const savingsCurrency = settings.savings_currency || "UYU";
-  const usdRate = Number(settings.exchange_rate_usd_uyu || 1);
+  const usdRate = Number(settings.exchange_rate_usd_uyu || 42.5);
   const arsRate = Number(settings.exchange_rate_ars_uyu || 0.045);
   const historicalMonths = getMonthSeries(6, baseMonth);
   const avgSavings =
@@ -115,7 +115,7 @@ router.get("/insights", (req, res) => {
 
   const settings = getSettingsObject();
   const savingsCurrency = settings.savings_currency || "UYU";
-  const usdRate = Number(settings.exchange_rate_usd_uyu || 1);
+  const usdRate = Number(settings.exchange_rate_usd_uyu || 42.5);
   const arsRate = Number(settings.exchange_rate_ars_uyu || 0.045);
   const prevMonth = previousMonth(month);
   const { start, end } = monthWindow(month);

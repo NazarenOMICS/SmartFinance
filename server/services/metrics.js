@@ -39,7 +39,7 @@ function pctDelta(current, previous) {
 function convertAmount(amount, currency, targetCurrency, usdRate, arsRate) {
   const value = Number(amount || 0);
   const sourceCurrency = currency || targetCurrency || "UYU";
-  const safeUsdRate = usdRate > 0 ? usdRate : 1;
+  const safeUsdRate = usdRate > 0 ? usdRate : 42.5;
   const safeArsRate = arsRate > 0 ? arsRate : 0.045;
 
   if (!targetCurrency || sourceCurrency === targetCurrency) return value;
@@ -59,7 +59,7 @@ function computeSummary(db, month) {
   const previous = getTransactionsForMonth(db, previousMonth(month));
   const categories = db.prepare("SELECT * FROM categories ORDER BY sort_order, id").all();
   const settings = getSettingsObject();
-  const exchangeRate = Number(settings.exchange_rate_usd_uyu || 1);
+  const exchangeRate = Number(settings.exchange_rate_usd_uyu || 42.5);
   const arsRate = Number(settings.exchange_rate_ars_uyu || 0.045);
   const displayCurrency = settings.display_currency || "UYU";
 
@@ -146,7 +146,7 @@ function computeSummary(db, month) {
 
 function computeMonthlyEvolution(db, endMonth, months) {
   const settings = getSettingsObject();
-  const exchangeRate = Number(settings.exchange_rate_usd_uyu || 1);
+  const exchangeRate = Number(settings.exchange_rate_usd_uyu || 42.5);
   const arsRate = Number(settings.exchange_rate_ars_uyu || 0.045);
   const displayCurrency = settings.display_currency || "UYU";
   const [endYear, endMonthNum] = endMonth.split("-").map(Number);
@@ -181,7 +181,7 @@ function computeFutureCommitments(db, startMonth, months, options = {}) {
      LEFT JOIN accounts a ON a.id = i.account_id`
   ).all();
   const targetCurrency = options.currency || null;
-  const exchangeRate = Number(options.exchangeRateUsd || 1);
+  const exchangeRate = Number(options.exchangeRateUsd || 42.5);
   const arsRate = Number(options.exchangeRateArs || 0.045);
   const [startYear, startMonthNum] = startMonth.split("-").map(Number);
   const fallbackInstallmentStart = [startYear, startMonthNum];
