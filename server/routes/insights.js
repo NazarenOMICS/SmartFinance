@@ -28,7 +28,7 @@ function normalizeDesc(s) {
   return String(s || "")
     .toLowerCase()
     .replace(/\d+/g, "")
-    .replace(/[^a-záéíóúüñ\s]/gi, "")
+    .replace(/[^\p{L}\s]/gu, "")
     .replace(/\s+/g, " ")
     .trim();
 }
