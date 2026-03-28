@@ -101,24 +101,29 @@ router.delete("/:id", async (c) => {
   ).all(id, userId);
   const installmentIds = installmentRows.map((row) => row.id);
   if (force) {
+    const statements = [];
     if (installmentIds.length > 0) {
       const placeholders = installmentIds.map(() => "?").join(", ");
-      await db.prepare(
+      statements.push(c.env.DB.prepare(
         `UPDATE transactions
          SET installment_id = NULL
          WHERE user_id = ? AND installment_id IN (${placeholders})`
-      ).run(userId, ...installmentIds);
+      ).bind(userId, ...installmentIds));
     }
     if (txCount > 0) {
-      await db.prepare("DELETE FROM transactions WHERE account_id=? AND user_id=?").run(id, userId);
+      statements.push(c.env.DB.prepare(
+        "DELETE FROM transactions WHERE account_id=? AND user_id=?"
+      ).bind(id, userId));
     }
     if (installmentIds.length > 0) {
       const placeholders = installmentIds.map(() => "?").join(", ");
-      await db.prepare(
+      statements.push(c.env.DB.prepare(
         `DELETE FROM installments
          WHERE user_id = ? AND id IN (${placeholders})`
-      ).run(userId, ...installmentIds);
+      ).bind(userId, ...installmentIds));
     }
+    statements.push(c.env.DB.prepare("DELETE FROM accounts WHERE id=? AND user_id=?").bind(id, userId));
+    await c.env.DB.batch(statements);
   } else {
     if (txCount > 0 || installmentIds.length > 0) {
       return c.json({
@@ -127,8 +132,8 @@ router.delete("/:id", async (c) => {
         installment_count: installmentIds.length
       }, 409);
     }
+    await db.prepare("DELETE FROM accounts WHERE id=? AND user_id=?").run(id, userId);
   }
-  await db.prepare("DELETE FROM accounts WHERE id=? AND user_id=?").run(id, userId);
   return new Response(null, { status: 204 });
 });
 

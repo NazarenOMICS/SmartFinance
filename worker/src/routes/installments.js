@@ -93,8 +93,10 @@ router.delete("/:id", async (c) => {
     "SELECT id FROM installments WHERE id=? AND user_id=?"
   ).get(id, userId);
   if (!existing) return c.json({ error: "installment not found" }, 404);
-  await db.prepare("UPDATE transactions SET installment_id = NULL WHERE installment_id = ? AND user_id = ?").run(id, userId);
-  await db.prepare("DELETE FROM installments WHERE id=? AND user_id=?").run(id, userId);
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE transactions SET installment_id = NULL WHERE installment_id = ? AND user_id = ?").bind(id, userId),
+    c.env.DB.prepare("DELETE FROM installments WHERE id=? AND user_id=?").bind(id, userId),
+  ]);
   return new Response(null, { status: 204 });
 });
 

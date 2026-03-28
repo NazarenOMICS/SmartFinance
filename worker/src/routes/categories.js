@@ -75,8 +75,10 @@ router.delete("/:id", async (c) => {
     "SELECT COUNT(*) AS count FROM transactions WHERE category_id = ? AND user_id = ?"
   ).get(id, userId);
   if (txCount.count > 0) return c.json({ error: "category has linked transactions" }, 409);
-  await db.prepare("DELETE FROM rules WHERE category_id = ? AND user_id = ?").run(id, userId);
-  await db.prepare("DELETE FROM categories WHERE id = ? AND user_id = ?").run(id, userId);
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM rules WHERE category_id = ? AND user_id = ?").bind(id, userId),
+    c.env.DB.prepare("DELETE FROM categories WHERE id = ? AND user_id = ?").bind(id, userId),
+  ]);
   return new Response(null, { status: 204 });
 });
 

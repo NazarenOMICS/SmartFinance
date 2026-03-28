@@ -96,22 +96,31 @@ router.post("/claim-legacy", async (c) => {
     return c.json({ error: "No legacy data found" }, 404);
   }
 
-  await db.prepare("DELETE FROM categories WHERE user_id = ?").run(userId);
-  await db.prepare("DELETE FROM settings WHERE user_id = ?").run(userId);
-
+  const statements = [
+    c.env.DB.prepare("DELETE FROM categories WHERE user_id = ?").bind(userId),
+    c.env.DB.prepare("DELETE FROM settings WHERE user_id = ?").bind(userId),
+  ];
+  const updateIndexes = {};
   const counts = {};
   for (const table of LEGACY_TABLES) {
-    const result = await db.prepare(
-      `UPDATE ${table} SET user_id = ? WHERE user_id = ''`
-    ).run(userId);
-    counts[table] = result.changes || 0;
+    updateIndexes[table] = statements.length;
+    statements.push(
+      c.env.DB.prepare(`UPDATE ${table} SET user_id = ? WHERE user_id = ''`).bind(userId)
+    );
   }
 
   for (const setting of DEFAULT_SETTINGS) {
-    await c.env.DB.prepare(
-      `INSERT INTO settings (user_id, key, value) VALUES (?, ?, ?)
-       ON CONFLICT(user_id, key) DO NOTHING`
-    ).bind(userId, setting.key, setting.value).run();
+    statements.push(
+      c.env.DB.prepare(
+        `INSERT INTO settings (user_id, key, value) VALUES (?, ?, ?)
+         ON CONFLICT(user_id, key) DO NOTHING`
+      ).bind(userId, setting.key, setting.value)
+    );
+  }
+
+  const results = await c.env.DB.batch(statements);
+  for (const table of LEGACY_TABLES) {
+    counts[table] = results[updateIndexes[table]]?.meta?.changes || 0;
   }
 
   return c.json({ status: "claimed", counts });
