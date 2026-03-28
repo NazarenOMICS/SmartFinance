@@ -217,14 +217,16 @@ router.post("/", upload.single("file"), async (req, res, next) => {
     // Falls back to UYU if account not found (shouldn't happen in normal flow).
     const accountCurrency = accountRow?.currency || "UYU";
 
-    if (extension === ".pdf") {
+    if (extension === ".pdf" || extension === ".txt") {
       // The browser client (PDF.js) extracts text client-side and sends it as
       // the `extracted_text` form field to avoid a round-trip server PDF parse.
       // Fall back to server-side pdf-parse only when the field is absent
       // (e.g. direct API calls that upload the actual PDF bytes).
-      const text = req.body.extracted_text
-        ? String(req.body.extracted_text)
-        : await parsePdfText(req.file.path);
+      const text = extension === ".txt"
+        ? fs.readFileSync(req.file.path, "utf-8")
+        : req.body.extracted_text
+          ? String(req.body.extracted_text)
+          : await parsePdfText(req.file.path);
       const settings = getSettingsObject();
       const patterns = JSON.parse(settings.parsing_patterns || "[]");
       const extracted = extractTransactions(text, patterns, period);
@@ -275,7 +277,7 @@ router.post("/", upload.single("file"), async (req, res, next) => {
       });
 
       runInserts(extracted.transactions);
-    } else if (extension === ".csv" || extension === ".txt") {
+    } else if (extension === ".csv") {
       const text = fs.readFileSync(req.file.path, "utf-8");
       const rows = parseCsvRows(text);
 
