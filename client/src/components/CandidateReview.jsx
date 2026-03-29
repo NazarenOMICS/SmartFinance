@@ -28,14 +28,34 @@ export default function CandidateReview({ pattern, categoryId, categoryName, onD
         const data = await api.getCandidates(pattern, categoryId);
         setCandidates(data);
       } catch {
-        // If it fails, just close
         onDone?.();
       } finally {
         setLoading(false);
       }
     }
     fetchCandidates();
-  }, [pattern, categoryId]);
+  }, [pattern, categoryId, onDone]);
+
+  useEffect(() => {
+    if (!loading && candidates.length === 0) {
+      onDone?.();
+    }
+  }, [loading, candidates.length, onDone]);
+
+  function finish(totalConfirmed = confirmed) {
+    if (totalConfirmed > 0) {
+      addToast("success", `${totalConfirmed} transaccion${totalConfirmed !== 1 ? "es" : ""} categorizada${totalConfirmed !== 1 ? "s" : ""} como "${categoryName}".`);
+    }
+    onDone?.();
+  }
+
+  function advance({ confirmedDelta = 0 } = {}) {
+    if (currentIndex + 1 >= candidates.length) {
+      finish(confirmed + confirmedDelta);
+    } else {
+      setCurrentIndex((prev) => prev + 1);
+    }
+  }
 
   async function handleConfirm() {
     const tx = candidates[currentIndex];
@@ -43,10 +63,11 @@ export default function CandidateReview({ pattern, categoryId, categoryName, onD
     try {
       await api.confirmCategory([tx.id], categoryId);
       setConfirmed((prev) => prev + 1);
+      advance({ confirmedDelta: 1 });
     } catch {
       addToast("error", "No se pudo categorizar la transaccion.");
+      advance();
     }
-    advance();
   }
 
   function handleSkip() {
@@ -54,28 +75,18 @@ export default function CandidateReview({ pattern, categoryId, categoryName, onD
     advance();
   }
 
-  function advance() {
-    if (currentIndex + 1 >= candidates.length) {
-      finish();
-    } else {
-      setCurrentIndex((prev) => prev + 1);
-    }
-  }
-
-  function finish() {
-    if (confirmed > 0) {
-      addToast("success", `${confirmed} transaccion${confirmed !== 1 ? "es" : ""} categorizada${confirmed !== 1 ? "s" : ""} como "${categoryName}".`);
-    }
-    onDone?.();
-  }
-
   function handleConfirmAll() {
     const remaining = candidates.slice(currentIndex).map((tx) => tx.id);
-    if (remaining.length === 0) { finish(); return; }
+    if (remaining.length === 0) {
+      finish();
+      return;
+    }
+
     api.confirmCategory(remaining, categoryId)
       .then((result) => {
-        setConfirmed((prev) => prev + (result?.confirmed || remaining.length));
-        finish();
+        const added = result?.confirmed || remaining.length;
+        setConfirmed((prev) => prev + added);
+        finish(confirmed + added);
       })
       .catch(() => {
         addToast("error", "Error al categorizar en lote.");
@@ -87,52 +98,47 @@ export default function CandidateReview({ pattern, categoryId, categoryName, onD
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
         <div className="rounded-[28px] bg-white p-8 shadow-2xl dark:bg-neutral-900">
-          <div className="h-7 w-7 animate-spin rounded-full border-2 border-finance-purple border-t-transparent mx-auto" />
+          <div className="mx-auto h-7 w-7 animate-spin rounded-full border-2 border-finance-purple border-t-transparent" />
           <p className="mt-3 text-sm text-neutral-500">Buscando transacciones similares...</p>
         </div>
       </div>
     );
   }
 
-  if (candidates.length === 0) {
-    return null; // No candidates, nothing to show
-  }
-
   const current = candidates[currentIndex];
-  const remaining = candidates.length - currentIndex;
-  const progress = ((currentIndex) / candidates.length) * 100;
-
   if (!current) return null;
+
+  const remaining = candidates.length - currentIndex;
+  const progress = (currentIndex / candidates.length) * 100;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={(e) => { if (e.target === e.currentTarget) finish(); }}>
       <div className="w-full max-w-md rounded-[28px] bg-white p-6 shadow-2xl dark:bg-neutral-900">
-        {/* Header */}
         <div className="mb-4 flex items-center justify-between">
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Confirmar categorias</p>
             <h3 className="font-display text-xl text-finance-ink dark:text-neutral-100">
-              Regla: "{pattern}" → {categoryName}
+              Regla: "{pattern}" {"->"} {categoryName}
             </h3>
           </div>
           <button
-            onClick={finish}
+            onClick={() => finish()}
             className="flex h-8 w-8 items-center justify-center rounded-full text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800"
           >
             x
           </button>
         </div>
 
-        {/* Progress bar */}
         <div className="mb-4 h-1.5 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
           <div
             className="h-full rounded-full bg-finance-purple transition-all"
             style={{ width: `${progress}%` }}
           />
         </div>
-        <p className="mb-4 text-xs text-neutral-400">{remaining} restante{remaining !== 1 ? "s" : ""} · {confirmed} confirmada{confirmed !== 1 ? "s" : ""} · {skipped} saltada{skipped !== 1 ? "s" : ""}</p>
+        <p className="mb-4 text-xs text-neutral-400">
+          {remaining} restante{remaining !== 1 ? "s" : ""} · {confirmed} confirmada{confirmed !== 1 ? "s" : ""} · {skipped} saltada{skipped !== 1 ? "s" : ""}
+        </p>
 
-        {/* Card */}
         <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-5 dark:border-neutral-700 dark:bg-neutral-800">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
@@ -148,7 +154,6 @@ export default function CandidateReview({ pattern, categoryId, categoryName, onD
           </div>
         </div>
 
-        {/* Actions */}
         <div className="mt-5 flex items-center gap-3">
           <button
             onClick={handleSkip}
@@ -164,7 +169,6 @@ export default function CandidateReview({ pattern, categoryId, categoryName, onD
           </button>
         </div>
 
-        {/* Quick actions */}
         {remaining > 1 && (
           <div className="mt-3 flex justify-center gap-3">
             <button
@@ -175,7 +179,7 @@ export default function CandidateReview({ pattern, categoryId, categoryName, onD
             </button>
             <span className="text-neutral-300">|</span>
             <button
-              onClick={finish}
+              onClick={() => finish()}
               className="text-xs text-neutral-400 transition hover:text-neutral-600"
             >
               Terminar

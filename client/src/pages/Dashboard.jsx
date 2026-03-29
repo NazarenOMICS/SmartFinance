@@ -210,6 +210,11 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
 
   const { summary } = state;
   const money = (value) => fmtMoney(value, summary.currency);
+  const displayCurrency = settings.display_currency || "UYU";
+  const exchangeRateValue = displayCurrency === "ARS"
+    ? Number(settings.exchange_rate_ars_uyu || 0.045)
+    : Number(settings.exchange_rate_usd_uyu || 42.5);
+  const exchangeRateDecimals = exchangeRateValue < 1 ? 3 : 1;
 
   if (state.transactions.length === 0) {
     const steps = [
@@ -314,9 +319,9 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
                 <option value="USD">USD</option>
                 <option value="ARS">ARS</option>
               </select>
-              {settings.display_currency && settings.display_currency !== "UYU" && (
+              {displayCurrency !== "UYU" && (
                 <span className="rounded-full bg-finance-cream px-3 py-2 text-xs text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400" title="Tipo de cambio actualizado automáticamente">
-                  TC: {Number(settings.exchange_rate_usd_uyu || 42.5).toFixed(1)}
+                  1 {displayCurrency} = {exchangeRateValue.toFixed(exchangeRateDecimals)} UYU
                 </span>
               )}
               <ExportButton month={month} />

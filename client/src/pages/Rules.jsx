@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../contexts/ToastContext";
+import CandidateReview from "../components/CandidateReview";
 
 export default function Rules() {
   const { addToast } = useToast();
@@ -8,7 +9,8 @@ export default function Rules() {
   const [localBudgets, setLocalBudgets] = useState({});
   const [ruleForm, setRuleForm] = useState({ pattern: "", category_id: "" });
   const [catForm, setCatForm] = useState({ name: "", budget: "", type: "variable", color: "#888780" });
-  const [confirmDelete, setConfirmDelete] = useState(null); // "cat-{id}" | "rule-{id}"
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [pendingReview, setPendingReview] = useState(null);
   const loadRequestIdRef = useRef(0);
 
   async function load() {
@@ -27,7 +29,9 @@ export default function Rules() {
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
 
   async function updateCategory(category, changes) {
     try {
@@ -55,7 +59,10 @@ export default function Rules() {
 
   async function handleDeleteCategory(id) {
     const key = `cat-${id}`;
-    if (confirmDelete !== key) { setConfirmDelete(key); return; }
+    if (confirmDelete !== key) {
+      setConfirmDelete(key);
+      return;
+    }
     setConfirmDelete(null);
     const cat = state.categories.find((c) => c.id === id);
     try {
@@ -73,16 +80,26 @@ export default function Rules() {
       addToast("warning", "Completá el patrón y la categoría.");
       return;
     }
+
     try {
-      const result = await api.createRule({ pattern: ruleForm.pattern, category_id: Number(ruleForm.category_id) });
+      const categoryId = Number(ruleForm.category_id);
+      const categoryName = state.categories.find((cat) => cat.id === categoryId)?.name;
+      const result = await api.createRule({ pattern: ruleForm.pattern, category_id: categoryId });
       setRuleForm({ pattern: "", category_id: "" });
+
       if (result?.duplicate) {
         addToast("info", "Esta regla ya existe.");
-      } else if (result?.retro_count > 0) {
-        addToast("success", `Regla creada y aplicada a ${result.retro_count} transacciones sin categorizar.`);
+      } else if (result?.candidates_count > 0) {
+        setPendingReview({
+          pattern: result.pattern,
+          categoryId,
+          categoryName,
+        });
+        addToast("info", `Regla creada: "${result.pattern}" → ${categoryName || "categoría"}. Hay ${result.candidates_count} transacciones similares para revisar.`);
       } else {
         addToast("success", "Regla creada correctamente.");
       }
+
       await load();
     } catch (e) {
       addToast("error", e.message);
@@ -91,7 +108,10 @@ export default function Rules() {
 
   async function handleDeleteRule(id) {
     const key = `rule-${id}`;
-    if (confirmDelete !== key) { setConfirmDelete(key); return; }
+    if (confirmDelete !== key) {
+      setConfirmDelete(key);
+      return;
+    }
     setConfirmDelete(null);
     const rule = state.rules.find((r) => r.id === id);
     try {
@@ -103,21 +123,19 @@ export default function Rules() {
     }
   }
 
-  if (state.loading) return <div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel dark:bg-neutral-900/80">Cargando reglas…</div>;
+  if (state.loading) return <div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel dark:bg-neutral-900/80">Cargando reglas...</div>;
   if (state.error) return <div className="rounded-[28px] bg-finance-redSoft p-6 text-finance-red shadow-panel dark:bg-red-900/30">{state.error}</div>;
 
   return (
     <div className="space-y-6">
-
-      {/* Presupuestos por categoría */}
       <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
         <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Categorías y presupuestos</p>
         <p className="mt-1 text-sm text-neutral-500">Editá el presupuesto mensual y el tipo de gasto de cada categoría.</p>
         <div className="mt-5 space-y-3">
           {state.categories.filter((c) => c.type !== "transferencia" && c.name !== "Ingreso").map((category) => (
-            <div key={category.id} className="grid gap-3 md:grid-cols-[1fr_130px_130px_80px] items-center">
+            <div key={category.id} className="grid items-center gap-3 md:grid-cols-[1fr_130px_130px_80px]">
               <div className="flex items-center gap-3">
-                <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: category.color || "#888780" }} />
+                <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: category.color || "#888780" }} />
                 <span className="font-semibold text-finance-ink">{category.name}</span>
               </div>
               <select
@@ -165,7 +183,6 @@ export default function Rules() {
         </div>
       </div>
 
-      {/* Nueva categoría */}
       <form onSubmit={handleCreateCategory} className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
         <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Nueva categoría</p>
         <div className="mt-4 grid gap-4 md:grid-cols-[1fr_130px_130px_60px_auto]">
@@ -173,13 +190,13 @@ export default function Rules() {
             className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
             placeholder="Nombre"
             value={catForm.name}
-            onChange={(e) => setCatForm((p) => ({ ...p, name: e.target.value }))}
+            onChange={(e) => setCatForm((prev) => ({ ...prev, name: e.target.value }))}
             required
           />
           <select
             className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
             value={catForm.type}
-            onChange={(e) => setCatForm((p) => ({ ...p, type: e.target.value }))}
+            onChange={(e) => setCatForm((prev) => ({ ...prev, type: e.target.value }))}
           >
             <option value="fijo">fijo</option>
             <option value="variable">variable</option>
@@ -189,13 +206,13 @@ export default function Rules() {
             type="number"
             placeholder="Presupuesto"
             value={catForm.budget}
-            onChange={(e) => setCatForm((p) => ({ ...p, budget: e.target.value }))}
+            onChange={(e) => setCatForm((prev) => ({ ...prev, budget: e.target.value }))}
           />
           <input
             type="color"
             className="h-12 w-12 cursor-pointer rounded-2xl border border-neutral-200 p-1 dark:border-neutral-700"
             value={catForm.color}
-            onChange={(e) => setCatForm((p) => ({ ...p, color: e.target.value }))}
+            onChange={(e) => setCatForm((prev) => ({ ...prev, color: e.target.value }))}
           />
           <button className="rounded-full bg-finance-purple px-5 py-3 font-semibold text-white transition hover:opacity-90">
             Agregar
@@ -203,21 +220,20 @@ export default function Rules() {
         </div>
       </form>
 
-      {/* Nueva regla */}
       <form onSubmit={handleCreateRule} className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
         <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Nueva regla de categorización</p>
-        <p className="mt-1 text-sm text-neutral-500">El patrón se compara contra la descripción del banco (sin distinguir mayúsculas).</p>
+        <p className="mt-1 text-sm text-neutral-500">El patrón se compara contra la descripción del banco, sin aplicar cambios retroactivos sin confirmación.</p>
         <div className="mt-4 grid gap-4 md:grid-cols-[1fr_220px_auto]">
           <input
             className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
             placeholder="Patrón (ej: PEDIDOSYA)"
             value={ruleForm.pattern}
-            onChange={(e) => setRuleForm((p) => ({ ...p, pattern: e.target.value }))}
+            onChange={(e) => setRuleForm((prev) => ({ ...prev, pattern: e.target.value }))}
           />
           <select
             className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
             value={ruleForm.category_id}
-            onChange={(e) => setRuleForm((p) => ({ ...p, category_id: e.target.value }))}
+            onChange={(e) => setRuleForm((prev) => ({ ...prev, category_id: e.target.value }))}
           >
             <option value="">Categoría</option>
             {state.categories.map((c) => (
@@ -230,18 +246,20 @@ export default function Rules() {
         </div>
       </form>
 
-      {/* Tabla de reglas */}
       <div className="rounded-[32px] border border-white/70 bg-white/90 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
-        <div className="px-6 pt-6 pb-4">
+        <div className="px-6 pb-4 pt-6">
           <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Reglas activas</p>
           <p className="mt-1 text-sm text-neutral-500">{state.rules.length} regla{state.rules.length !== 1 ? "s" : ""} · ordenadas por frecuencia de uso</p>
         </div>
         <div className="grid grid-cols-[1fr_180px_90px_80px] gap-4 border-y border-neutral-100 px-6 py-3 text-xs uppercase tracking-[0.18em] text-neutral-400 dark:border-neutral-800">
-          <span>Patrón</span><span>Categoría</span><span className="text-right">Matches</span><span></span>
+          <span>Patrón</span>
+          <span>Categoría</span>
+          <span className="text-right">Matches</span>
+          <span></span>
         </div>
         <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
           {state.rules.map((rule) => (
-            <div key={rule.id} className="grid grid-cols-[1fr_180px_90px_80px] gap-4 px-6 py-4 items-center">
+            <div key={rule.id} className="grid grid-cols-[1fr_180px_90px_80px] items-center gap-4 px-6 py-4">
               <span className="font-mono text-sm text-finance-ink">{rule.pattern}</span>
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full" style={{ backgroundColor: rule.category_color || "#888780" }} />
@@ -261,6 +279,18 @@ export default function Rules() {
           )}
         </div>
       </div>
+
+      {pendingReview && (
+        <CandidateReview
+          pattern={pendingReview.pattern}
+          categoryId={pendingReview.categoryId}
+          categoryName={pendingReview.categoryName}
+          onDone={() => {
+            setPendingReview(null);
+            load();
+          }}
+        />
+      )}
     </div>
   );
 }
