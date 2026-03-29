@@ -153,11 +153,10 @@ function AuthScreen() {
             </div>
 
             <h1 className="mt-8 max-w-xl font-display text-5xl leading-tight text-finance-ink dark:text-neutral-100 md:text-6xl">
-              La plata deja de sentirse como un archivo suelto.
+              Planificar tu mes nunca fue tan facil.
             </h1>
             <p className="mt-4 max-w-lg text-base leading-7 text-neutral-500 dark:text-neutral-300">
-              Importas movimientos, categorias una vez y la app te devuelve un mes mucho mas claro:
-              gastos, ahorro, cuotas y tendencias sin el caos de siempre.
+              Entra, importa tus movimientos y convierte gastos, ahorro y metas en un mapa mucho mas claro.
             </p>
           </div>
 
