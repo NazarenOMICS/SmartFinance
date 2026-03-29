@@ -4,6 +4,14 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CLOUDFARE_WORKERS }}
+  CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFARE_ACCOUNT_ID }}
 
 jobs:
   deploy-worker:
@@ -12,10 +20,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate Cloudflare credentials
+        run: |
+          if [ -z "${CF_API_TOKEN}" ]; then
+            echo "Missing Cloudflare API token. Set CLOUDFLARE_API_TOKEN or CLOUDFARE_WORKERS in GitHub Secrets."
+            exit 1
+          fi
+          if [ -z "${CF_ACCOUNT_ID}" ]; then
+            echo "Missing Cloudflare account ID. Set CLOUDFLARE_ACCOUNT_ID in GitHub Secrets."
+            exit 1
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: Install worker dependencies
         run: cd worker && npm ci
@@ -23,18 +42,34 @@ jobs:
       - name: Deploy Worker
         uses: cloudflare/wrangler-action@v3
         with:
-          apiToken: ${{ secrets.CLOUDFARE_WORKERS }}
+          apiToken: ${{ env.CF_API_TOKEN }}
+          accountId: ${{ env.CF_ACCOUNT_ID }}
+          command: deploy
 
   deploy-pages:
     runs-on: ubuntu-latest
     name: Deploy Cloudflare Pages
+    permissions:
+      contents: read
+      deployments: write
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate Cloudflare credentials
+        run: |
+          if [ -z "${CF_API_TOKEN}" ]; then
+            echo "Missing Cloudflare API token. Set CLOUDFLARE_API_TOKEN or CLOUDFARE_WORKERS in GitHub Secrets."
+            exit 1
+          fi
+          if [ -z "${CF_ACCOUNT_ID}" ]; then
+            echo "Missing Cloudflare account ID. Set CLOUDFLARE_ACCOUNT_ID in GitHub Secrets."
+            exit 1
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: Install client dependencies
         run: cd client && npm ci
@@ -47,5 +82,7 @@ jobs:
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
-          apiToken: ${{ secrets.CLOUDFARE_WORKERS }}
+          apiToken: ${{ env.CF_API_TOKEN }}
+          accountId: ${{ env.CF_ACCOUNT_ID }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
           command: pages deploy client/dist --project-name=smartfinance-app
