@@ -4,6 +4,16 @@ import { getDb, getSettingsObject } from "../db.js";
 const router = new Hono();
 const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
 
+function slugify(text) {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "")
+    .slice(0, 48);
+}
+
 router.get("/consolidated", async (c) => {
   const userId  = c.get("userId");
   const settings = await getSettingsObject(c.env, userId);
@@ -39,11 +49,10 @@ router.get("/", async (c) => {
 router.post("/", async (c) => {
   const userId = c.get("userId");
   const body = await c.req.json();
-  const id = String(body.id || "").trim();
   const name = String(body.name || "").trim();
   const currency = String(body.currency || "").trim().toUpperCase();
   const balance = Number(body.balance ?? 0);
-  if (!id || !name || !currency) return c.json({ error: "id, name and currency are required" }, 400);
+  if (!name || !currency) return c.json({ error: "name and currency are required" }, 400);
   if (!SUPPORTED_CURRENCIES.has(currency)) {
     return c.json({ error: "currency must be UYU, USD or ARS" }, 400);
   }
@@ -51,11 +60,20 @@ router.post("/", async (c) => {
     return c.json({ error: "balance must be a finite number" }, 400);
   }
   const db = getDb(c.env);
-  // Check for duplicate id within this user's accounts
-  const existing = await db.prepare(
-    "SELECT id FROM accounts WHERE id = ? AND user_id = ?"
-  ).get(id, userId);
-  if (existing) return c.json({ error: "Ya existe una cuenta con ese ID" }, 409);
+  let id = String(body.id || "").trim();
+  if (!id) {
+    const base = slugify(name) || "cuenta";
+    id = base;
+    let suffix = 2;
+    while (await db.prepare("SELECT id FROM accounts WHERE id = ? AND user_id = ?").get(id, userId)) {
+      id = `${base}_${suffix++}`;
+    }
+  } else {
+    const existing = await db.prepare(
+      "SELECT id FROM accounts WHERE id = ? AND user_id = ?"
+    ).get(id, userId);
+    if (existing) return c.json({ error: "Ya existe una cuenta con ese ID" }, 409);
+  }
   await db.prepare(
     "INSERT INTO accounts (id,name,currency,balance,user_id) VALUES (?,?,?,?,?)"
   ).run(id, name, currency, balance, userId);

@@ -83,14 +83,8 @@ router.delete("/:id", (req, res) => {
   if (!existing) {
     return res.status(404).json({ error: "category not found" });
   }
-  const hasTransactions = db.prepare("SELECT COUNT(*) AS count FROM transactions WHERE category_id = ?").get(id).count > 0;
-
-  if (hasTransactions) {
-    return res.status(409).json({ error: "category has linked transactions" });
-  }
-
-  // Delete linked rules first to avoid FK constraint violation
   db.transaction(() => {
+    db.prepare("UPDATE transactions SET category_id = NULL WHERE category_id = ?").run(id);
     db.prepare("DELETE FROM rules WHERE category_id = ?").run(id);
     db.prepare("DELETE FROM categories WHERE id = ?").run(id);
   })();

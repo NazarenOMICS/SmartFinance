@@ -71,11 +71,10 @@ router.delete("/:id", async (c) => {
     "SELECT id FROM categories WHERE id = ? AND user_id = ?"
   ).get(id, userId);
   if (!existing) return c.json({ error: "category not found" }, 404);
-  const txCount = await db.prepare(
-    "SELECT COUNT(*) AS count FROM transactions WHERE category_id = ? AND user_id = ?"
-  ).get(id, userId);
-  if (txCount.count > 0) return c.json({ error: "category has linked transactions" }, 409);
   await c.env.DB.batch([
+    c.env.DB.prepare(
+      "UPDATE transactions SET category_id = NULL WHERE category_id = ? AND user_id = ?"
+    ).bind(id, userId),
     c.env.DB.prepare("DELETE FROM rules WHERE category_id = ? AND user_id = ?").bind(id, userId),
     c.env.DB.prepare("DELETE FROM categories WHERE id = ? AND user_id = ?").bind(id, userId),
   ]);
