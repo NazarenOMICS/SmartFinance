@@ -153,7 +153,7 @@ function AuthScreen() {
             </div>
 
             <h1 className="mt-8 max-w-xl font-display text-5xl leading-tight text-finance-ink dark:text-neutral-100 md:text-6xl">
-              Planificar tu mes nunca fue tan facil.
+              Empeza el mes sabiendo donde estas parado.
             </h1>
             <p className="mt-4 max-w-lg text-base leading-7 text-neutral-500 dark:text-neutral-300">
               Entra, importa tus movimientos y convierte gastos, ahorro y metas en un mapa mucho mas claro.
