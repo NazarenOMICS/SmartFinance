@@ -7,6 +7,7 @@ compatibility_flags = ["nodejs_compat"]
 binding = "DB"
 database_name = "smartfinance"
 database_id = "713df2c2-f8fb-478d-b60e-82439e5b7662"
+migrations_dir = "worker/migrations"
 
 # Clerk JWT verification — set to your Clerk JWKS URL
 # Format: https://<your-clerk-domain>/.well-known/jwks.json
