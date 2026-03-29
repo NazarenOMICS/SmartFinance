@@ -1,4 +1,4 @@
-name: Deploy Worker
+name: Deploy
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
       - main
 
 jobs:
-  deploy:
+  deploy-worker:
     runs-on: ubuntu-latest
     name: Deploy Cloudflare Worker
     steps:
@@ -20,7 +20,30 @@ jobs:
       - name: Install worker dependencies
         run: cd worker && npm ci
 
-      - name: Deploy to Cloudflare Workers
+      - name: Deploy Worker
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFARE_WORKERS }}
+
+  deploy-pages:
+    runs-on: ubuntu-latest
+    name: Deploy Cloudflare Pages
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install client dependencies
+        run: cd client && npm ci
+
+      - name: Build client
+        run: cd client && npm run build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFARE_WORKERS }}
+          command: pages deploy client/dist --project-name=smartfinance-app
