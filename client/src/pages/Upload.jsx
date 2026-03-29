@@ -281,7 +281,7 @@ function SavedFormats({ onDeleted }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function Upload({ month, onDone }) {
+export default function Upload({ month, onDone, onNavigate }) {
   const { addToast } = useToast();
   const [accounts, setAccounts] = useState([]);
   const [history, setHistory] = useState([]);
@@ -456,6 +456,9 @@ export default function Upload({ month, onDone }) {
         <p className="mt-1 text-sm text-neutral-500">Seleccioná de qué cuenta vienen los movimientos antes de cargar.</p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {loading ? <p className="col-span-4 text-neutral-400">Cargando cuentas…</p> : null}
+          {!loading && accounts.length === 0 && (
+            <p className="col-span-4 text-neutral-500">No tenés cuentas creadas todavía.</p>
+          )}
           {accounts.map((acc) => (
             <button
               key={acc.id}
@@ -470,6 +473,14 @@ export default function Upload({ month, onDone }) {
               <p className="text-xs text-neutral-400">{acc.currency}</p>
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => onNavigate?.("accounts")}
+            className="flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-neutral-300 px-4 py-3 text-sm font-semibold text-neutral-500 transition hover:border-finance-purple hover:text-finance-purple dark:border-neutral-600 dark:hover:border-purple-400 dark:hover:text-purple-300"
+          >
+            <span className="text-lg">+</span>
+            Nueva cuenta
+          </button>
         </div>
       </div>
 

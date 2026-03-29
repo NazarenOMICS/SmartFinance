@@ -7,6 +7,8 @@ import ExportButton from "../components/ExportButton";
 import MetricCard from "../components/MetricCard";
 import MonthComparison from "../components/MonthComparison";
 import TransactionTable from "../components/TransactionTable";
+import CategoryManager from "../components/CategoryManager";
+import CandidateReview from "../components/CandidateReview";
 import { SkeletonDashboard } from "../components/SkeletonLoader";
 import { fmtMoney } from "../utils";
 
@@ -27,6 +29,8 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
   const [clickedCategory, setClickedCategory] = useState(null);
   const [dismissedBudgetAlert, setDismissedBudgetAlert] = useState(false);
   const [drilldownFilter, setDrilldownFilter] = useState(null);
+  const [showCatManager, setShowCatManager] = useState(false);
+  const [categoryCandidates, setCategoryCandidates] = useState(null); // { pattern, category_id, category_name }
   const loadRequestIdRef = useRef(0);
 
   async function load() {
@@ -81,12 +85,35 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
   async function handleCategorize(id, categoryId) {
     try {
       const result = await api.updateTransaction(id, { category_id: Number(categoryId) });
+      const cat = state.categories.find((c) => c.id === Number(categoryId));
+      const catName = cat?.name;
+
+      // Optimistic local state update — avoids full page reload
+      setState((prev) => ({
+        ...prev,
+        transactions: prev.transactions.map((tx) =>
+          tx.id === id
+            ? { ...tx, category_id: Number(categoryId), category_name: catName, category_type: cat?.type, category_color: cat?.color }
+            : tx
+        ),
+      }));
+
       if (result?.rule?.conflict) {
-        addToast("warning", `Regla "${result.rule.rule?.pattern}" existe para otra categoria; la transaccion se categorizo sin modificar la regla.`);
-      } else if (result?.rule?.created && result.rule.retro_count > 0) {
-        addToast("success", `Regla "${result.rule.rule?.pattern}" aplicada a ${result.rule.retro_count} transacciones anteriores.`);
+        addToast("warning", `Ya existe una regla "${result.rule.rule?.pattern}" para otra categoría. Se categorizó sin modificar la regla.`);
+      } else if (result?.rule?.created && result.rule.candidates_count > 0) {
+        // Show candidates for Tinder-style confirmation
+        setCategoryCandidates({
+          pattern: result.rule.rule?.pattern,
+          category_id: Number(categoryId),
+          category_name: catName,
+        });
+        addToast("info", `Regla creada: "${result.rule.rule?.pattern}" → ${catName}. Hay ${result.rule.candidates_count} transacciones similares para revisar.`);
+      } else if (result?.rule?.created) {
+        addToast("success", `Aprendido: las próximas transacciones con "${result.rule.rule?.pattern}" se categorizarán como ${catName || "esta categoría"}.`);
       }
-      await load();
+
+      // Background refresh for summary/charts (non-blocking)
+      load();
       return true;
     } catch (error) {
       addToast("error", error.message);
@@ -176,16 +203,6 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
     }
   }
 
-  async function handleUsdRateBlur(value) {
-    try {
-      await api.updateSetting("exchange_rate_usd_uyu", value);
-      await refreshSettings();
-      await load();
-    } catch (error) {
-      addToast("error", error.message);
-    }
-  }
-
   if (state.loading) return <SkeletonDashboard />;
   if (state.error) {
     return <div className="rounded-[28px] bg-finance-redSoft p-6 text-finance-red shadow-panel dark:bg-red-900/30">{state.error}</div>;
@@ -195,26 +212,36 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
   const money = (value) => fmtMoney(value, summary.currency);
 
   if (state.transactions.length === 0) {
+    const steps = [
+      { icon: "↑", title: "Subí tus movimientos", desc: "PDF, CSV o TXT de tu banco", action: () => onNavigate?.("upload"), label: "Subir archivo" },
+      { icon: "◎", title: "Configurá tus cuentas", desc: "Banco, tarjeta, efectivo", action: () => onNavigate?.("accounts"), label: "Ver cuentas" },
+      { icon: "⚙", title: "Organizá categorías", desc: "Presupuestos y reglas automáticas", action: () => setShowCatManager(true), label: "Gestionar" },
+    ];
     return (
-      <div className="flex flex-col items-center justify-center rounded-[32px] border border-dashed border-finance-purple/30 bg-white/80 px-8 py-20 text-center shadow-panel dark:border-finance-purple/20 dark:bg-neutral-900/80">
-        <p className="text-5xl">UP</p>
-        <h2 className="mt-4 font-display text-4xl text-finance-ink">Sin transacciones este mes</h2>
-        <p className="mt-3 max-w-sm text-neutral-500">Subi un PDF, CSV o TXT bancario, o carga un gasto manualmente para empezar a ver tus finanzas.</p>
-        <div className="mt-8 flex flex-wrap justify-center gap-4">
-          <button
-            onClick={() => onNavigate?.("upload")}
-            className="rounded-full bg-finance-purple px-6 py-3 font-semibold text-white transition hover:opacity-90"
-          >
-            Subir archivo bancario
-          </button>
-          <button
-            onClick={() => onNavigate?.("upload")}
-            className="rounded-full border border-neutral-200 bg-white px-6 py-3 font-semibold text-finance-ink transition hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
-          >
-            Cargar gasto manual
-          </button>
+      <>
+        <div className="flex flex-col items-center rounded-[32px] border border-dashed border-finance-purple/30 bg-white/80 px-6 py-14 text-center shadow-panel dark:border-finance-purple/20 dark:bg-neutral-900/80">
+          <h2 className="font-display text-3xl text-finance-ink dark:text-neutral-100">Sin transacciones este mes</h2>
+          <p className="mt-2 max-w-md text-sm text-neutral-500">Empezá subiendo un extracto bancario. SmartFinance aprende de tus movimientos y categoriza automáticamente.</p>
+
+          <div className="mt-10 grid w-full max-w-lg gap-4 md:grid-cols-3">
+            {steps.map((step, i) => (
+              <button
+                key={i}
+                onClick={step.action}
+                className="group flex flex-col items-center gap-3 rounded-2xl border border-neutral-200 bg-white p-5 transition hover:border-finance-purple hover:shadow-lg active:scale-[0.97] dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-purple-400"
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-finance-purpleSoft text-lg text-finance-purple transition group-hover:bg-finance-purple group-hover:text-white dark:bg-purple-900/30 dark:text-purple-300">{step.icon}</span>
+                <div>
+                  <p className="font-semibold text-finance-ink dark:text-neutral-100">{step.title}</p>
+                  <p className="mt-0.5 text-xs text-neutral-400">{step.desc}</p>
+                </div>
+                <span className="mt-auto text-xs font-semibold text-finance-purple dark:text-purple-300">{step.label} →</span>
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+        <CategoryManager open={showCatManager} onClose={() => setShowCatManager(false)} onDataChanged={load} month={month} />
+      </>
     );
   }
 
@@ -287,15 +314,11 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
                 <option value="USD">USD</option>
                 <option value="ARS">ARS</option>
               </select>
-              <input
-                className="w-28 rounded-full border border-neutral-200 bg-finance-cream px-4 py-2 text-sm text-finance-ink dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
-                type="number"
-                title="Tipo de cambio USD/UYU"
-                placeholder="TC USD/UYU"
-                defaultValue={settings.exchange_rate_usd_uyu || "42.5"}
-                key={settings.exchange_rate_usd_uyu}
-                onBlur={(e) => handleUsdRateBlur(e.target.value)}
-              />
+              {settings.display_currency && settings.display_currency !== "UYU" && (
+                <span className="rounded-full bg-finance-cream px-3 py-2 text-xs text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400" title="Tipo de cambio actualizado automáticamente">
+                  TC: {Number(settings.exchange_rate_usd_uyu || 42.5).toFixed(1)}
+                </span>
+              )}
               <ExportButton month={month} />
             </div>
           </div>
@@ -326,10 +349,17 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
               </ResponsiveContainer>
             </div>
             <div className="space-y-2">
+              <button
+                onClick={() => setShowCatManager(true)}
+                className="flex w-full items-center justify-between rounded-2xl bg-finance-purpleSoft px-4 py-2.5 text-sm font-semibold text-finance-purple transition hover:bg-finance-purple hover:text-white dark:bg-purple-900/30 dark:text-purple-300 dark:hover:bg-purple-700 dark:hover:text-white"
+              >
+                <span>Gestionar categorías y presupuestos</span>
+                <span className="text-xs">⚙</span>
+              </button>
               {clickedCategory && (
                 <button
                   onClick={() => setClickedCategory(null)}
-                  className="mb-1 flex w-full items-center justify-between rounded-2xl bg-finance-purpleSoft px-3 py-2 text-xs font-semibold text-finance-purple transition hover:bg-finance-purple hover:text-white dark:bg-purple-900/30 dark:text-purple-300 dark:hover:bg-purple-700 dark:hover:text-white"
+                  className="flex w-full items-center justify-between rounded-2xl bg-finance-amberSoft px-3 py-2 text-xs font-semibold text-finance-amber transition hover:bg-finance-amber hover:text-white dark:bg-amber-900/30 dark:text-amber-300 dark:hover:bg-amber-700 dark:hover:text-white"
                 >
                   <span>Filtrando: {clickedCategory}</span>
                   <span>x limpiar</span>
@@ -390,7 +420,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
       <div className="grid gap-4 lg:grid-cols-3">
         <MetricCard label="Gastos fijos" value={money(summary.byType.fijo)} tone="text-finance-coral" />
         <MetricCard label="Gastos variables" value={money(summary.byType.variable)} tone="text-finance-blue" />
-        <MetricCard label="Cuotas del mes" value={money(summary.totals.installments)} tone="text-finance-amber" />
+        <MetricCard label="Cuotas del mes" value={money(summary.totals.installments)} tone="text-finance-amber" onClick={() => onNavigate?.("installments")} />
       </div>
 
       <div className="space-y-3">
@@ -445,7 +475,24 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
         onUpdateFull={handleUpdateFull}
         externalCatFilter={clickedCategory}
         onClearExternalFilter={() => setClickedCategory(null)}
+        onCategoryCreated={load}
       />
+
+      <CategoryManager
+        open={showCatManager}
+        onClose={() => setShowCatManager(false)}
+        onDataChanged={load}
+        month={month}
+      />
+
+      {categoryCandidates && (
+        <CandidateReview
+          pattern={categoryCandidates.pattern}
+          categoryId={categoryCandidates.category_id}
+          categoryName={categoryCandidates.category_name}
+          onDone={() => { setCategoryCandidates(null); load(); }}
+        />
+      )}
     </div>
   );
 }

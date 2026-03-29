@@ -22,7 +22,6 @@ const Upload       = lazy(() => import("./pages/Upload"));
 const Savings      = lazy(() => import("./pages/Savings"));
 const Accounts     = lazy(() => import("./pages/Accounts"));
 const Installments = lazy(() => import("./pages/Installments"));
-const Rules        = lazy(() => import("./pages/Rules"));
 const Recurring    = lazy(() => import("./pages/Recurring"));
 
 const TABS = [
@@ -32,7 +31,6 @@ const TABS = [
   { id: "recurring",    label: "Recurrentes", icon: "↻" },
   { id: "accounts",     label: "Cuentas",     icon: "◎" },
   { id: "installments", label: "Cuotas",      icon: "⧗" },
-  { id: "rules",        label: "Reglas",      icon: "⚙" },
 ];
 
 // ── Injects getToken into the api module ───────────────────────────────────────
@@ -103,7 +101,7 @@ function AppInner() {
 
   // Dynamic page title
   useEffect(() => {
-    const titles = { dashboard: "Dashboard", upload: "Upload", savings: "Ahorro", accounts: "Cuentas", installments: "Cuotas", rules: "Reglas", recurring: "Recurrentes" };
+    const titles = { dashboard: "Dashboard", upload: "Upload", savings: "Ahorro", accounts: "Cuentas", installments: "Cuotas", recurring: "Recurrentes" };
     document.title = `${titles[tab] || tab} — SmartFinance`;
   }, [tab]);
 
@@ -339,7 +337,7 @@ function AppInner() {
             <button
               key={item.id}
               onClick={() => setTab(item.id)}
-              className={`relative shrink-0 flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold transition ${
+              className={`shrink-0 flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold transition ${
                 tab === item.id
                   ? "bg-finance-purple text-white"
                   : "bg-finance-cream text-finance-ink hover:bg-white dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
@@ -348,7 +346,7 @@ function AppInner() {
               <span className="text-[11px] opacity-70">{item.icon}</span>
               {item.label}
               {item.id === "dashboard" && pendingCount > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-finance-amber text-[10px] font-bold text-white">
+                <span className="ml-0.5 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-finance-amber px-1 text-[10px] font-bold text-white">
                   {pendingCount > 9 ? "9+" : pendingCount}
                 </span>
               )}
@@ -359,7 +357,7 @@ function AppInner() {
 
       <Suspense fallback={<SkeletonDashboard />}>
         {tab === "dashboard"    && <Dashboard    month={month} settings={settings} refreshSettings={refreshSettings} onNavigate={setTab} onPendingChange={setPendingCount} />}
-        {tab === "upload"       && <Upload       month={month} onDone={() => { setTab("dashboard"); refreshPendingCount(); }} />}
+        {tab === "upload"       && <Upload       month={month} onDone={() => { setTab("dashboard"); refreshPendingCount(); }} onNavigate={setTab} />}
         {tab === "savings"      && <Savings      month={month} settings={settings} refreshSettings={refreshSettings} />}
         {tab === "accounts"     && <Accounts     settings={settings} refreshSettings={refreshSettings} onAccountDeleted={async () => {
           try {
@@ -368,7 +366,6 @@ function AppInner() {
           } catch { /* silent */ }
         }} />}
         {tab === "installments" && <Installments month={month} />}
-        {tab === "rules"        && <Rules />}
         {tab === "recurring"    && <Recurring    month={month} />}
       </Suspense>
 

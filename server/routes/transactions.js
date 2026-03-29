@@ -1,7 +1,7 @@
 const express = require("express");
 const { db, isValidMonthString } = require("../db");
 const { buildDedupHash } = require("../services/dedup");
-const { ensureRuleForManualCategorization, findMatchingRule, bumpRule, isLikelyReintegro, isLikelyTransfer } = require("../services/categorizer");
+const { ensureRuleForManualCategorization, findMatchingRule, bumpRule, isLikelyReintegro, isLikelyTransfer, getCandidatesForPattern } = require("../services/categorizer");
 const { computeMonthlyEvolution, computeSummary, getTransactionsForMonth } = require("../services/metrics");
 const { suggestSync } = require("../services/suggester");
 
@@ -287,6 +287,40 @@ router.put("/:id", (req, res) => {
     .get(id);
 
   res.json({ transaction: updated, rule: ruleStatus });
+});
+
+// Get candidate transactions that match a pattern (for Tinder-style confirmation)
+router.get("/candidates", (req, res) => {
+  const { pattern, category_id } = req.query;
+  if (!pattern || !category_id) {
+    return res.status(400).json({ error: "pattern and category_id are required" });
+  }
+  const candidates = getCandidatesForPattern(db, pattern, Number(category_id));
+  res.json(candidates);
+});
+
+// Batch-confirm categorization for specific transaction IDs
+router.post("/confirm-category", (req, res) => {
+  const { transaction_ids, category_id } = req.body;
+  if (!Array.isArray(transaction_ids) || !category_id) {
+    return res.status(400).json({ error: "transaction_ids array and category_id are required" });
+  }
+  const category = db.prepare("SELECT id FROM categories WHERE id = ?").get(Number(category_id));
+  if (!category) {
+    return res.status(404).json({ error: "category not found" });
+  }
+
+  const update = db.prepare("UPDATE transactions SET category_id = ? WHERE id = ? AND category_id IS NULL");
+  let confirmed = 0;
+  const run = db.transaction((ids) => {
+    for (const id of ids) {
+      const result = update.run(Number(category_id), Number(id));
+      confirmed += result.changes;
+    }
+  });
+  run(transaction_ids);
+
+  res.json({ confirmed });
 });
 
 router.delete("/:id", (req, res) => {

@@ -51,6 +51,10 @@ export const api = {
     request(`/api/transactions/monthly-evolution?end=${end}&months=${months}`),
   deleteTransaction: (id) =>
     request(`/api/transactions/${id}`, { method: "DELETE" }),
+  getCandidates: (pattern, categoryId) =>
+    request(`/api/transactions/candidates?pattern=${encodeURIComponent(pattern)}&category_id=${categoryId}`),
+  confirmCategory: (transactionIds, categoryId) =>
+    request("/api/transactions/confirm-category", { method: "POST", body: JSON.stringify({ transaction_ids: transactionIds, category_id: categoryId }) }),
 
   // Categories
   getCategories: () => request("/api/categories"),
@@ -93,6 +97,8 @@ export const api = {
   getSettings: () => request("/api/settings"),
   updateSetting: (key, value) =>
     request("/api/settings", { method: "PUT", body: JSON.stringify({ key, value }) }),
+  refreshRates: () =>
+    request("/api/settings/refresh-rates", { method: "POST" }),
 
   // Savings / Insights
   getProjection: (end, months = 12) =>

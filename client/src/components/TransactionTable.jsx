@@ -6,7 +6,7 @@ import { fmtMoney, shortDate } from "../utils";
 export default function TransactionTable({
   transactions, categories,
   onCategorize, onBulkCategorize, onDelete, onUpdateDesc, onUpdateFull,
-  externalCatFilter, onClearExternalFilter,
+  externalCatFilter, onClearExternalFilter, onCategoryCreated,
 }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [editingCategory, setEditingCategory] = useState(null);
@@ -276,7 +276,7 @@ export default function TransactionTable({
                     </span>
                   )}
                   <button onClick={() => setEditingCategory(tx.id)} title="Clic para cambiar categoría" className="flex-1 text-left">
-                    <Badge>{tx.category_name}</Badge>
+                    <Badge color={tx.category_color}>{tx.category_name}</Badge>
                   </button>
                 </div>
               ) : editingCategory !== tx.id && tx.suggestion ? (
@@ -303,6 +303,7 @@ export default function TransactionTable({
                     <CategorySelect
                       categories={availableCategories}
                       onChange={(value) => handleCategoryChange(tx.id, value)}
+                      onCategoryCreated={onCategoryCreated}
                     />
                   </div>
                   {editingCategory === tx.id && (
@@ -509,16 +510,14 @@ export default function TransactionTable({
           <span className="text-sm font-semibold text-white">
             {selectedIds.size} seleccionada{selectedIds.size !== 1 ? "s" : ""}
           </span>
-          <select
-            value={bulkCatId}
-            onChange={(e) => setBulkCatId(e.target.value)}
-            className="rounded-xl border border-neutral-600 bg-neutral-800 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-finance-purple"
-          >
-            <option value="">Categoría…</option>
-            {categories.filter((c) => c.name !== "Ingreso").map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
+          <div className="w-48">
+            <CategorySelect
+              categories={categories.filter((c) => c.name !== "Ingreso")}
+              value={bulkCatId}
+              onChange={(val) => setBulkCatId(val)}
+              onCategoryCreated={onCategoryCreated}
+            />
+          </div>
           <button
             onClick={handleBulkSubmit}
             disabled={!bulkCatId}

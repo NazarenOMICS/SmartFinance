@@ -119,8 +119,40 @@ function ensureRuleForManualCategorization(db, descBanco, categoryId) {
     .prepare("INSERT INTO rules (pattern, category_id, match_count) VALUES (?, ?, 0)")
     .run(pattern, categoryId);
 
-  const retroCount = applyRuleRetroactively(db, pattern, categoryId);
-  return { created: true, conflict: false, retro_count: retroCount, rule: { id: result.lastInsertRowid, pattern, category_id: Number(categoryId) } };
+  // Instead of silently applying retroactively, find candidates for user confirmation
+  const candidates = findCandidatesForRule(db, pattern, categoryId);
+  return {
+    created: true,
+    conflict: false,
+    candidates_count: candidates.length,
+    rule: { id: result.lastInsertRowid, pattern, category_id: Number(categoryId) }
+  };
+}
+
+/**
+ * Find uncategorized transactions that match a rule pattern.
+ * Returns them as candidates for the user to confirm, NOT auto-applied.
+ */
+function findCandidatesForRule(db, pattern, categoryId) {
+  return db
+    .prepare(
+      `SELECT t.id, t.fecha, t.desc_banco, t.monto, t.moneda,
+              a.name AS account_name
+       FROM transactions t
+       LEFT JOIN accounts a ON a.id = t.account_id
+       WHERE t.category_id IS NULL
+         AND LOWER(t.desc_banco) LIKE '%' || LOWER(?) || '%'
+       ORDER BY t.fecha DESC
+       LIMIT 50`
+    )
+    .all(pattern);
+}
+
+/**
+ * Get candidates for a specific rule pattern (for the frontend to show).
+ */
+function getCandidatesForPattern(db, pattern, categoryId) {
+  return findCandidatesForRule(db, pattern, categoryId);
 }
 
 /**
@@ -237,14 +269,11 @@ const DEFAULT_RULES = [
   // ── Servicios básicos ────────────────────────────────────────────────────
   { pattern: "ABITAB",             category: "Servicios" },
   { pattern: "RAPIPAGO",           category: "Servicios" },
-  { pattern: "MOVISTAR",           category: "Servicios" },
-  { pattern: "CLARO",              category: "Servicios" },
   { pattern: "MONTEVIDEO GAS",     category: "Servicios" },
   { pattern: "OSE",                category: "Servicios" },
   { pattern: " OCA",               category: "Servicios" },  // leading space avoids matching BOCA, ROCA
   { pattern: "DIRECTV",            category: "Servicios" },
   { pattern: "TELECOM",            category: "Servicios" },
-  { pattern: "TIGO",               category: "Servicios" },
   { pattern: "WIND",               category: "Servicios" },
   // ── Seguros ──────────────────────────────────────────────────────────────
   { pattern: "BSE",                category: "Seguros" },
@@ -254,23 +283,47 @@ const DEFAULT_RULES = [
   { pattern: "METLIFE",            category: "Seguros" },
   { pattern: "SEGUROS",            category: "Seguros" },
   { pattern: "SEGURO",             category: "Seguros" },
-  // ── Suscripciones digitales ──────────────────────────────────────────────
+  // ── Streaming (video/audio/gaming) ────────────────────────────────────────
+  { pattern: "NETFLIX",            category: "Streaming" },
+  { pattern: "SPOTIFY",            category: "Streaming" },
+  { pattern: "DISNEY",             category: "Streaming" },
+  { pattern: "HBO",                category: "Streaming" },
+  { pattern: "PARAMOUNT",          category: "Streaming" },
+  { pattern: "CRUNCHYROLL",        category: "Streaming" },
+  { pattern: "YOUTUBE",            category: "Streaming" },
+  { pattern: "TWITCH",             category: "Streaming" },
+  { pattern: "DEEZER",             category: "Streaming" },
+  { pattern: "TIDAL",              category: "Streaming" },
+  { pattern: "STAR+",              category: "Streaming" },
+  { pattern: "PRIME VIDEO",        category: "Streaming" },
+  { pattern: "MUBI",               category: "Streaming" },
+  // ── Suscripciones digitales (software/servicios) ────────────────────────
   { pattern: "GOOGLE",             category: "Suscripciones" },
   { pattern: "AMAZON",             category: "Suscripciones" },
   { pattern: "APPLE",              category: "Suscripciones" },
-  { pattern: "DISNEY",             category: "Suscripciones" },
-  { pattern: "HBO",                category: "Suscripciones" },
-  { pattern: "YOUTUBE",            category: "Suscripciones" },
   { pattern: "XBOX",               category: "Suscripciones" },
   { pattern: "PLAYSTATION",        category: "Suscripciones" },
   { pattern: "STEAM",              category: "Suscripciones" },
-  { pattern: "TWITCH",             category: "Suscripciones" },
   { pattern: "DROPBOX",            category: "Suscripciones" },
   { pattern: "MICROSOFT",          category: "Suscripciones" },
   { pattern: "OFFICE 365",         category: "Suscripciones" },
   { pattern: "ADOBE",              category: "Suscripciones" },
-  { pattern: "PARAMOUNT",          category: "Suscripciones" },
-  { pattern: "CRUNCHYROLL",        category: "Suscripciones" },
+  // ── Telefonía ────────────────────────────────────────────────────────────
+  { pattern: "ANTEL",              category: "Telefonia" },
+  { pattern: "MOVISTAR",           category: "Telefonia" },
+  { pattern: "CLARO",              category: "Telefonia" },
+  { pattern: "TIGO",               category: "Telefonia" },
+  // ── Gimnasio / deporte ───────────────────────────────────────────────────
+  { pattern: "SMARTFIT",           category: "Gimnasio" },
+  { pattern: "SMART FIT",          category: "Gimnasio" },
+  { pattern: "BODYTECH",           category: "Gimnasio" },
+  { pattern: "GIMNASIO",           category: "Gimnasio" },
+  { pattern: "GYM",                category: "Gimnasio" },
+  { pattern: "FITNESS",            category: "Gimnasio" },
+  // ── Mascotas ─────────────────────────────────────────────────────────────
+  { pattern: "VETERINAR",          category: "Mascotas" },
+  { pattern: "PET SHOP",           category: "Mascotas" },
+  { pattern: "LAIKA",              category: "Mascotas" },
   // ── Salud ────────────────────────────────────────────────────────────────
   { pattern: "FARMACIA",           category: "Salud" },
   { pattern: "FARMASHOP",          category: "Salud" },
@@ -381,6 +434,10 @@ const DEFAULT_CATEGORIES = [
   ["Indumentaria",     5000, "variable",  "#E24B4A",  19],
   ["Hogar",            3000, "variable",  "#639922",  20],
   ["Compras online",   4000, "variable",  "#D85A30",  21],
+  ["Streaming",        2000, "fijo",      "#9B59B6",  22],
+  ["Telefonia",        3000, "fijo",      "#2ECC71",  23],
+  ["Gimnasio",         3000, "fijo",      "#E67E22",  24],
+  ["Mascotas",         2000, "variable",  "#3498DB",  25],
 ];
 
 /**
@@ -427,7 +484,9 @@ module.exports = {
   bumpRule,
   ensureDefaultRules,
   ensureRuleForManualCategorization,
+  findCandidatesForRule,
   findMatchingRule,
+  getCandidatesForPattern,
   isLikelyReintegro,
   isLikelyTransfer
 };

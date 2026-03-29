@@ -5,6 +5,7 @@ const fs = require("fs");
 
 const { seed } = require("./seed");
 const { ensureDefaultRules } = require("./services/categorizer");
+const { startDailyRefresh } = require("./services/exchange-rates");
 const transactionsRouter = require("./routes/transactions");
 const categoriesRouter = require("./routes/categories");
 const accountsRouter = require("./routes/accounts");
@@ -28,6 +29,7 @@ if (!fs.existsSync(uploadsDir)) {
 
 seed();
 ensureDefaultRules(require("./db").db);
+startDailyRefresh();
 
 app.use(cors({
   origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : true

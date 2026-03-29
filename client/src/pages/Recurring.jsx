@@ -1,10 +1,45 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
+import { useToast } from "../contexts/ToastContext";
+import CategorySelect from "../components/CategorySelect";
 import { fmtMoney } from "../utils";
 
 export default function Recurring({ month }) {
+  const { addToast } = useToast();
   const [state, setState] = useState({ loading: true, error: "", data: [] });
+  const [categories, setCategories] = useState([]);
+  const [savingRule, setSavingRule] = useState(null); // desc_banco of item being saved
   const loadRequestIdRef = useRef(0);
+
+  async function loadCategories() {
+    try {
+      const cats = await api.getCategories();
+      setCategories(cats);
+    } catch { /* silent */ }
+  }
+
+  async function handleCategorize(item, categoryId) {
+    setSavingRule(item.desc_banco);
+    try {
+      const result = await api.createRule({
+        pattern: item.desc_banco,
+        category_id: Number(categoryId),
+      });
+      if (result?.duplicate) {
+        addToast("info", `Regla para "${item.desc_banco}" ya existe.`);
+      } else if (result?.retro_count > 0) {
+        addToast("success", `Aprendido: "${item.desc_banco}" → categoría asignada. ${result.retro_count} transacciones actualizadas.`);
+      } else {
+        addToast("success", `Aprendido: las próximas transacciones con "${item.desc_banco}" se categorizarán automáticamente.`);
+      }
+      await load();
+      await loadCategories();
+    } catch (e) {
+      addToast("error", e.message);
+    } finally {
+      setSavingRule(null);
+    }
+  }
 
   async function load() {
     const requestId = ++loadRequestIdRef.current;
@@ -19,7 +54,7 @@ export default function Recurring({ month }) {
     }
   }
 
-  useEffect(() => { load(); }, [month]);
+  useEffect(() => { load(); loadCategories(); }, [month]);
 
   if (state.loading) return <div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel dark:bg-neutral-900/80">{"Analizando patrones\u2026"}</div>;
   if (state.error)   return <div className="rounded-[28px] bg-finance-redSoft p-6 text-finance-red shadow-panel dark:bg-red-900/30">{state.error}</div>;
@@ -73,10 +108,16 @@ export default function Recurring({ month }) {
                     >
                       {item.category_name}
                     </span>
+                  ) : savingRule === item.desc_banco ? (
+                    <span className="text-xs text-neutral-400">Guardando…</span>
                   ) : (
-                    <span className="rounded-full bg-finance-amberSoft px-3 py-1 text-xs font-semibold text-finance-amber dark:bg-amber-900/30 dark:text-amber-300">
-                      {"Sin categor\u00EDa"}
-                    </span>
+                    <div className="w-44">
+                      <CategorySelect
+                        categories={categories.filter((c) => c.name !== "Ingreso")}
+                        onChange={(catId) => handleCategorize(item, catId)}
+                        onCategoryCreated={loadCategories}
+                      />
+                    </div>
                   )}
                 </div>
                 <span className="self-center text-right font-semibold text-finance-red dark:text-red-300">

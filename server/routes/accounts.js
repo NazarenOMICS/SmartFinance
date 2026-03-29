@@ -31,13 +31,33 @@ router.get("/", (req, res) => {
   res.json(rows);
 });
 
+function slugify(text) {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "")
+    .slice(0, 48);
+}
+
 router.post("/", (req, res) => {
-  const id = String(req.body.id || "").trim();
   const name = String(req.body.name || "").trim();
   const currency = String(req.body.currency || "").trim().toUpperCase();
   const balance = Number(req.body.balance ?? 0);
-  if (!id || !name || !currency) {
-    return res.status(400).json({ error: "id, name and currency are required" });
+  if (!name || !currency) {
+    return res.status(400).json({ error: "name and currency are required" });
+  }
+
+  // Auto-generate id from name if not provided
+  let id = String(req.body.id || "").trim();
+  if (!id) {
+    const base = slugify(name) || "cuenta";
+    id = base;
+    let suffix = 2;
+    while (db.prepare("SELECT id FROM accounts WHERE id = ?").get(id)) {
+      id = `${base}_${suffix++}`;
+    }
   }
   if (!SUPPORTED_CURRENCIES.has(currency)) {
     return res.status(400).json({ error: "currency must be UYU, USD or ARS" });

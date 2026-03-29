@@ -20,7 +20,7 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
     exchange_rate_usd_uyu: settings.exchange_rate_usd_uyu || "42.5",
     exchange_rate_ars_uyu: settings.exchange_rate_ars_uyu || "0.045",
   });
-  const [newAccount, setNewAccount] = useState({ id: "", name: "", currency: "UYU", balance: "" });
+  const [newAccount, setNewAccount] = useState({ name: "", currency: "UYU", balance: "" });
   const [deleteError, setDeleteError] = useState(null);
   const confirm = useConfirm();
   const loadRequestIdRef = useRef(0);
@@ -85,7 +85,7 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
     try {
       await api.createAccount({ ...newAccount, balance: Number(newAccount.balance || 0) });
       addToast("success", `Cuenta "${newAccount.name}" creada.`);
-      setNewAccount({ id: "", name: "", currency: "UYU", balance: "" });
+      setNewAccount({ name: "", currency: "UYU", balance: "" });
       await load();
     } catch (e) {
       addToast("error", e.message);
@@ -264,9 +264,8 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
 
       <form onSubmit={handleCreate} className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
         <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Nueva cuenta</p>
-        <div className="mt-4 grid gap-4 md:grid-cols-[120px_1fr_100px_140px_auto]">
-          <input className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100" placeholder="id" value={newAccount.id} onChange={(event) => setNewAccount((prev) => ({ ...prev, id: event.target.value }))} />
-          <input className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100" placeholder="Nombre" value={newAccount.name} onChange={(event) => setNewAccount((prev) => ({ ...prev, name: event.target.value }))} />
+        <div className="mt-4 grid gap-4 md:grid-cols-[1fr_100px_140px_auto]">
+          <input className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100" placeholder="Nombre de la cuenta" value={newAccount.name} onChange={(event) => setNewAccount((prev) => ({ ...prev, name: event.target.value }))} />
           <select className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100" value={newAccount.currency} onChange={(event) => setNewAccount((prev) => ({ ...prev, currency: event.target.value }))}>
             <option value="UYU">UYU</option>
             <option value="USD">USD</option>

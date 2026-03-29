@@ -1,20 +1,33 @@
-const STYLES = {
-  Supermercado:  "bg-finance-purpleSoft text-finance-purple dark:bg-purple-900/40 dark:text-purple-300",
-  Transporte:    "bg-finance-tealSoft text-finance-teal dark:bg-teal-900/40 dark:text-teal-300",
-  Suscripciones: "bg-finance-coralSoft text-finance-coral dark:bg-orange-900/40 dark:text-orange-300",
-  Restaurantes:  "bg-finance-blueSoft text-finance-blue dark:bg-blue-900/40 dark:text-blue-300",
-  Servicios:     "bg-finance-amberSoft text-finance-amber dark:bg-amber-900/40 dark:text-amber-300",
-  Alquiler:      "bg-finance-greenSoft text-finance-green dark:bg-green-900/40 dark:text-green-300",
-  Salud:         "bg-finance-redSoft text-finance-red dark:bg-red-900/40 dark:text-red-300",
-  Ingreso:       "bg-finance-greenSoft text-finance-green dark:bg-green-900/40 dark:text-green-300",
-  Reintegro:     "bg-finance-tealSoft text-finance-teal dark:bg-teal-900/40 dark:text-teal-300",
-  Transferencia: "bg-finance-graySoft text-finance-gray dark:bg-neutral-800 dark:text-neutral-300",
-  Otros:         "bg-finance-graySoft text-finance-gray dark:bg-neutral-800 dark:text-neutral-400",
-};
+/**
+ * Converts a hex color to a soft background + text style.
+ * Returns inline style object for bg (with alpha) and text color.
+ */
+function colorStyles(hex) {
+  if (!hex) return null;
+  // Parse hex to RGB
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return {
+    backgroundColor: `rgba(${r}, ${g}, ${b}, 0.15)`,
+    color: hex,
+  };
+}
 
-export default function Badge({ children }) {
+export default function Badge({ children, color }) {
+  const styles = colorStyles(color);
+  if (styles) {
+    return (
+      <span
+        className="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold"
+        style={styles}
+      >
+        {children || "Pendiente"}
+      </span>
+    );
+  }
   return (
-    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${STYLES[children] || STYLES.Otros}`}>
+    <span className="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
       {children || "Pendiente"}
     </span>
   );
