@@ -18,6 +18,7 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
   const [catForm, setCatForm] = useState({ name: "", budget: "", type: "variable", color: PRESET_COLORS[0] });
   const [ruleForm, setRuleForm] = useState({ pattern: "", category_id: "" });
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [confirmResetRules, setConfirmResetRules] = useState(false);
   const [pendingReview, setPendingReview] = useState(null);
   const [saving, setSaving] = useState(false);
   const panelRef = useRef(null);
@@ -71,6 +72,12 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+
+  useEffect(() => {
+    if (tab !== "rules" && confirmResetRules) {
+      setConfirmResetRules(false);
+    }
+  }, [tab, confirmResetRules]);
 
   function handleBackdropClick(e) {
     if (e.target === e.currentTarget) onClose();
@@ -169,6 +176,27 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
       onDataChanged?.();
     } catch (e) {
       addToast("error", e.message);
+    }
+  }
+
+  async function handleResetRules() {
+    if (saving) return;
+    if (!confirmResetRules) {
+      setConfirmResetRules(true);
+      return;
+    }
+
+    setConfirmResetRules(false);
+    setSaving(true);
+    try {
+      const result = await api.resetRules();
+      addToast("info", `Se resetearon ${result.deleted_count} reglas. Quedaron ${result.rules_count} reglas base.`);
+      await load();
+      onDataChanged?.();
+    } catch (e) {
+      addToast("error", e.message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -317,6 +345,35 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
                         />
                       </div>
                     </div>
+
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <div className="flex flex-wrap gap-1.5">
+                        {PRESET_COLORS.map((color) => (
+                          <button
+                            key={`${category.id}-${color}`}
+                            type="button"
+                            onClick={() => updateCategory(category, { color })}
+                            className={`h-5 w-5 rounded-full transition ${
+                              (category.color || "#888780") === color
+                                ? "ring-2 ring-finance-purple ring-offset-2 dark:ring-offset-neutral-900"
+                                : "hover:scale-110"
+                            }`}
+                            style={{ backgroundColor: color }}
+                            title={`Cambiar color a ${color}`}
+                          />
+                        ))}
+                      </div>
+
+                      <label className="flex items-center gap-2 text-xs text-neutral-400">
+                        color
+                        <input
+                          type="color"
+                          value={category.color || "#888780"}
+                          onChange={(e) => updateCategory(category, { color: e.target.value })}
+                          className="h-8 w-8 cursor-pointer rounded-lg border border-neutral-200 bg-transparent p-0 dark:border-neutral-700"
+                        />
+                      </label>
+                    </div>
                   </div>
                 );
               })}
@@ -346,6 +403,13 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
                       />
                     ))}
                   </div>
+                  <input
+                    type="color"
+                    value={catForm.color}
+                    onChange={(e) => setCatForm((prev) => ({ ...prev, color: e.target.value }))}
+                    className="h-8 w-8 cursor-pointer rounded-lg border border-neutral-200 bg-transparent p-0 dark:border-neutral-700"
+                    title="Elegir color personalizado"
+                  />
                 </div>
                 <div className="mb-3 flex items-center gap-2">
                   <div className="flex rounded-xl border border-neutral-200 text-xs dark:border-neutral-700">
@@ -410,6 +474,26 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
                   {saving ? "Creando..." : "Crear regla"}
                 </button>
               </form>
+
+              <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 dark:border-amber-900/40 dark:bg-amber-900/10">
+                <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">Reset de reglas</p>
+                <p className="mt-1 text-xs leading-6 text-neutral-500 dark:text-neutral-300">
+                  Borra las reglas aprendidas o mal creadas y vuelve al set base de la app. Ideal si la
+                  categorizacion automatica se fue de mambo.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleResetRules}
+                  disabled={saving}
+                  className={`mt-3 rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                    confirmResetRules
+                      ? "bg-finance-red text-white hover:opacity-90"
+                      : "bg-white text-finance-ink hover:bg-neutral-100 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800"
+                  } disabled:opacity-50`}
+                >
+                  {confirmResetRules ? "Confirmar reset total de reglas" : "Resetear reglas al estado base"}
+                </button>
+              </div>
 
               {rules.map((rule) => (
                 <div key={rule.id} className="flex items-center gap-3 rounded-2xl bg-neutral-50 px-4 py-3 dark:bg-neutral-900">

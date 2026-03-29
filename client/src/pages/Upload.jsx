@@ -4,6 +4,7 @@ import { api } from "../api";
 import { useToast } from "../contexts/ToastContext";
 import CsvImportPanel from "../components/CsvImportPanel";
 import ColumnMapper from "../components/ColumnMapper";
+import BrandMark from "../components/BrandMark";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.mjs",
@@ -450,6 +451,50 @@ export default function Upload({ month, onDone, onNavigate }) {
           onCancel={() => setColumnMapper(null)}
         />
       )}
+      <section className="relative overflow-hidden rounded-[38px] border border-white/70 bg-white/82 p-6 shadow-panel backdrop-blur dark:border-white/10 dark:bg-neutral-900/82 md:p-8">
+        <div className="absolute -right-12 top-0 h-40 w-40 rounded-full bg-finance-purple/10 blur-3xl" />
+        <div className="absolute -left-12 bottom-0 h-40 w-40 rounded-full bg-finance-teal/10 blur-3xl" />
+        <div className="relative grid gap-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+          <div>
+            <div className="inline-flex items-center gap-3 rounded-full border border-white/80 bg-white/90 px-3 py-2 shadow-sm dark:border-white/10 dark:bg-neutral-800/85">
+              <BrandMark size="sm" />
+              <div className="text-left">
+                <p className="text-[10px] uppercase tracking-[0.34em] text-neutral-400">Upload studio</p>
+                <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">
+                  Trae el archivo. Nosotros ordenamos el caos.
+                </p>
+              </div>
+            </div>
+
+            <h1 className="mt-6 max-w-2xl font-display text-4xl leading-tight text-finance-ink dark:text-neutral-100 md:text-5xl">
+              Importa movimientos reales con una entrada mucho mas clara.
+            </h1>
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-neutral-500 dark:text-neutral-300">
+              Elige la cuenta, sube un archivo o carga algo manual y deja que SmartFinance convierta ese
+              material crudo en transacciones utilizables.
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+            {[
+              { title: "Importa", body: "PDF, CSV o TXT con deteccion y mapeo cuando haga falta.", tone: "bg-finance-purpleSoft/75 text-finance-purple" },
+              { title: "Aprende", body: "Los formatos guardados y tus categorias reducen trabajo repetido.", tone: "bg-finance-tealSoft/80 text-finance-teal" },
+              { title: "Recuerda", body: "Cada archivo suma contexto para mirar mejor el siguiente mes.", tone: "bg-finance-amberSoft/80 text-finance-amber" },
+            ].map((item, index) => (
+              <div
+                key={item.title}
+                className="rounded-[28px] border border-white/70 bg-white/82 p-4 shadow-sm dark:border-white/10 dark:bg-neutral-950/45"
+              >
+                <span className={`inline-flex h-10 min-w-10 items-center justify-center rounded-2xl px-2 text-sm font-semibold ${item.tone}`}>
+                  0{index + 1}
+                </span>
+                <p className="mt-3 font-semibold text-finance-ink dark:text-neutral-100">{item.title}</p>
+                <p className="mt-1 text-sm leading-6 text-neutral-500 dark:text-neutral-300">{item.body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
       {/* STEP 1: Account selector */}
       <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
         <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Paso 1 — Cuenta de origen</p>

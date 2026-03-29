@@ -1,6 +1,6 @@
 const express = require("express");
 const { db } = require("../db");
-const { findCandidatesForRule } = require("../services/categorizer");
+const { ensureDefaultRules, findCandidatesForRule } = require("../services/categorizer");
 
 const router = express.Router();
 
@@ -55,6 +55,18 @@ router.post("/", (req, res) => {
   const candidates_count = findCandidatesForRule(db, normalizedPattern, Number(category_id)).length;
 
   res.status(201).json({ ...rule, candidates_count });
+});
+
+router.post("/reset", (req, res) => {
+  const deleted_count = db.prepare("SELECT COUNT(*) AS count FROM rules").get().count;
+
+  db.transaction(() => {
+    db.prepare("DELETE FROM rules").run();
+    ensureDefaultRules(db);
+  })();
+
+  const rules_count = db.prepare("SELECT COUNT(*) AS count FROM rules").get().count;
+  res.json({ deleted_count, rules_count });
 });
 
 router.delete("/:id", (req, res) => {

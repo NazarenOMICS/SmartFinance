@@ -79,6 +79,8 @@ export const api = {
   getRules: () => request("/api/rules"),
   createRule: (body) =>
     request("/api/rules", { method: "POST", body: JSON.stringify(body) }),
+  resetRules: () =>
+    request("/api/rules/reset", { method: "POST" }),
   deleteRule: (id) =>
     request(`/api/rules/${id}`, { method: "DELETE" }),
 
