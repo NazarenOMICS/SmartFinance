@@ -8,6 +8,7 @@ export default function Rules() {
   const [localBudgets, setLocalBudgets] = useState({});
   const [ruleForm, setRuleForm] = useState({ pattern: "", category_id: "" });
   const [catForm, setCatForm] = useState({ name: "", budget: "", type: "variable", color: "#888780" });
+  const [confirmDelete, setConfirmDelete] = useState(null); // "cat-{id}" | "rule-{id}"
   const loadRequestIdRef = useRef(0);
 
   async function load() {
@@ -53,6 +54,9 @@ export default function Rules() {
   }
 
   async function handleDeleteCategory(id) {
+    const key = `cat-${id}`;
+    if (confirmDelete !== key) { setConfirmDelete(key); return; }
+    setConfirmDelete(null);
     const cat = state.categories.find((c) => c.id === id);
     try {
       await api.deleteCategory(id);
@@ -86,6 +90,9 @@ export default function Rules() {
   }
 
   async function handleDeleteRule(id) {
+    const key = `rule-${id}`;
+    if (confirmDelete !== key) { setConfirmDelete(key); return; }
+    setConfirmDelete(null);
     const rule = state.rules.find((r) => r.id === id);
     try {
       await api.deleteRule(id);
@@ -148,7 +155,7 @@ export default function Rules() {
                 onClick={() => handleDeleteCategory(category.id)}
                 className="rounded-full bg-finance-redSoft px-3 py-2 text-xs font-semibold text-finance-red transition hover:bg-finance-red hover:text-white dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-700 dark:hover:text-white"
               >
-                Borrar
+                {confirmDelete === `cat-${category.id}` ? "¿Confirmar?" : "Borrar"}
               </button>
             </div>
           ))}
@@ -245,7 +252,7 @@ export default function Rules() {
                 onClick={() => handleDeleteRule(rule.id)}
                 className="rounded-full px-3 py-1.5 text-xs font-semibold text-finance-red transition hover:bg-finance-redSoft dark:hover:bg-red-900/30"
               >
-                Borrar
+                {confirmDelete === `rule-${rule.id}` ? "¿Confirmar?" : "Borrar"}
               </button>
             </div>
           ))}

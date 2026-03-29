@@ -173,7 +173,7 @@ export default function Onboarding({ onComplete }) {
               </div>
             </button>
             <button
-              onClick={() => onComplete("upload")}
+              onClick={() => onComplete("dashboard")}
               className="flex items-center gap-4 rounded-[24px] border-2 border-neutral-200 bg-white px-6 py-5 text-left transition hover:border-finance-purple/40 dark:border-neutral-700 dark:bg-neutral-800 dark:hover:border-finance-purple/40"
             >
               <span className="text-3xl">+</span>

@@ -10,7 +10,7 @@ const categories = [
   { name: "Servicios", budget: 7000, type: "fijo", color: "#BA7517", sort_order: 6 },
   { name: "Salud", budget: 4000, type: "variable", color: "#E24B4A", sort_order: 7 },
   { name: "Otros", budget: 5000, type: "variable", color: "#888780", sort_order: 8 },
-  { name: "Ingreso", budget: 0, type: "fijo", color: "#639922", sort_order: 0 }
+  { name: "Ingreso", budget: 0, type: "variable", color: "#639922", sort_order: 0 }
 ];
 
 const accounts = [

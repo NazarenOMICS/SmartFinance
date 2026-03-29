@@ -317,6 +317,7 @@ router.post("/batch", (req, res) => {
 
   let created = 0;
   let duplicates = 0;
+  let errors = 0;
 
   const insertStmt = db.prepare(`
     INSERT INTO transactions
@@ -332,11 +333,11 @@ router.post("/batch", (req, res) => {
               category_id = null, account_id = batchAccountId, es_cuota = 0 } = tx;
       const normalizedDescBanco = String(desc_banco || "").trim();
       const normalizedDescUsuario = desc_usuario == null ? null : String(desc_usuario).trim() || null;
-      if (!fecha || !normalizedDescBanco || typeof monto !== "number") continue;
-      if (!isValidISODate(fecha) || !Number.isFinite(Number(monto))) continue;
-      if (!SUPPORTED_CURRENCIES.has(moneda)) continue;
-      if (category_id != null && !validCategoryIds.has(Number(category_id))) continue;
-      if (account_id && !db.prepare("SELECT id FROM accounts WHERE id = ?").get(account_id)) continue;
+      if (!fecha || !normalizedDescBanco || typeof monto !== "number") { errors += 1; continue; }
+      if (!isValidISODate(fecha) || !Number.isFinite(Number(monto))) { errors += 1; continue; }
+      if (!SUPPORTED_CURRENCIES.has(moneda)) { errors += 1; continue; }
+      if (category_id != null && !validCategoryIds.has(Number(category_id))) { errors += 1; continue; }
+      if (account_id && !db.prepare("SELECT id FROM accounts WHERE id = ?").get(account_id)) { errors += 1; continue; }
 
       const hash = buildDedupHash({ fecha, monto, desc_banco: normalizedDescBanco });
       const exists = db
@@ -366,7 +367,7 @@ router.post("/batch", (req, res) => {
   });
 
   runBatch(transactions);
-  res.status(201).json({ created, duplicates });
+  res.status(201).json({ created, duplicates, errors });
 });
 
 module.exports = router;

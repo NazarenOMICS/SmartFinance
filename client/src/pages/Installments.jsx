@@ -32,6 +32,7 @@ export default function Installments({ month }) {
     settings: null
   });
   const [localCuotas, setLocalCuotas] = useState({});
+  const [confirmDelete, setConfirmDelete] = useState(null);
   const [accounts, setAccounts] = useState([]);
   const [form, setForm] = useState({ descripcion: "", monto_total: "", cantidad_cuotas: "", account_id: "", start_month: month });
   const loadRequestIdRef = useRef(0);
@@ -80,7 +81,12 @@ export default function Installments({ month }) {
   }
 
   async function handleDelete(id) {
+    if (confirmDelete !== id) {
+      setConfirmDelete(id);
+      return;
+    }
     const item = state.installments.find((i) => i.id === id);
+    setConfirmDelete(null);
     try {
       await api.deleteInstallment(id);
       addToast("info", `Cuota "${item?.descripcion}" eliminada.`);
@@ -167,7 +173,7 @@ export default function Installments({ month }) {
               <span>{fmtMoney(item.monto_cuota, item.account_currency || "UYU")}</span>
               <span className="text-neutral-500">{item.account_name || "—"}</span>
               <button onClick={() => handleDelete(item.id)} className="text-finance-red">
-                Borrar
+                {confirmDelete === item.id ? "¿Confirmar?" : "Borrar"}
               </button>
             </div>
           ))}

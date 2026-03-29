@@ -54,7 +54,7 @@ router.delete("/:id", async (c) => {
   const existing = await db.prepare("SELECT id FROM rules WHERE id=? AND user_id=?").get(id, userId);
   if (!existing) return c.json({ error: "rule not found" }, 404);
   await db.prepare("DELETE FROM rules WHERE id=? AND user_id=?").run(id, userId);
-  return c.json({ ok: true });
+  return new Response(null, { status: 204 });
 });
 
 export default router;

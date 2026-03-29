@@ -429,6 +429,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
       )}
 
       <TransactionTable
+        key={month}
         transactions={
           drilldownFilter === "income"
             ? state.transactions.filter((item) => item.monto > 0 && item.category_type !== "transferencia")

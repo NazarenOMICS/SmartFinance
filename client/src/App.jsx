@@ -127,7 +127,7 @@ function AppInner() {
   async function refreshSettings() {
     const requestId = ++settingsRequestIdRef.current;
     const s = await api.getSettings();
-    if (settingsRequestIdRef.current !== requestId) return s;
+    if (settingsRequestIdRef.current !== requestId) return;
     setSettings(s);
     return s;
   }

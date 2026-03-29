@@ -76,7 +76,7 @@ function buildPatternFromDescription(descBanco) {
 
   const cleaned = String(descBanco || "")
     .replace(/[*#]/g, " ")
-    .replace(/\b\d+\b/g, " ")
+    .replace(/\b\d{4,}\b/g, " ")
     .replace(/[^\p{L}\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -84,7 +84,7 @@ function buildPatternFromDescription(descBanco) {
   const tokens = cleaned
     .split(" ")
     .map((token) => token.toLowerCase())
-    .filter((token) => token && !stopwords.has(token));
+    .filter((token) => token.length >= 2 && !stopwords.has(token));
 
   return tokens.slice(0, 2).join(" ").trim() || cleaned.split(" ").slice(0, 2).join(" ").trim();
 }

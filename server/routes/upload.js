@@ -145,14 +145,34 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
+const ALLOWED_MIMETYPES = new Set([
+  "text/csv",
+  "text/plain",
+  "application/pdf",
+  "application/octet-stream", // some browsers send this for .csv
+]);
+
 const storage = multer.diskStorage({
   destination: uploadsDir,
   filename: (req, file, callback) => {
-    callback(null, `${Date.now()}-${file.originalname.replace(/\s+/g, "_")}`);
+    // Use only the sanitized extension from the original name — never the full
+    // original name — to prevent path traversal via crafted filenames.
+    const ext = path.extname(file.originalname).toLowerCase().replace(/[^.a-z0-9]/g, "") || ".bin";
+    callback(null, `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${ext}`);
   }
 });
 
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB hard cap
+  fileFilter: (_req, file, callback) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!SUPPORTED_IMPORT_EXTENSIONS.has(ext)) {
+      return callback(new Error("unsupported file type"));
+    }
+    callback(null, true);
+  }
+});
 
 router.get("/", (req, res) => {
   const params = [];
