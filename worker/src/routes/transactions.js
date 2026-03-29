@@ -1,7 +1,14 @@
 import { Hono } from "hono";
 import { getDb, isValidMonthString } from "../db.js";
 import { buildDedupHash } from "../services/dedup.js";
-import { ensureRuleForManualCategorization, findMatchingRule, bumpRule, isLikelyReintegro, isLikelyTransfer } from "../services/categorizer.js";
+import {
+  ensureRuleForManualCategorization,
+  findMatchingRule,
+  bumpRule,
+  getCandidatesForPattern,
+  isLikelyReintegro,
+  isLikelyTransfer,
+} from "../services/categorizer.js";
 import { computeMonthlyEvolution, computeSummary, getTransactionsForMonth } from "../services/metrics.js";
 import { suggestSync } from "../services/suggester.js";
 
@@ -59,6 +66,44 @@ router.get("/pending", async (c) => {
   const db   = getDb(c.env);
   const rows = await getTransactionsForMonth(db, month, userId, "AND t.category_id IS NULL");
   return c.json(rows);
+});
+
+router.get("/candidates", async (c) => {
+  const userId = c.get("userId");
+  const pattern = (c.req.query("pattern") || "").trim();
+  const categoryId = Number(c.req.query("category_id"));
+  if (!pattern || !Number.isFinite(categoryId)) {
+    return c.json({ error: "pattern and category_id are required" }, 400);
+  }
+  const db = getDb(c.env);
+  const candidates = await getCandidatesForPattern(db, pattern, categoryId, userId);
+  return c.json(candidates);
+});
+
+router.post("/confirm-category", async (c) => {
+  const userId = c.get("userId");
+  const { transaction_ids = [], category_id } = await c.req.json();
+  if (!Array.isArray(transaction_ids) || transaction_ids.length === 0 || !category_id) {
+    return c.json({ error: "transaction_ids and category_id are required" }, 400);
+  }
+
+  const db = getDb(c.env);
+  const category = await db.prepare(
+    "SELECT id FROM categories WHERE id = ? AND user_id = ?"
+  ).get(Number(category_id), userId);
+  if (!category) return c.json({ error: "category not found" }, 404);
+
+  let updated = 0;
+  for (const txId of transaction_ids) {
+    const result = await db.prepare(
+      `UPDATE transactions
+       SET category_id = ?
+       WHERE id = ? AND user_id = ? AND category_id IS NULL`
+    ).run(Number(category_id), Number(txId), userId);
+    updated += result.changes || 0;
+  }
+
+  return c.json({ updated });
 });
 
 router.get("/summary", async (c) => {

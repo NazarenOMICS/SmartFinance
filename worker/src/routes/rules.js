@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { getDb } from "../db.js";
-import { applyRuleRetroactively } from "../services/categorizer.js";
+import { findCandidatesForRule } from "../services/categorizer.js";
 
 const router = new Hono();
 
@@ -33,7 +33,7 @@ router.post("/", async (c) => {
   if (existing) {
     if (existing.category_id === Number(category_id)) {
       const rule = await db.prepare("SELECT * FROM rules WHERE id=? AND user_id=?").get(existing.id, userId);
-      return c.json({ ...rule, retro_count: 0, duplicate: true }, 200);
+      return c.json({ ...rule, candidates_count: 0, duplicate: true }, 200);
     }
     return c.json({ error: `Pattern "${normalizedPattern}" already exists for a different category. Delete the existing rule first.` }, 409);
   }
@@ -41,10 +41,18 @@ router.post("/", async (c) => {
   const result = await db.prepare(
     "INSERT INTO rules (pattern,category_id,match_count,user_id) VALUES (?,?,0,?)"
   ).run(normalizedPattern, category_id, userId);
-
-  const retroCount = await applyRuleRetroactively(db, normalizedPattern, category_id, userId);
+  const candidates_count = (await findCandidatesForRule(db, normalizedPattern, category_id, userId)).length;
   const rule = await db.prepare("SELECT * FROM rules WHERE id=? AND user_id=?").get(result.lastInsertRowid, userId);
-  return c.json({ ...rule, retro_count: retroCount }, 201);
+  return c.json({ ...rule, candidates_count }, 201);
+});
+
+router.post("/reset", async (c) => {
+  const userId = c.get("userId");
+  const db = getDb(c.env);
+  const deleted = await db.prepare("SELECT COUNT(*) AS count FROM rules WHERE user_id = ?").get(userId);
+  await db.prepare("DELETE FROM rules WHERE user_id = ?").run(userId);
+  const remaining = await db.prepare("SELECT COUNT(*) AS count FROM rules WHERE user_id = ?").get(userId);
+  return c.json({ deleted_count: deleted?.count || 0, rules_count: remaining?.count || 0 });
 });
 
 router.delete("/:id", async (c) => {

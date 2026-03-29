@@ -6,6 +6,7 @@ import {
   SignedOut,
   UserButton,
   useAuth,
+  useUser,
 } from "@clerk/clerk-react";
 import { api, setTokenGetter } from "./api";
 import { ToastProvider } from "./contexts/ToastContext";
@@ -24,12 +25,14 @@ const Savings = lazy(() => import("./pages/Savings"));
 const Accounts = lazy(() => import("./pages/Accounts"));
 const Installments = lazy(() => import("./pages/Installments"));
 const Recurring = lazy(() => import("./pages/Recurring"));
+const Rules = lazy(() => import("./pages/Rules"));
 
 const TABS = [
   { id: "dashboard", label: "Dashboard" },
   { id: "upload", label: "Upload" },
   { id: "savings", label: "Ahorro" },
   { id: "recurring", label: "Recurrentes" },
+  { id: "rules", label: "Categorias" },
   { id: "accounts", label: "Cuentas" },
   { id: "installments", label: "Cuotas" },
 ];
@@ -87,6 +90,33 @@ function HelpIcon() {
       <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.8" />
     </svg>
   );
+}
+
+function getGreeting(name) {
+  const hour = new Date().getHours();
+
+  if (hour < 6) {
+    return {
+      title: `Noche larga, ${name}`,
+      subtitle: "Si seguimos mirando el mapa, al menos que se sienta claro y bajo control.",
+    };
+  }
+  if (hour < 12) {
+    return {
+      title: `Buen dia, ${name}`,
+      subtitle: "Arranca el dia con una vista limpia de tu plata y tus prioridades.",
+    };
+  }
+  if (hour < 20) {
+    return {
+      title: `Buenas tardes, ${name}`,
+      subtitle: "Todo el mes a la vista, para decidir rapido sin perder contexto.",
+    };
+  }
+  return {
+    title: `Buenas noches, ${name}`,
+    subtitle: "Cierra el dia con tus numeros ordenados y menos ruido en la cabeza.",
+  };
 }
 
 function AuthSync() {
@@ -190,6 +220,7 @@ function AuthScreen() {
 
 function AppInner() {
   const { isLoaded, isSignedIn, userId } = useAuth();
+  const { user } = useUser();
   const [tab, setTab] = useState("dashboard");
   const [month, setMonth] = useState(isoMonth());
   const [settings, setSettings] = useState({});
@@ -204,6 +235,8 @@ function AppInner() {
   const [apiDown, setApiDown] = useState(false);
   const settingsRequestIdRef = useRef(0);
   const pendingRequestIdRef = useRef(0);
+  const displayName = user?.firstName || user?.fullName?.split(" ")[0] || "Naza";
+  const greeting = getGreeting(displayName);
 
   function markDone() {
     if (userId) {
@@ -226,6 +259,7 @@ function AppInner() {
       dashboard: "Dashboard",
       upload: "Upload",
       savings: "Ahorro",
+      rules: "Categorias",
       accounts: "Cuentas",
       installments: "Cuotas",
       recurring: "Recurrentes",
@@ -442,11 +476,10 @@ function AppInner() {
             </div>
 
             <h1 className="mt-5 max-w-2xl font-display text-4xl leading-tight text-finance-ink dark:text-neutral-100 md:text-5xl">
-              El mes completo, sin ruido visual ni decisiones dispersas.
+              {greeting.title}
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-neutral-500 dark:text-neutral-300">
-              Importas, corriges una vez y vuelves a mirar todo desde un tablero que ya entiende como te
-              mueves.
+              {greeting.subtitle}
             </p>
           </div>
 
@@ -536,6 +569,7 @@ function AppInner() {
         {tab === "savings" && (
           <Savings month={month} settings={settings} refreshSettings={refreshSettings} />
         )}
+        {tab === "rules" && <Rules />}
         {tab === "accounts" && (
           <Accounts
             settings={settings}

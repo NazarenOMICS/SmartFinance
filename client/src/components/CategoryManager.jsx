@@ -190,7 +190,7 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
     setSaving(true);
     try {
       const result = await api.resetRules();
-      addToast("info", `Se resetearon ${result.deleted_count} reglas. Quedaron ${result.rules_count} reglas base.`);
+      addToast("info", `Se resetearon ${result.deleted_count} reglas. Quedaron ${result.rules_count} reglas activas.`);
       await load();
       onDataChanged?.();
     } catch (e) {
@@ -491,7 +491,7 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
                       : "bg-white text-finance-ink hover:bg-neutral-100 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800"
                   } disabled:opacity-50`}
                 >
-                  {confirmResetRules ? "Confirmar reset total de reglas" : "Resetear reglas al estado base"}
+                  {confirmResetRules ? "Confirmar reset total de reglas" : "Resetear reglas al estado limpio"}
                 </button>
               </div>
 

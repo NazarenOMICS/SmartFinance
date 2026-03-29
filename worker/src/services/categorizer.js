@@ -81,12 +81,22 @@ function buildPatternFromDescription(descBanco) {
   return tokens.slice(0, 2).join(" ").trim() || cleaned.split(" ").slice(0, 2).join(" ").trim();
 }
 
-async function applyRuleRetroactively(db, pattern, categoryId, userId) {
-  const result = await db.prepare(
-    `UPDATE transactions SET category_id = ?
-     WHERE category_id IS NULL AND user_id = ? AND LOWER(desc_banco) LIKE '%' || LOWER(?) || '%'`
-  ).run(categoryId, userId, pattern);
-  return result.changes || 0;
+export async function findCandidatesForRule(db, pattern, categoryId, userId) {
+  return db.prepare(
+    `SELECT t.id, t.fecha, t.desc_banco, t.monto, t.moneda,
+            a.name AS account_name
+     FROM transactions t
+     LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
+     WHERE t.user_id = ?
+       AND t.category_id IS NULL
+       AND LOWER(t.desc_banco) LIKE '%' || LOWER(?) || '%'
+     ORDER BY t.fecha DESC
+     LIMIT 50`
+  ).all(userId, pattern);
+}
+
+export async function getCandidatesForPattern(db, pattern, categoryId, userId) {
+  return findCandidatesForRule(db, pattern, categoryId, userId);
 }
 
 export async function ensureRuleForManualCategorization(db, descBanco, categoryId, userId) {
@@ -110,13 +120,12 @@ export async function ensureRuleForManualCategorization(db, descBanco, categoryI
   const result = await db.prepare(
     "INSERT INTO rules (pattern, category_id, match_count, user_id) VALUES (?, ?, 0, ?)"
   ).run(pattern, categoryId, userId);
-
-  const retroCount = await applyRuleRetroactively(db, pattern, categoryId, userId);
+  const candidates = await findCandidatesForRule(db, pattern, categoryId, userId);
 
   return {
     created: true, conflict: false,
     rule: { id: result.lastInsertRowid, pattern, category_id: Number(categoryId) },
-    retro_count: retroCount
+    candidates_count: candidates.length
   };
 }
 
@@ -135,4 +144,3 @@ export async function applyAllRulesRetroactively(db, userId) {
   return total;
 }
 
-export { applyRuleRetroactively };
