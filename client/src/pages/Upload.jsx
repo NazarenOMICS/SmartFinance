@@ -5,6 +5,7 @@ import { useToast } from "../contexts/ToastContext";
 import CsvImportPanel from "../components/CsvImportPanel";
 import ColumnMapper from "../components/ColumnMapper";
 import BrandMark from "../components/BrandMark";
+import RuleReviewDeck from "../components/RuleReviewDeck";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.mjs",
@@ -298,6 +299,7 @@ export default function Upload({ month, onDone, onNavigate }) {
   const [manualForm, setManualForm] = useState({ fecha: `${month}-01`, desc_banco: "", monto: "", moneda: "UYU" });
   // ColumnMapper state — shown when server returns needs_mapping:true for a CSV
   const [columnMapper, setColumnMapper] = useState(null); // null | { columns, sample, formatKey }
+  const [reviewGroups, setReviewGroups] = useState([]);
 
   async function load() {
     const requestId = ++loadRequestIdRef.current;
@@ -390,6 +392,7 @@ export default function Upload({ month, onDone, onNavigate }) {
       }
 
       setFeedback(result);
+      setReviewGroups(result.review_groups || []);
       setUploadForm((prev) => ({ ...prev, file: null }));
       await load();
       if (result.new_transactions > 0) {
@@ -449,6 +452,16 @@ export default function Upload({ month, onDone, onNavigate }) {
             }
           }}
           onCancel={() => setColumnMapper(null)}
+        />
+      )}
+      {reviewGroups.length > 0 && (
+        <RuleReviewDeck
+          groups={reviewGroups}
+          onDone={() => {
+            setReviewGroups([]);
+            load();
+            onDone?.();
+          }}
         />
       )}
       <section className="relative overflow-hidden rounded-[38px] border border-white/70 bg-white/82 p-6 shadow-panel backdrop-blur dark:border-white/10 dark:bg-neutral-900/82 md:p-8">

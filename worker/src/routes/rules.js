@@ -1,10 +1,11 @@
 import { Hono } from "hono";
-import { getDb } from "../db.js";
+import { ensureCategorizerSchema, getDb } from "../db.js";
 import { findCandidatesForRule } from "../services/categorizer.js";
 
 const router = new Hono();
 
 router.get("/", async (c) => {
+  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
   const db = getDb(c.env);
   return c.json(await db.prepare(
@@ -18,6 +19,7 @@ router.get("/", async (c) => {
 });
 
 router.post("/", async (c) => {
+  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
   const { pattern, category_id, mode = "suggest", confidence = 0.72, account_id = null, currency = null, direction = "any" } = await c.req.json();
   if (!pattern || !category_id) return c.json({ error: "pattern and category_id are required" }, 400);
@@ -74,6 +76,7 @@ router.post("/", async (c) => {
 });
 
 router.put("/:id", async (c) => {
+  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
   const id = Number(c.req.param("id"));
   const body = await c.req.json();
@@ -101,6 +104,7 @@ router.put("/:id", async (c) => {
 });
 
 router.post("/reset", async (c) => {
+  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
   const db = getDb(c.env);
   const deleted = await db.prepare("SELECT COUNT(*) AS count FROM rules WHERE user_id = ?").get(userId);
@@ -110,6 +114,7 @@ router.post("/reset", async (c) => {
 });
 
 router.delete("/:id", async (c) => {
+  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
   const id     = Number(c.req.param("id"));
   const db     = getDb(c.env);

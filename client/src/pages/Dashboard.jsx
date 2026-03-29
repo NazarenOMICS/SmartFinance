@@ -106,6 +106,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
           pattern: result.rule.rule?.pattern,
           category_id: Number(categoryId),
           category_name: catName,
+          rule_id: result.rule.rule?.id || null,
         });
         addToast("info", `Regla creada: "${result.rule.rule?.pattern}" → ${catName}. Hay ${result.rule.candidates_count} transacciones similares para revisar.`);
       } else if (result?.rule?.created) {
@@ -495,6 +496,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
           pattern={categoryCandidates.pattern}
           categoryId={categoryCandidates.category_id}
           categoryName={categoryCandidates.category_name}
+          ruleId={categoryCandidates.rule_id}
           onDone={() => { setCategoryCandidates(null); load(); }}
         />
       )}

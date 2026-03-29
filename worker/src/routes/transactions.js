@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getDb, getSettingsObject, isValidMonthString } from "../db.js";
+import { ensureCategorizerSchema, getDb, getSettingsObject, isValidMonthString } from "../db.js";
 import { buildDedupHash } from "../services/dedup.js";
 import {
   classifyTransaction,
@@ -38,6 +38,7 @@ function isValidISODate(value) {
 
 // Global full-text search across all months
 router.get("/search", async (c) => {
+  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
   const q     = (c.req.query("q") || "").trim();
   const limit = parsePositiveInt(c.req.query("limit") || 20, 20, 50);
@@ -58,6 +59,7 @@ router.get("/search", async (c) => {
 });
 
 router.get("/pending", async (c) => {
+  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
   const month  = getMonth(c);
   if (!month) return c.json({ error: "month is required in YYYY-MM format" }, 400);
@@ -67,6 +69,7 @@ router.get("/pending", async (c) => {
 });
 
 router.get("/candidates", async (c) => {
+  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
   const pattern = (c.req.query("pattern") || "").trim();
   const categoryId = Number(c.req.query("category_id"));
@@ -79,6 +82,7 @@ router.get("/candidates", async (c) => {
 });
 
 router.post("/confirm-category", async (c) => {
+  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
   const { transaction_ids = [], category_id } = await c.req.json();
   if (!Array.isArray(transaction_ids) || transaction_ids.length === 0 || !category_id) {
@@ -104,7 +108,70 @@ router.post("/confirm-category", async (c) => {
   return c.json({ updated });
 });
 
+router.post("/reject-category", async (c) => {
+  await ensureCategorizerSchema(c.env);
+  const userId = c.get("userId");
+  const { transaction_id, rule_id } = await c.req.json();
+  if (!transaction_id || !rule_id) {
+    return c.json({ error: "transaction_id and rule_id are required" }, 400);
+  }
+
+  const db = getDb(c.env);
+  const tx = await db.prepare(
+    "SELECT id FROM transactions WHERE id = ? AND user_id = ?"
+  ).get(Number(transaction_id), userId);
+  if (!tx) return c.json({ error: "transaction not found" }, 404);
+
+  const rule = await db.prepare(
+    "SELECT id FROM rules WHERE id = ? AND user_id = ?"
+  ).get(Number(rule_id), userId);
+  if (!rule) return c.json({ error: "rule not found" }, 404);
+
+  await c.env.DB.prepare(
+    `INSERT INTO rule_exclusions (user_id, rule_id, transaction_id)
+     VALUES (?, ?, ?)
+     ON CONFLICT(user_id, rule_id, transaction_id) DO NOTHING`
+  ).bind(userId, Number(rule_id), Number(transaction_id)).run();
+
+  return c.json({ rejected: true });
+});
+
+router.post("/undo-reject-category", async (c) => {
+  await ensureCategorizerSchema(c.env);
+  const userId = c.get("userId");
+  const { transaction_id, rule_id } = await c.req.json();
+  if (!transaction_id || !rule_id) {
+    return c.json({ error: "transaction_id and rule_id are required" }, 400);
+  }
+
+  const db = getDb(c.env);
+  await db.prepare(
+    "DELETE FROM rule_exclusions WHERE user_id = ? AND rule_id = ? AND transaction_id = ?"
+  ).run(userId, Number(rule_id), Number(transaction_id));
+
+  return c.json({ undone: true });
+});
+
+router.post("/undo-confirm-category", async (c) => {
+  await ensureCategorizerSchema(c.env);
+  const userId = c.get("userId");
+  const { transaction_id, category_id } = await c.req.json();
+  if (!transaction_id || !category_id) {
+    return c.json({ error: "transaction_id and category_id are required" }, 400);
+  }
+
+  const db = getDb(c.env);
+  const result = await db.prepare(
+    `UPDATE transactions
+     SET category_id = NULL
+     WHERE id = ? AND user_id = ? AND category_id = ?`
+  ).run(Number(transaction_id), userId, Number(category_id));
+
+  return c.json({ undone: Boolean(result.changes) });
+});
+
 router.get("/summary", async (c) => {
+  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
   const month  = getMonth(c);
   if (!month) return c.json({ error: "month is required in YYYY-MM format" }, 400);
@@ -113,6 +180,7 @@ router.get("/summary", async (c) => {
 });
 
 router.get("/monthly-evolution", async (c) => {
+  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
   const end    = c.req.query("end");
   if (!isValidMonthString(end)) {
@@ -124,6 +192,7 @@ router.get("/monthly-evolution", async (c) => {
 });
 
 router.get("/", async (c) => {
+  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
   const month  = getMonth(c);
   if (!month) return c.json({ error: "month is required in YYYY-MM format" }, 400);
@@ -153,6 +222,7 @@ router.get("/", async (c) => {
 });
 
 router.post("/", async (c) => {
+  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
   const body   = await c.req.json();
   const { fecha, desc_banco, desc_usuario = null, monto, moneda = "UYU",
@@ -233,6 +303,7 @@ router.post("/", async (c) => {
 
 // Batch create (CSV import)
 router.post("/batch", async (c) => {
+  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
   const { transactions: txList, account_id: batchAccount } = await c.req.json();
   if (!Array.isArray(txList)) return c.json({ error: "transactions array required" }, 400);
@@ -306,6 +377,7 @@ router.post("/batch", async (c) => {
 });
 
 router.put("/:id", async (c) => {
+  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
   const id     = Number(c.req.param("id"));
   const db     = getDb(c.env);
@@ -380,6 +452,7 @@ router.put("/:id", async (c) => {
 });
 
 router.delete("/:id", async (c) => {
+  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
   const id     = Number(c.req.param("id"));
   const db     = getDb(c.env);

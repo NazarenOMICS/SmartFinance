@@ -116,6 +116,7 @@ export default function Rules() {
           pattern: result.pattern,
           categoryId,
           categoryName,
+          ruleId: result.id || null,
         });
         addToast("info", `Regla creada: "${result.pattern}" -> ${categoryName || "categoria"}. Hay ${result.candidates_count} transacciones para revisar.`);
       } else {
@@ -625,6 +626,7 @@ export default function Rules() {
           pattern={pendingReview.pattern}
           categoryId={pendingReview.categoryId}
           categoryName={pendingReview.categoryName}
+          ruleId={pendingReview.ruleId}
           onDone={() => {
             setPendingReview(null);
             load();

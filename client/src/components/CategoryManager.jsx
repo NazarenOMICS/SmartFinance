@@ -146,6 +146,7 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
           pattern: result.pattern,
           categoryId,
           categoryName,
+          ruleId: result.id || null,
         });
         addToast("info", `Regla creada: "${result.pattern}" → ${categoryName || "categoría"}. Hay ${result.candidates_count} transacciones similares para revisar.`);
       } else {
@@ -534,6 +535,7 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
           pattern={pendingReview.pattern}
           categoryId={pendingReview.categoryId}
           categoryName={pendingReview.categoryName}
+          ruleId={pendingReview.ruleId}
           onDone={() => {
             setPendingReview(null);
             load();

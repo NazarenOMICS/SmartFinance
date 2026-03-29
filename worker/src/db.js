@@ -17,6 +17,8 @@ export const DEFAULT_SETTINGS = {
   categorizer_ollama_model: "qwen2.5:3b"
 };
 const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
+let categorizerSchemaReady = false;
+let categorizerSchemaPromise = null;
 
 export function getDb(env) {
   return {
@@ -45,6 +47,60 @@ export function getDb(env) {
       return env.DB.exec(sql);
     }
   };
+}
+
+export async function ensureCategorizerSchema(env) {
+  if (categorizerSchemaReady) return;
+  if (categorizerSchemaPromise) return categorizerSchemaPromise;
+
+  categorizerSchemaPromise = (async () => {
+    const rulesInfo = await env.DB.prepare("PRAGMA table_info(rules)").all();
+    const ruleColumns = new Set((rulesInfo.results || []).map((column) => column.name));
+    const statements = [];
+
+    if (!ruleColumns.has("mode")) statements.push("ALTER TABLE rules ADD COLUMN mode TEXT NOT NULL DEFAULT 'suggest'");
+    if (!ruleColumns.has("confidence")) statements.push("ALTER TABLE rules ADD COLUMN confidence REAL NOT NULL DEFAULT 0.72");
+    if (!ruleColumns.has("source")) statements.push("ALTER TABLE rules ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'");
+    if (!ruleColumns.has("account_id")) statements.push("ALTER TABLE rules ADD COLUMN account_id TEXT");
+    if (!ruleColumns.has("currency")) statements.push("ALTER TABLE rules ADD COLUMN currency TEXT");
+    if (!ruleColumns.has("direction")) statements.push("ALTER TABLE rules ADD COLUMN direction TEXT NOT NULL DEFAULT 'any'");
+    if (!ruleColumns.has("merchant_key")) statements.push("ALTER TABLE rules ADD COLUMN merchant_key TEXT");
+    if (!ruleColumns.has("last_matched_at")) statements.push("ALTER TABLE rules ADD COLUMN last_matched_at TEXT");
+
+    if (statements.length > 0) {
+      for (const statement of statements) {
+        await env.DB.exec(statement);
+      }
+    }
+
+    await env.DB.exec(`
+      CREATE TABLE IF NOT EXISTS rule_exclusions (
+        user_id TEXT NOT NULL DEFAULT '',
+        rule_id INTEGER NOT NULL,
+        transaction_id INTEGER NOT NULL,
+        created_at TEXT DEFAULT (datetime('now')),
+        PRIMARY KEY (user_id, rule_id, transaction_id)
+      );
+    `);
+
+    await env.DB.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rule_exclusions_user_tx
+      ON rule_exclusions(user_id, transaction_id);
+    `);
+
+    for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
+      await env.DB.prepare(
+        `INSERT INTO settings (user_id, key, value) VALUES (?, ?, ?)
+         ON CONFLICT(user_id, key) DO NOTHING`
+      ).bind("", key, value).run();
+    }
+
+    categorizerSchemaReady = true;
+  })().finally(() => {
+    categorizerSchemaPromise = null;
+  });
+
+  return categorizerSchemaPromise;
 }
 
 export function monthWindow(month) {

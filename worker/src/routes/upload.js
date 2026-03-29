@@ -1,10 +1,17 @@
 import { Hono } from "hono";
-import { getDb, getSettingsObject, isValidMonthString } from "../db.js";
+import { ensureCategorizerSchema, getDb, getSettingsObject, isValidMonthString } from "../db.js";
 import { buildDedupHash } from "../services/dedup.js";
 import { bumpRule, classifyTransaction } from "../services/categorizer.js";
 import { extractTransactions } from "../services/tx-extractor.js";
 import { parseCSV } from "../services/csv-parser.js";
 import { detectFormat, computeFormatKey, applyColumnMap } from "../services/format-detector.js";
+import {
+  createReviewGroupTracker,
+  ensureSmartCategoriesForTransactions,
+  listReviewGroups,
+  matchSmartCategoryTemplate,
+  trackReviewGroup,
+} from "../services/smart-categories.js";
 
 const router = new Hono();
 const SUPPORTED_IMPORT_EXTENSIONS = new Set(["csv", "pdf", "txt"]);
@@ -86,6 +93,7 @@ function findHeader(text) {
 }
 
 router.get("/", async (c) => {
+  await ensureCategorizerSchema(c.env);
   const db = getDb(c.env);
   const userId = c.get("userId");
   const period = c.req.query("period");
@@ -102,6 +110,7 @@ router.get("/", async (c) => {
 });
 
 router.post("/", async (c) => {
+  await ensureCategorizerSchema(c.env);
   let uploadId = null;
   const userId = c.get("userId");
   const db = getDb(c.env);
@@ -155,6 +164,7 @@ router.post("/", async (c) => {
     let duplicatesSkipped = 0;
     let autoCategorized = 0;
     let pendingReview = 0;
+    const reviewGroups = createReviewGroupTracker();
 
     if (ext === "csv") {
       const csvText = await file.text();
@@ -238,9 +248,11 @@ router.post("/", async (c) => {
     }
 
     const settings = await getSettingsObject(c.env, userId);
+    await ensureSmartCategoriesForTransactions(db, userId, extractedTxs);
     const categories = await db.prepare(
       "SELECT id, name, type, color FROM categories WHERE user_id = ? ORDER BY sort_order ASC, id ASC"
     ).all(userId);
+    const categoryByName = new Map(categories.map((category) => [category.name.toLowerCase(), category]));
 
     for (const tx of extractedTxs) {
       if (!isValidISODate(tx.fecha) || !Number.isFinite(Number(tx.monto))) {
@@ -286,7 +298,7 @@ router.post("/", async (c) => {
         pendingReview++;
       }
 
-      await db.prepare(
+      const insertResult = await db.prepare(
         "INSERT INTO transactions (fecha,desc_banco,monto,moneda,category_id,account_id,upload_id,dedup_hash,user_id) VALUES (?,?,?,?,?,?,?,?,?)"
       ).run(
         normalizedTx.fecha,
@@ -299,6 +311,15 @@ router.post("/", async (c) => {
         dedupHash,
         userId
       );
+      if (!categoryId) {
+        const smartMatch = matchSmartCategoryTemplate(normalizedDescBanco);
+        if (smartMatch) {
+          const smartCategory = categoryByName.get(smartMatch.template.name.toLowerCase());
+          if (smartCategory) {
+            trackReviewGroup(reviewGroups, normalizedTx, smartMatch, smartCategory.id, insertResult.lastInsertRowid);
+          }
+        }
+      }
       newTransactions++;
     }
 
@@ -311,6 +332,7 @@ router.post("/", async (c) => {
       duplicates_skipped: duplicatesSkipped,
       auto_categorized: autoCategorized,
       pending_review: pendingReview,
+      review_groups: listReviewGroups(reviewGroups),
     }, 201);
   } catch (error) {
     if (uploadId != null) {

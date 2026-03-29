@@ -55,6 +55,12 @@ export const api = {
     request(`/api/transactions/candidates?pattern=${encodeURIComponent(pattern)}&category_id=${categoryId}`),
   confirmCategory: (transactionIds, categoryId) =>
     request("/api/transactions/confirm-category", { method: "POST", body: JSON.stringify({ transaction_ids: transactionIds, category_id: categoryId }) }),
+  rejectCategory: (transactionId, ruleId) =>
+    request("/api/transactions/reject-category", { method: "POST", body: JSON.stringify({ transaction_id: transactionId, rule_id: ruleId }) }),
+  undoRejectCategory: (transactionId, ruleId) =>
+    request("/api/transactions/undo-reject-category", { method: "POST", body: JSON.stringify({ transaction_id: transactionId, rule_id: ruleId }) }),
+  undoConfirmCategory: (transactionId, categoryId) =>
+    request("/api/transactions/undo-confirm-category", { method: "POST", body: JSON.stringify({ transaction_id: transactionId, category_id: categoryId }) }),
 
   // Categories
   getCategories: () => request("/api/categories"),

@@ -166,6 +166,17 @@ export async function isLikelyReintegro(db, descBanco, monto, moneda, userId) {
 }
 
 export async function findCandidatesForRule(db, pattern, categoryId, userId) {
+  const rule = await db.prepare(
+    "SELECT id FROM rules WHERE user_id = ? AND LOWER(pattern) = LOWER(?) AND category_id = ? ORDER BY id DESC LIMIT 1"
+  ).get(userId, pattern, Number(categoryId));
+  const excludeClause = rule ? `
+       AND t.id NOT IN (
+         SELECT transaction_id
+         FROM rule_exclusions
+         WHERE user_id = ?
+           AND rule_id = ?
+       )` : "";
+  const params = rule ? [userId, pattern, userId, rule.id] : [userId, pattern];
   return db.prepare(
     `SELECT t.id, t.fecha, t.desc_banco, t.monto, t.moneda,
             a.name AS account_name
@@ -174,9 +185,10 @@ export async function findCandidatesForRule(db, pattern, categoryId, userId) {
      WHERE t.user_id = ?
        AND t.category_id IS NULL
        AND LOWER(t.desc_banco) LIKE '%' || LOWER(?) || '%'
+       ${excludeClause}
      ORDER BY t.fecha DESC
      LIMIT 50`
-  ).all(userId, pattern);
+  ).all(...params);
 }
 
 export async function getCandidatesForPattern(db, pattern, categoryId, userId) {
