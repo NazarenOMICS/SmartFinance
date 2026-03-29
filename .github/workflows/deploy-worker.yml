@@ -41,6 +41,8 @@ jobs:
 
       - name: Build client
         run: cd client && npm run build
+        env:
+          VITE_CLERK_PUBLISHABLE_KEY: pk_test_aW50ZXJuYWwtc2FsbW9uLTExLmNsZXJrLmFjY291bnRzLmRldiQ
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
