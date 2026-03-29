@@ -7,9 +7,9 @@ const PRESET_COLORS = ["#534AB7", "#1D9E75", "#D85A30", "#378ADD", "#BA7517", "#
 
 export default function Rules() {
   const { addToast } = useToast();
-  const [state, setState] = useState({ loading: true, error: "", categories: [], rules: [] });
+  const [state, setState] = useState({ loading: true, error: "", categories: [], rules: [], settings: {}, accounts: [] });
   const [localBudgets, setLocalBudgets] = useState({});
-  const [ruleForm, setRuleForm] = useState({ pattern: "", category_id: "" });
+  const [ruleForm, setRuleForm] = useState({ pattern: "", category_id: "", mode: "suggest" });
   const [catForm, setCatForm] = useState({ name: "", budget: "", type: "variable", color: PRESET_COLORS[0] });
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [confirmResetRules, setConfirmResetRules] = useState(false);
@@ -21,9 +21,14 @@ export default function Rules() {
     const requestId = ++loadRequestIdRef.current;
     setState((prev) => ({ ...prev, loading: true, error: "" }));
     try {
-      const [categories, rules] = await Promise.all([api.getCategories(), api.getRules()]);
+      const [categories, rules, settings, accounts] = await Promise.all([
+        api.getCategories(),
+        api.getRules(),
+        api.getSettings(),
+        api.getAccounts(),
+      ]);
       if (loadRequestIdRef.current !== requestId) return;
-      setState({ loading: false, error: "", categories, rules });
+      setState({ loading: false, error: "", categories, rules, settings, accounts });
       const budgetMap = {};
       categories.forEach((category) => {
         budgetMap[category.id] = String(category.budget);
@@ -101,8 +106,8 @@ export default function Rules() {
     try {
       const categoryId = Number(ruleForm.category_id);
       const categoryName = state.categories.find((category) => category.id === categoryId)?.name;
-      const result = await api.createRule({ pattern: ruleForm.pattern, category_id: categoryId });
-      setRuleForm({ pattern: "", category_id: "" });
+      const result = await api.createRule({ pattern: ruleForm.pattern, category_id: categoryId, mode: ruleForm.mode });
+      setRuleForm({ pattern: "", category_id: "", mode: "suggest" });
 
       if (result?.duplicate) {
         addToast("info", "Esta regla ya existe.");
@@ -162,7 +167,36 @@ export default function Rules() {
     }
   }
 
+  async function updateRule(rule, changes) {
+    try {
+      await api.updateRule(rule.id, { ...changes });
+      await load();
+    } catch (error) {
+      addToast("error", error.message);
+    }
+  }
+
+  async function saveSetting(key, value, options = {}) {
+    setState((prev) => ({
+      ...prev,
+      settings: { ...prev.settings, [key]: value },
+    }));
+    try {
+      await api.updateSetting(key, value);
+      if (options.toast) {
+        addToast("success", options.toast);
+      }
+    } catch (error) {
+      addToast("error", error.message);
+      await load();
+    }
+  }
+
   const expenseCategories = state.categories.filter((category) => category.type !== "transferencia" && category.name !== "Ingreso");
+  const recentLearnedRules = [...state.rules]
+    .filter((rule) => rule.source !== "seed")
+    .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")))
+    .slice(0, 6);
 
   if (state.loading) {
     return (
@@ -191,6 +225,129 @@ export default function Rules() {
           Aqui puedes corregir presupuesto, color, tipo de categoria y todas las reglas que terminan
           afectando la categorizacion automatica de los proximos resumenes.
         </p>
+      </section>
+
+      <section className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Motor hibrido</p>
+            <h2 className="mt-1 font-display text-3xl text-finance-ink dark:text-neutral-100">
+              Reglas con confianza + fallback opcional a Ollama
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm leading-7 text-neutral-500 dark:text-neutral-300">
+              La idea ya no es categorizar todo a lo bruto. Las reglas pueden quedar en auto, sugerencia o desactivadas,
+              y Ollama solo entra cuando activas un endpoint compatible y las reglas no alcanzan.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-sky-200 bg-sky-50/80 p-4 text-xs leading-6 text-sky-800 dark:border-sky-900/40 dark:bg-sky-900/10 dark:text-sky-100">
+            En la web publica, Ollama necesita un endpoint accesible desde el worker.
+            Si corres la app self-hosted, puedes usar tu instancia propia.
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-4 lg:grid-cols-2">
+          <label className="rounded-[24px] border border-neutral-200 bg-finance-cream/60 p-4 dark:border-neutral-800 dark:bg-neutral-950/50">
+            <span className="text-xs uppercase tracking-[0.18em] text-neutral-400">Auto threshold</span>
+            <input
+              className="mt-3 w-full accent-finance-purple"
+              type="range"
+              min="0.5"
+              max="0.98"
+              step="0.01"
+              value={state.settings.categorizer_auto_threshold || "0.88"}
+              onChange={(e) => setState((prev) => ({ ...prev, settings: { ...prev.settings, categorizer_auto_threshold: e.target.value } }))}
+              onMouseUp={(e) => saveSetting("categorizer_auto_threshold", e.currentTarget.value)}
+              onTouchEnd={(e) => saveSetting("categorizer_auto_threshold", e.currentTarget.value)}
+            />
+            <div className="mt-2 flex items-center justify-between text-sm text-neutral-500 dark:text-neutral-300">
+              <span>Solo auto-categoriza si supera esta confianza.</span>
+              <strong>{Math.round(Number(state.settings.categorizer_auto_threshold || 0.88) * 100)}%</strong>
+            </div>
+          </label>
+
+          <label className="rounded-[24px] border border-neutral-200 bg-finance-cream/60 p-4 dark:border-neutral-800 dark:bg-neutral-950/50">
+            <span className="text-xs uppercase tracking-[0.18em] text-neutral-400">Suggest threshold</span>
+            <input
+              className="mt-3 w-full accent-finance-purple"
+              type="range"
+              min="0.4"
+              max="0.9"
+              step="0.01"
+              value={state.settings.categorizer_suggest_threshold || "0.68"}
+              onChange={(e) => setState((prev) => ({ ...prev, settings: { ...prev.settings, categorizer_suggest_threshold: e.target.value } }))}
+              onMouseUp={(e) => saveSetting("categorizer_suggest_threshold", e.currentTarget.value)}
+              onTouchEnd={(e) => saveSetting("categorizer_suggest_threshold", e.currentTarget.value)}
+            />
+            <div className="mt-2 flex items-center justify-between text-sm text-neutral-500 dark:text-neutral-300">
+              <span>Debajo de esto, la transaccion queda sin categoria.</span>
+              <strong>{Math.round(Number(state.settings.categorizer_suggest_threshold || 0.68) * 100)}%</strong>
+            </div>
+          </label>
+
+          <div className="rounded-[24px] border border-neutral-200 bg-finance-cream/60 p-4 dark:border-neutral-800 dark:bg-neutral-950/50">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Ollama</p>
+                <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-300">
+                  Fallback semantico solo para casos ambiguos.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => saveSetting("categorizer_ollama_enabled", state.settings.categorizer_ollama_enabled === "1" ? "0" : "1")}
+                className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                  state.settings.categorizer_ollama_enabled === "1"
+                    ? "bg-finance-purple text-white"
+                    : "bg-white text-finance-ink hover:bg-neutral-100 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800"
+                }`}
+              >
+                {state.settings.categorizer_ollama_enabled === "1" ? "Activo" : "Inactivo"}
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3">
+              <input
+                className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                placeholder="URL Ollama (ej: http://127.0.0.1:11434)"
+                value={state.settings.categorizer_ollama_url || ""}
+                onChange={(e) => setState((prev) => ({ ...prev, settings: { ...prev.settings, categorizer_ollama_url: e.target.value } }))}
+                onBlur={(e) => saveSetting("categorizer_ollama_url", e.target.value)}
+              />
+              <input
+                className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                placeholder="Modelo (ej: qwen2.5:3b)"
+                value={state.settings.categorizer_ollama_model || ""}
+                onChange={(e) => setState((prev) => ({ ...prev, settings: { ...prev.settings, categorizer_ollama_model: e.target.value } }))}
+                onBlur={(e) => saveSetting("categorizer_ollama_model", e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="rounded-[24px] border border-neutral-200 bg-finance-cream/60 p-4 dark:border-neutral-800 dark:bg-neutral-950/50">
+            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Aprendido recientemente</p>
+            <div className="mt-4 space-y-3">
+              {recentLearnedRules.length > 0 ? recentLearnedRules.map((rule) => (
+                <div key={`recent-${rule.id}`} className="flex items-center justify-between gap-3 rounded-2xl bg-white/80 px-3 py-3 dark:bg-neutral-900/80">
+                  <div className="min-w-0">
+                    <p className="truncate font-mono text-sm text-finance-ink dark:text-neutral-100">{rule.pattern}</p>
+                    <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-300">
+                      {rule.category_name} · {rule.source || "manual"} · {Math.round(Number(rule.confidence || 0) * 100)}%
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => updateRule(rule, { mode: "disabled" })}
+                    className="rounded-full bg-finance-redSoft px-3 py-1.5 text-xs font-semibold text-finance-red transition hover:bg-finance-red hover:text-white"
+                  >
+                    Desactivar
+                  </button>
+                </div>
+              )) : (
+                <p className="text-sm text-neutral-400">Todavia no hay reglas aprendidas recientes.</p>
+              )}
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
@@ -358,7 +515,7 @@ export default function Rules() {
           El patron se compara contra la descripcion bancaria, pero ahora las coincidencias se revisan antes
           de aplicar cambios viejos.
         </p>
-        <div className="mt-4 grid gap-4 md:grid-cols-[1fr_220px_auto]">
+        <div className="mt-4 grid gap-4 md:grid-cols-[1fr_160px_160px_auto]">
           <input
             className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
             placeholder="Patron (ej: PEDIDOSYA)"
@@ -377,6 +534,15 @@ export default function Rules() {
               </option>
             ))}
           </select>
+          <select
+            className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+            value={ruleForm.mode}
+            onChange={(e) => setRuleForm((prev) => ({ ...prev, mode: e.target.value }))}
+          >
+            <option value="suggest">suggest</option>
+            <option value="auto">auto</option>
+            <option value="disabled">disabled</option>
+          </select>
           <button
             disabled={saving}
             className="rounded-full bg-finance-purple px-5 py-3 font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
@@ -394,21 +560,50 @@ export default function Rules() {
             automatiza y que no.
           </p>
         </div>
-        <div className="grid grid-cols-[1fr_180px_90px_96px] gap-4 border-y border-neutral-100 px-6 py-3 text-xs uppercase tracking-[0.18em] text-neutral-400 dark:border-neutral-800">
+        <div className="grid grid-cols-[1fr_180px_110px_120px_96px] gap-4 border-y border-neutral-100 px-6 py-3 text-xs uppercase tracking-[0.18em] text-neutral-400 dark:border-neutral-800">
           <span>Patron</span>
           <span>Categoria</span>
-          <span className="text-right">Matches</span>
+          <span>Modo</span>
+          <span>Confianza</span>
           <span></span>
         </div>
         <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
           {state.rules.map((rule) => (
-            <div key={rule.id} className="grid grid-cols-[1fr_180px_90px_96px] items-center gap-4 px-6 py-4">
-              <span className="truncate font-mono text-sm text-finance-ink dark:text-neutral-100">{rule.pattern}</span>
+            <div key={rule.id} className="grid grid-cols-[1fr_180px_110px_120px_96px] items-center gap-4 px-6 py-4">
+              <div className="min-w-0">
+                <span className="truncate font-mono text-sm text-finance-ink dark:text-neutral-100">{rule.pattern}</span>
+                <p className="mt-1 truncate text-xs text-neutral-400">
+                  {rule.account_name ? `Cuenta: ${rule.account_name}` : "Todas las cuentas"} · {rule.direction || "any"} · {rule.source || "manual"}
+                </p>
+              </div>
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full" style={{ backgroundColor: rule.category_color || "#888780" }} />
                 <span className="text-sm text-finance-ink dark:text-neutral-100">{rule.category_name}</span>
               </div>
-              <span className="text-right text-sm font-semibold text-neutral-500 dark:text-neutral-300">{rule.match_count}</span>
+              <select
+                className="rounded-2xl border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                value={rule.mode || "suggest"}
+                onChange={(e) => updateRule(rule, { mode: e.target.value, confidence: Number(rule.confidence || 0.72) })}
+              >
+                <option value="auto">auto</option>
+                <option value="suggest">suggest</option>
+                <option value="disabled">disabled</option>
+              </select>
+              <div className="space-y-1">
+                <input
+                  className="w-full accent-finance-purple"
+                  type="range"
+                  min="0.4"
+                  max="0.99"
+                  step="0.01"
+                  defaultValue={Number(rule.confidence || 0.72)}
+                  onMouseUp={(e) => updateRule(rule, { mode: rule.mode || "suggest", confidence: Number(e.currentTarget.value) })}
+                  onTouchEnd={(e) => updateRule(rule, { mode: rule.mode || "suggest", confidence: Number(e.currentTarget.value) })}
+                />
+                <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-300">
+                  {Math.round(Number(rule.confidence || 0.72) * 100)}% · {rule.match_count} matches
+                </span>
+              </div>
               <button
                 onClick={() => handleDeleteRule(rule.id)}
                 className="rounded-full px-3 py-1.5 text-xs font-semibold text-finance-red transition hover:bg-finance-redSoft dark:hover:bg-red-900/30"

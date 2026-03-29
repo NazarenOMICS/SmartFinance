@@ -35,6 +35,11 @@ const DEFAULT_SETTINGS = [
   { key: "savings_goal", value: "200000" },
   { key: "savings_currency", value: "UYU" },
   { key: "parsing_patterns", value: JSON.stringify(DEFAULT_PATTERNS) },
+  { key: "categorizer_auto_threshold", value: "0.88" },
+  { key: "categorizer_suggest_threshold", value: "0.68" },
+  { key: "categorizer_ollama_enabled", value: "0" },
+  { key: "categorizer_ollama_url", value: "" },
+  { key: "categorizer_ollama_model", value: "qwen2.5:3b" },
 ];
 
 // Update parents before children so the composite (id, user_id) foreign keys

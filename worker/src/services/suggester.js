@@ -137,11 +137,19 @@ export function suggestSync(tx, rules, categories) {
 
   // 1. Rule match (exact substring, same priority as categorizer)
   const matchedRule = rules.find(
-    (r) => tx.desc_banco.toLowerCase().includes(r.pattern.toLowerCase())
+    (r) => r.mode !== "disabled" && tx.desc_banco.toLowerCase().includes(r.pattern.toLowerCase())
   );
   if (matchedRule) {
     const cat = categories.find((c) => c.id === matchedRule.category_id);
-    return { ...tx, suggestion: { category_id: matchedRule.category_id, category_name: cat?.name || null, source: "regla" } };
+    return {
+      ...tx,
+      suggestion: {
+        category_id: matchedRule.category_id,
+        category_name: cat?.name || null,
+        source: "regla",
+        confidence: matchedRule.confidence ?? null,
+      }
+    };
   }
 
   // 2. Keyword match (same dictionary as async version)

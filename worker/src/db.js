@@ -9,7 +9,12 @@ export const DEFAULT_SETTINGS = {
   savings_initial: "0",
   savings_goal: "200000",
   savings_currency: "UYU",
-  parsing_patterns: JSON.stringify(DEFAULT_PATTERNS)
+  parsing_patterns: JSON.stringify(DEFAULT_PATTERNS),
+  categorizer_auto_threshold: "0.88",
+  categorizer_suggest_threshold: "0.68",
+  categorizer_ollama_enabled: "0",
+  categorizer_ollama_url: "",
+  categorizer_ollama_model: "qwen2.5:3b"
 };
 const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
 
@@ -73,6 +78,19 @@ export function normalizeSettingValue(key, value) {
   if (key === "savings_initial" || key === "savings_goal") {
     const parsed = Number(raw);
     return Number.isFinite(parsed) ? String(parsed) : DEFAULT_SETTINGS[key];
+  }
+
+  if (key === "categorizer_auto_threshold" || key === "categorizer_suggest_threshold") {
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? String(parsed) : DEFAULT_SETTINGS[key];
+  }
+
+  if (key === "categorizer_ollama_enabled") {
+    return raw === "1" || raw.toLowerCase() === "true" ? "1" : "0";
+  }
+
+  if (key === "categorizer_ollama_url" || key === "categorizer_ollama_model") {
+    return raw;
   }
 
   if (key === "parsing_patterns") {

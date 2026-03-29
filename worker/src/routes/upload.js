@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { getDb, getSettingsObject, isValidMonthString } from "../db.js";
 import { buildDedupHash } from "../services/dedup.js";
-import { bumpRule, isLikelyReintegro, isLikelyTransfer } from "../services/categorizer.js";
+import { bumpRule, classifyTransaction } from "../services/categorizer.js";
 import { extractTransactions } from "../services/tx-extractor.js";
 import { parseCSV } from "../services/csv-parser.js";
 import { detectFormat, computeFormatKey, applyColumnMap } from "../services/format-detector.js";
@@ -237,15 +237,10 @@ router.post("/", async (c) => {
       }
     }
 
-    const rules = await db.prepare(
-      "SELECT id, pattern, category_id FROM rules WHERE user_id=? ORDER BY LENGTH(pattern) DESC, match_count DESC, id ASC"
+    const settings = await getSettingsObject(c.env, userId);
+    const categories = await db.prepare(
+      "SELECT id, name, type, color FROM categories WHERE user_id = ? ORDER BY sort_order ASC, id ASC"
     ).all(userId);
-    const transferCategory = await db.prepare(
-      "SELECT id FROM categories WHERE user_id = ? AND name = 'Transferencia'"
-    ).get(userId);
-    const reintegroCategory = await db.prepare(
-      "SELECT id FROM categories WHERE user_id = ? AND name = 'Reintegro'"
-    ).get(userId);
 
     for (const tx of extractedTxs) {
       if (!isValidISODate(tx.fecha) || !Number.isFinite(Number(tx.monto))) {
@@ -272,24 +267,20 @@ router.post("/", async (c) => {
       }
 
       let categoryId = null;
-      const rule = rules.find((item) => normalizedDescBanco.toLowerCase().includes(item.pattern.toLowerCase()));
-      if (rule) {
-        categoryId = rule.category_id;
-        await bumpRule(db, rule.id);
+      const classification = await classifyTransaction(db, c.env, {
+        desc_banco: normalizedDescBanco,
+        monto: normalizedTx.monto,
+        moneda: accountCurrency,
+        account_id,
+      }, userId, {
+        settings,
+        categories,
+      });
+      if (classification.action === "auto" && classification.categoryId) {
+        categoryId = classification.categoryId;
         autoCategorized++;
-      } else if (isLikelyTransfer(normalizedDescBanco)) {
-        if (transferCategory) {
-          categoryId = transferCategory.id;
-          autoCategorized++;
-        } else {
-          pendingReview++;
-        }
-      } else if (await isLikelyReintegro(db, normalizedDescBanco, normalizedTx.monto, accountCurrency, userId)) {
-        if (reintegroCategory) {
-          categoryId = reintegroCategory.id;
-          autoCategorized++;
-        } else {
-          pendingReview++;
+        if (classification.rule?.id) {
+          await bumpRule(db, classification.rule.id);
         }
       } else {
         pendingReview++;

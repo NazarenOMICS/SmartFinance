@@ -1,13 +1,11 @@
 import { Hono } from "hono";
-import { getDb, isValidMonthString } from "../db.js";
+import { getDb, getSettingsObject, isValidMonthString } from "../db.js";
 import { buildDedupHash } from "../services/dedup.js";
 import {
+  classifyTransaction,
   ensureRuleForManualCategorization,
-  findMatchingRule,
   bumpRule,
   getCandidatesForPattern,
-  isLikelyReintegro,
-  isLikelyTransfer,
 } from "../services/categorizer.js";
 import { computeMonthlyEvolution, computeSummary, getTransactionsForMonth } from "../services/metrics.js";
 import { suggestSync } from "../services/suggester.js";
@@ -148,7 +146,7 @@ router.get("/", async (c) => {
   const rows = await getTransactionsForMonth(db, month, userId, filters.join(" "), params);
   // Attach category suggestions to uncategorized transactions
   const [rules, categories] = await Promise.all([
-    db.prepare("SELECT id, pattern, category_id FROM rules WHERE user_id = ? ORDER BY LENGTH(pattern) DESC, match_count DESC, id ASC").all(userId),
+    db.prepare("SELECT id, pattern, category_id, mode, confidence FROM rules WHERE user_id = ? ORDER BY LENGTH(pattern) DESC, match_count DESC, id ASC").all(userId),
     db.prepare("SELECT id, name FROM categories WHERE user_id = ?").all(userId),
   ]);
   return c.json(rows.map((tx) => suggestSync(tx, rules, categories)));
@@ -198,23 +196,21 @@ router.post("/", async (c) => {
   ).get(hash, userId, fecha);
   if (dup) return c.json({ error: "Duplicate transaction", id: dup.id }, 409);
 
-  // Auto-categorize
   let resolvedCategoryId = category_id;
   if (!resolvedCategoryId) {
-    const rule = await findMatchingRule(db, normalizedDescBanco, userId);
-    if (rule) {
-      resolvedCategoryId = rule.category_id;
-      await bumpRule(db, rule.id);
-    } else if (isLikelyTransfer(normalizedDescBanco)) {
-      const transferCategory = await db.prepare(
-        "SELECT id FROM categories WHERE user_id = ? AND name = 'Transferencia'"
-      ).get(userId);
-      if (transferCategory) resolvedCategoryId = transferCategory.id;
-    } else if (await isLikelyReintegro(db, normalizedDescBanco, Number(monto), moneda, userId)) {
-      const reintegroCategory = await db.prepare(
-        "SELECT id FROM categories WHERE user_id = ? AND name = 'Reintegro'"
-      ).get(userId);
-      if (reintegroCategory) resolvedCategoryId = reintegroCategory.id;
+    const settings = await getSettingsObject(c.env, userId);
+    const classification = await classifyTransaction(db, c.env, {
+      desc_banco: normalizedDescBanco,
+      monto: Number(monto),
+      moneda,
+      account_id,
+    }, userId, { settings });
+
+    if (classification.action === "auto" && classification.categoryId) {
+      resolvedCategoryId = classification.categoryId;
+      if (classification.rule?.id) {
+        await bumpRule(db, classification.rule.id);
+      }
     }
   }
 
@@ -241,23 +237,15 @@ router.post("/batch", async (c) => {
   const { transactions: txList, account_id: batchAccount } = await c.req.json();
   if (!Array.isArray(txList)) return c.json({ error: "transactions array required" }, 400);
   const db    = getDb(c.env);
+  const settings = await getSettingsObject(c.env, userId);
   if (batchAccount) {
     const batchAccountRow = await db.prepare(
       "SELECT currency FROM accounts WHERE id = ? AND user_id = ?"
     ).get(batchAccount, userId);
     if (!batchAccountRow) return c.json({ error: "account not found" }, 404);
   }
-  const rules = await db.prepare(
-    "SELECT id, pattern, category_id FROM rules WHERE user_id = ? ORDER BY LENGTH(pattern) DESC, match_count DESC, id ASC"
-  ).all(userId);
-  const transferCategory = await db.prepare(
-    "SELECT id FROM categories WHERE user_id = ? AND name = 'Transferencia'"
-  ).get(userId);
-  const reintegroCategory = await db.prepare(
-    "SELECT id FROM categories WHERE user_id = ? AND name = 'Reintegro'"
-  ).get(userId);
   const accountCurrencyCache = new Map();
-  const categories = await db.prepare("SELECT id FROM categories WHERE user_id = ?").all(userId);
+  const categories = await db.prepare("SELECT id, name, type, color FROM categories WHERE user_id = ?").all(userId);
   const categoryIds = new Set(categories.map((row) => Number(row.id)));
   if (batchAccount) {
     const batchAccountRow = await db.prepare(
@@ -290,14 +278,21 @@ router.post("/batch", async (c) => {
         if (accountRow?.currency) accountCurrencyCache.set(resolvedAccountId, accountRow.currency);
       }
       const resolvedCurrency = moneda || accountCurrencyCache.get(resolvedAccountId) || "UYU";
-      const rule = rules.find((r) => normalizedDescBanco.toLowerCase().includes(r.pattern.toLowerCase()));
-      let resolvedCategoryId = rule?.category_id ?? null;
-      if (rule) {
-        await bumpRule(db, rule.id);
-      } else if (isLikelyTransfer(normalizedDescBanco)) {
-        resolvedCategoryId = transferCategory?.id ?? null;
-      } else if (await isLikelyReintegro(db, normalizedDescBanco, Number(monto), resolvedCurrency, userId)) {
-        resolvedCategoryId = reintegroCategory?.id ?? null;
+      let resolvedCategoryId = null;
+      const classification = await classifyTransaction(db, c.env, {
+        desc_banco: normalizedDescBanco,
+        monto: Number(monto),
+        moneda: resolvedCurrency,
+        account_id: resolvedAccountId,
+      }, userId, {
+        settings,
+        categories,
+      });
+      if (classification.action === "auto" && classification.categoryId) {
+        resolvedCategoryId = classification.categoryId;
+        if (classification.rule?.id) {
+          await bumpRule(db, classification.rule.id);
+        }
       }
       await db.prepare(
         `INSERT INTO transactions (fecha,desc_banco,monto,moneda,category_id,account_id,dedup_hash,user_id)
@@ -370,7 +365,7 @@ router.put("/:id", async (c) => {
 
   let ruleResult = null;
   if (body.category_id != null && body.category_id !== tx.category_id) {
-    ruleResult = await ensureRuleForManualCategorization(db, tx.desc_banco, body.category_id, userId);
+    ruleResult = await ensureRuleForManualCategorization(db, tx, body.category_id, userId);
   }
 
   const updated = await db.prepare(

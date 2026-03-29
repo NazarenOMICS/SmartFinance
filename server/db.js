@@ -14,7 +14,12 @@ const DEFAULT_SETTINGS = {
   savings_initial: "0",
   savings_goal: "200000",
   savings_currency: "UYU",
-  parsing_patterns: JSON.stringify(DEFAULT_PATTERNS)
+  parsing_patterns: JSON.stringify(DEFAULT_PATTERNS),
+  categorizer_auto_threshold: "0.88",
+  categorizer_suggest_threshold: "0.68",
+  categorizer_ollama_enabled: "0",
+  categorizer_ollama_url: "",
+  categorizer_ollama_model: "qwen2.5:3b"
 };
 const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
 
@@ -107,6 +112,16 @@ function migrate() {
     );
   `);
 
+  const ruleColumns = new Set(db.prepare("PRAGMA table_info(rules)").all().map((column) => column.name));
+  if (!ruleColumns.has("mode")) db.exec("ALTER TABLE rules ADD COLUMN mode TEXT NOT NULL DEFAULT 'suggest'");
+  if (!ruleColumns.has("confidence")) db.exec("ALTER TABLE rules ADD COLUMN confidence REAL NOT NULL DEFAULT 0.72");
+  if (!ruleColumns.has("source")) db.exec("ALTER TABLE rules ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'");
+  if (!ruleColumns.has("account_id")) db.exec("ALTER TABLE rules ADD COLUMN account_id TEXT");
+  if (!ruleColumns.has("currency")) db.exec("ALTER TABLE rules ADD COLUMN currency TEXT");
+  if (!ruleColumns.has("direction")) db.exec("ALTER TABLE rules ADD COLUMN direction TEXT NOT NULL DEFAULT 'any'");
+  if (!ruleColumns.has("merchant_key")) db.exec("ALTER TABLE rules ADD COLUMN merchant_key TEXT");
+  if (!ruleColumns.has("last_matched_at")) db.exec("ALTER TABLE rules ADD COLUMN last_matched_at TEXT");
+
   const insertSetting = db.prepare(`
     INSERT INTO settings (key, value) VALUES (?, ?)
     ON CONFLICT(key) DO NOTHING
@@ -130,6 +145,19 @@ function normalizeSettingValue(key, value) {
   if (key === "savings_initial" || key === "savings_goal") {
     const parsed = Number(raw);
     return Number.isFinite(parsed) ? String(parsed) : DEFAULT_SETTINGS[key];
+  }
+
+  if (key === "categorizer_auto_threshold" || key === "categorizer_suggest_threshold") {
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? String(parsed) : DEFAULT_SETTINGS[key];
+  }
+
+  if (key === "categorizer_ollama_enabled") {
+    return raw === "1" || raw.toLowerCase() === "true" ? "1" : "0";
+  }
+
+  if (key === "categorizer_ollama_url" || key === "categorizer_ollama_model") {
+    return raw;
   }
 
   if (key === "parsing_patterns") {
