@@ -8,7 +8,10 @@ const { db, getSettingsObject, isValidMonthString } = require("../db");
 const { parsePdfText } = require("../services/pdf-parser");
 const { extractTransactions } = require("../services/tx-extractor");
 const { buildDedupHash } = require("../services/dedup");
-const { resolveTransactionClassification } = require("../services/transaction-categorization");
+const {
+  buildTransactionReviewSuggestion,
+  resolveTransactionClassification,
+} = require("../services/transaction-categorization");
 const {
   createReviewGroupTracker,
   ensureSmartCategoriesForTransactions,
@@ -270,6 +273,7 @@ router.post("/", upload.single("file"), async (req, res, next) => {
     let autoCategorized = 0;
     let pendingReview = 0;
     const reviewGroups = createReviewGroupTracker();
+    const transactionReviewQueue = [];
 
     // Resolve the account's currency so PDF transactions are stored correctly.
     // Falls back to UYU if account not found (shouldn't happen in normal flow).
@@ -343,6 +347,16 @@ router.post("/", upload.single("file"), async (req, res, next) => {
                 });
               }
             }
+          }
+          const reviewItem = buildTransactionReviewSuggestion(db, {
+            id: insertedId,
+            fecha: transaction.fecha,
+            desc_banco: transaction.desc_banco,
+            monto: transaction.monto,
+            moneda: accountCurrency,
+          }, { categories, classification });
+          if (reviewItem) {
+            transactionReviewQueue.push(reviewItem);
           }
           newTransactions += 1;
         }
@@ -456,6 +470,16 @@ router.post("/", upload.single("file"), async (req, res, next) => {
                 }
               }
             }
+            const reviewItem = buildTransactionReviewSuggestion(db, {
+              id: insertedId,
+              fecha,
+              desc_banco: desc,
+              monto,
+              moneda: accountCurrency,
+            }, { categories, classification });
+            if (reviewItem) {
+              transactionReviewQueue.push(reviewItem);
+            }
             newTransactions += 1;
           }
         });
@@ -481,6 +505,7 @@ router.post("/", upload.single("file"), async (req, res, next) => {
       auto_categorized: autoCategorized,
       pending_review: pendingReview,
       review_groups: listReviewGroups(reviewGroups),
+      transaction_review_queue: transactionReviewQueue,
       guided_review_groups: guidedReviewGroups,
       guided_onboarding_required: guidedOnboardingRequired,
       guided_onboarding_session: guidedOnboardingRequired ? { max_cards: guidedReviewGroups.length } : null,

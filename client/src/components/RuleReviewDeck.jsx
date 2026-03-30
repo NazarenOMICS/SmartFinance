@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../contexts/ToastContext";
 
-export default function RuleReviewDeck({ groups, onDone }) {
+export default function RuleReviewDeck({ groups, onDone, onAcceptedGroup }) {
   const { addToast } = useToast();
   const [index, setIndex] = useState(0);
   const [history, setHistory] = useState([]);
@@ -43,6 +43,7 @@ export default function RuleReviewDeck({ groups, onDone }) {
         transactionIds: current.transaction_ids,
         categoryId: current.category_id,
       }]);
+      onAcceptedGroup?.(current);
       addToast("success", `${current.count} movimiento${current.count !== 1 ? "s" : ""} pasan a "${current.category_name}".`);
       next();
     } catch (error) {

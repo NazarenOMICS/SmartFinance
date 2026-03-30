@@ -3,6 +3,26 @@ import taxonomy from "../../../shared/categorization-taxonomy.json";
 export const TAXONOMY_VERSION = taxonomy.version;
 export const CANONICAL_CATEGORIES = taxonomy.categories;
 export const AMBIGUOUS_MERCHANTS = taxonomy.ambiguous_merchants || [];
+const GENERIC_CATEGORY_KEYWORDS = new Set([
+  "supermercado",
+  "delivery",
+  "restaurant",
+  "restaurante",
+  "cafeteria",
+  "cafe",
+  "bar",
+  "farmacia",
+  "suscripcion",
+  "telefono",
+  "movil",
+  "celular",
+  "internet",
+  "servicio",
+  "luz",
+  "agua",
+  "gym",
+  "gimnasio",
+]);
 
 export function normalizeText(value) {
   return String(value || "")
@@ -64,13 +84,18 @@ export function getCanonicalCategoryBySlug(slug) {
 
 export function matchCanonicalCategory(descBanco) {
   const normalized = normalizeText(descBanco);
+  let bestMatch = null;
   for (const category of CANONICAL_CATEGORIES) {
-    const keyword = (category.keywords || []).find((item) => normalized.includes(normalizeText(item)));
-    if (keyword) {
-      return { category, keyword: normalizeText(keyword) };
+    for (const item of category.keywords || []) {
+      const normalizedKeyword = normalizeText(item);
+      if (!normalizedKeyword || !normalized.includes(normalizedKeyword)) continue;
+      const score = normalizedKeyword.length + (GENERIC_CATEGORY_KEYWORDS.has(normalizedKeyword) ? 0 : 20);
+      if (!bestMatch || score > bestMatch.score) {
+        bestMatch = { category, keyword: normalizedKeyword, score };
+      }
     }
   }
-  return null;
+  return bestMatch ? { category: bestMatch.category, keyword: bestMatch.keyword } : null;
 }
 
 export function hasAmbiguousMerchantHint(descBanco) {

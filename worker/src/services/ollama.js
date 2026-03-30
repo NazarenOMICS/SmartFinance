@@ -19,16 +19,22 @@ export async function suggestCategoryWithOllama(settings, payload) {
     return null;
   }
 
-  const categoryNames = payload.categories.map((category) => category.name).join(", ");
+  const categoryNames = payload.categories
+    .map((category) => `${category.name} (${category.slug || category.type || "general"})`)
+    .join(", ");
+
   const prompt = [
     "Eres un clasificador de gastos personales.",
-    "Debes elegir una categoria de la lista o responder null si no hay suficiente señal.",
-    "Responde SOLO JSON con las claves: category_name, confidence, should_auto, reason.",
+    "Prioriza siempre categorias existentes. Solo propone una categoria nueva si ninguna encaja razonablemente.",
+    "Nunca mezcles dominios incompatibles: salud no es transporte, transporte no es supermercado, software no es supermercado.",
+    "Si la descripcion es ambigua, no auto-categorices.",
+    "Responde SOLO JSON con las claves: category_name, proposed_category_name, proposed_category_type, confidence, should_auto, reason.",
     `Categorias disponibles: ${categoryNames}`,
     `Descripcion bancaria: ${payload.desc_banco}`,
     `Monto: ${payload.monto}`,
     `Moneda: ${payload.moneda}`,
     `Cuenta: ${payload.account_name || "sin cuenta"}`,
+    "Si propones categoria nueva, proposed_category_type debe ser 'variable' o 'fijo'.",
     "Si la descripcion es ambigua, confidence debe ser baja y category_name debe ser null.",
   ].join("\n");
 
@@ -57,6 +63,8 @@ export async function suggestCategoryWithOllama(settings, payload) {
     const confidence = Number(parsed.confidence);
     return {
       category_name: parsed.category_name ? String(parsed.category_name).trim() : null,
+      proposed_category_name: parsed.proposed_category_name ? String(parsed.proposed_category_name).trim() : null,
+      proposed_category_type: parsed.proposed_category_type ? String(parsed.proposed_category_type).trim() : null,
       confidence: Number.isFinite(confidence) ? Math.min(Math.max(confidence, 0), 1) : 0,
       should_auto: Boolean(parsed.should_auto),
       reason: parsed.reason ? String(parsed.reason).trim() : "",

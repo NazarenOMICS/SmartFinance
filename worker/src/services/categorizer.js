@@ -2,6 +2,8 @@ import { suggest } from "./suggester.js";
 import { suggestCategoryWithOllama } from "./ollama.js";
 import { hasAmbiguousMerchantHint, matchCanonicalCategory, normalizePatternValue, normalizeText } from "./taxonomy.js";
 
+const CATEGORY_PROPOSAL_COLORS = ["#534AB7", "#1D9E75", "#D85A30", "#378ADD", "#BA7517", "#639922", "#E24B4A", "#888780", "#9B59B6", "#2ECC71"];
+
 async function listRules(db, userId) {
   return db.prepare(
     `SELECT id, pattern, normalized_pattern, category_id, match_count, mode, confidence, source,
@@ -59,6 +61,39 @@ export function buildPatternFromDescription(descBanco) {
 
 function buildMerchantKey(descBanco) {
   return buildPatternFromDescription(descBanco) || normalizeText(descBanco).split(" ").slice(0, 3).join(" ").trim();
+}
+
+function titleCase(value) {
+  return String(value || "")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function pickSuggestedColor(categories) {
+  const usedColors = new Set(categories.map((category) => category.color).filter(Boolean));
+  return CATEGORY_PROPOSAL_COLORS.find((color) => !usedColors.has(color)) || CATEGORY_PROPOSAL_COLORS[0];
+}
+
+function normalizeProposedCategoryType(rawValue, descBanco = "") {
+  const normalizedType = normalizeText(rawValue);
+  if (normalizedType === "fijo" || normalizedType === "fixed" || normalizedType === "subscription") return "fijo";
+  const desc = normalizeText(descBanco);
+  if (["suscripcion", "subscription", "mensual", "monthly", "claude", "anthropic", "chatgpt", "openai", "netflix", "spotify"].some((item) => desc.includes(item))) {
+    return "fijo";
+  }
+  return "variable";
+}
+
+function buildFallbackCategoryProposal(tx, categories) {
+  const merchantKey = buildMerchantKey(tx.desc_banco) || normalizeText(tx.desc_banco).split(" ").slice(0, 2).join(" ");
+  const proposalName = titleCase(merchantKey) || "Categoria sugerida";
+  return {
+    name: proposalName,
+    type: normalizeProposedCategoryType("", tx.desc_banco),
+    color: pickSuggestedColor(categories),
+  };
 }
 
 function scoreRule(rule, tx) {
@@ -487,6 +522,110 @@ export async function classifyTransaction(db, env, tx, userId, options = {}) {
     category_rule_id: null,
     reason: "",
     category: null,
+  };
+}
+
+export async function buildTransactionReviewSuggestion(db, env, tx, userId, options = {}) {
+  const settings = options.settings || {};
+  const categories = options.categories || await listCategories(db, userId);
+  const classification = options.classification || await classifyTransaction(db, env, tx, userId, { settings, categories });
+
+  if (classification.categoryId) {
+    const category = categories.find((item) => item.id === classification.categoryId) || classification.category || null;
+    return {
+      transaction_id: tx.id,
+      desc_banco: tx.desc_banco,
+      fecha: tx.fecha,
+      monto: tx.monto,
+      moneda: tx.moneda,
+      suggested_category_id: classification.categoryId,
+      suggested_category_name: category?.name || null,
+      suggestion_source: classification.source,
+      suggestion_reason: classification.reason || "Categoria sugerida por el motor",
+      proposed_new_category: null,
+    };
+  }
+
+  if (classification.suggestion?.category_id) {
+    return {
+      transaction_id: tx.id,
+      desc_banco: tx.desc_banco,
+      fecha: tx.fecha,
+      monto: tx.monto,
+      moneda: tx.moneda,
+      suggested_category_id: classification.suggestion.category_id,
+      suggested_category_name: classification.suggestion.category_name,
+      suggestion_source: classification.source,
+      suggestion_reason: classification.reason || classification.suggestion.reason || "Sugerencia del motor",
+      proposed_new_category: null,
+    };
+  }
+
+  const canonicalMatch = matchCanonicalCategory(tx.desc_banco);
+  if (canonicalMatch) {
+    const category = categories.find((item) => normalizeText(item.name) === normalizeText(canonicalMatch.category.name));
+    if (category) {
+      return {
+        transaction_id: tx.id,
+        desc_banco: tx.desc_banco,
+        fecha: tx.fecha,
+        monto: tx.monto,
+        moneda: tx.moneda,
+        suggested_category_id: category.id,
+        suggested_category_name: category.name,
+        suggestion_source: "heuristica",
+        suggestion_reason: `Merchant o keyword claro: ${canonicalMatch.keyword}`,
+        proposed_new_category: null,
+      };
+    }
+  }
+
+  const llmSuggestion = await suggestCategoryWithOllama(settings, {
+    ...tx,
+    account_name: options.accountName || null,
+    categories,
+  });
+
+  if (llmSuggestion?.category_name) {
+    const category = categories.find(
+      (item) => normalizeText(item.name) === normalizeText(llmSuggestion.category_name)
+    );
+    if (category) {
+      return {
+        transaction_id: tx.id,
+        desc_banco: tx.desc_banco,
+        fecha: tx.fecha,
+        monto: tx.monto,
+        moneda: tx.moneda,
+        suggested_category_id: category.id,
+        suggested_category_name: category.name,
+        suggestion_source: "ollama",
+        suggestion_reason: llmSuggestion.reason || "Sugerencia semantica",
+        proposed_new_category: null,
+      };
+    }
+  }
+
+  const proposedCategoryName = llmSuggestion?.proposed_category_name ? titleCase(llmSuggestion.proposed_category_name) : null;
+  const proposedCategory = proposedCategoryName
+    ? {
+        name: proposedCategoryName,
+        type: normalizeProposedCategoryType(llmSuggestion?.proposed_category_type, tx.desc_banco),
+        color: pickSuggestedColor(categories),
+      }
+    : buildFallbackCategoryProposal(tx, categories);
+
+  return {
+    transaction_id: tx.id,
+    desc_banco: tx.desc_banco,
+    fecha: tx.fecha,
+    monto: tx.monto,
+    moneda: tx.moneda,
+    suggested_category_id: null,
+    suggested_category_name: proposedCategory.name,
+    suggestion_source: proposedCategoryName ? "ollama_new_category" : "fallback_new_category",
+    suggestion_reason: llmSuggestion?.reason || "No hubo categoria existente clara; proponemos crear una nueva.",
+    proposed_new_category: proposedCategory,
   };
 }
 

@@ -1,6 +1,6 @@
 // Smart suggestion engine for uncategorized transactions
 // Priority: 1) existing rules, 2) taxonomy keywords, 3) historical similarity
-import { CANONICAL_CATEGORIES, normalizeText } from "./taxonomy.js";
+import { CANONICAL_CATEGORIES, hasAmbiguousMerchantHint, matchCanonicalCategory, normalizeText } from "./taxonomy.js";
 
 /**
  * Suggest a category from keyword dictionary.
@@ -69,6 +69,11 @@ async function suggestFromHistory(db, descBanco, userId = null) {
  * categories: array of { id, name } from DB (to resolve keyword→id).
  */
 export async function suggest(db, descBanco, categories, userId = null) {
+  const canonicalMatch = matchCanonicalCategory(descBanco);
+  if (hasAmbiguousMerchantHint(descBanco) && !canonicalMatch) {
+    return null;
+  }
+
   // 1. Try keyword match
   const kwMatch = suggestFromKeywords(descBanco);
   if (kwMatch) {
@@ -100,6 +105,8 @@ export async function suggest(db, descBanco, categories, userId = null) {
  */
 export function suggestSync(tx, rules, categories) {
   if (tx.categorization_status === "categorized") return tx;
+  const canonicalMatch = matchCanonicalCategory(tx.desc_banco);
+  if (hasAmbiguousMerchantHint(tx.desc_banco) && !canonicalMatch) return tx;
 
   // 1. Rule match (exact substring, same priority as categorizer)
   const matchedRule = rules.find(

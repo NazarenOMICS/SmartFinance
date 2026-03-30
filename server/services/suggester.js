@@ -1,4 +1,4 @@
-const { CANONICAL_CATEGORIES, normalizeText } = require("./taxonomy");
+const { CANONICAL_CATEGORIES, hasAmbiguousMerchantHint, matchCanonicalCategory, normalizeText } = require("./taxonomy");
 
 function suggestFromKeywords(descBanco) {
   const desc = normalizeText(descBanco);
@@ -14,6 +14,8 @@ function suggestFromKeywords(descBanco) {
 
 function suggestSync(tx, rules, categories) {
   if (tx.categorization_status === "categorized") return tx;
+  const canonicalMatch = matchCanonicalCategory(tx.desc_banco);
+  if (hasAmbiguousMerchantHint(tx.desc_banco) && !canonicalMatch) return tx;
 
   const normalizedDesc = normalizeText(tx.desc_banco);
   const matchedRule = rules.find((rule) => {

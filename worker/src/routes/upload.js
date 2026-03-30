@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { getDb, getSettingsObject, isValidMonthString } from "../db.js";
 import { buildDedupHash } from "../services/dedup.js";
-import { bumpRule, classifyTransaction } from "../services/categorizer.js";
+import { buildTransactionReviewSuggestion, bumpRule, classifyTransaction } from "../services/categorizer.js";
 import { extractTransactions } from "../services/tx-extractor.js";
 import { parseCSV } from "../services/csv-parser.js";
 import { detectFormat, computeFormatKey, applyColumnMap } from "../services/format-detector.js";
@@ -170,6 +170,7 @@ router.post("/", async (c) => {
     let autoCategorized = 0;
     let pendingReview = 0;
     const reviewGroups = createReviewGroupTracker();
+    const transactionReviewQueue = [];
 
     if (ext === "csv") {
       const csvText = await file.text();
@@ -346,16 +347,27 @@ router.post("/", async (c) => {
         categoryRuleId
       );
       if (!categoryId) {
-          const smartMatch = matchSmartCategoryTemplate(normalizedDescBanco);
-          if (smartMatch) {
-            const smartCategory = categoryByName.get(smartMatch.template.name.toLowerCase());
-            if (smartCategory) {
-              trackReviewGroup(reviewGroups, normalizedTx, smartMatch, smartCategory.id, insertResult.lastInsertRowid, {
-                skipPatterns: skippedPatternKeys,
-              });
-            }
+        const smartMatch = matchSmartCategoryTemplate(normalizedDescBanco);
+        if (smartMatch) {
+          const smartCategory = categoryByName.get(smartMatch.template.name.toLowerCase());
+          if (smartCategory) {
+            trackReviewGroup(reviewGroups, normalizedTx, smartMatch, smartCategory.id, insertResult.lastInsertRowid, {
+              skipPatterns: skippedPatternKeys,
+            });
           }
         }
+      }
+      const reviewItem = await buildTransactionReviewSuggestion(db, c.env, {
+        id: insertResult.lastInsertRowid,
+        fecha: normalizedTx.fecha,
+        desc_banco: normalizedTx.desc_banco,
+        monto: normalizedTx.monto,
+        moneda: accountCurrency,
+        account_id,
+      }, userId, { settings, categories, classification });
+      if (reviewItem) {
+        transactionReviewQueue.push(reviewItem);
+      }
       newTransactions++;
     }
 
@@ -378,6 +390,7 @@ router.post("/", async (c) => {
       auto_categorized: autoCategorized,
       pending_review: pendingReview,
       review_groups: listReviewGroups(reviewGroups),
+      transaction_review_queue: transactionReviewQueue,
       guided_review_groups: guidedReviewGroups,
       guided_onboarding_required: guidedOnboardingRequired,
       guided_onboarding_session: guidedOnboardingRequired

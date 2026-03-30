@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../contexts/ToastContext";
 
-export default function GuidedCategorizationDeck({ groups, onComplete, onFollowLater, onSkip }) {
+export default function GuidedCategorizationDeck({ groups, onComplete, onFollowLater, onSkip, onAcceptedGroup }) {
   const { addToast } = useToast();
   const [index, setIndex] = useState(0);
   const [history, setHistory] = useState([]);
@@ -78,6 +78,7 @@ export default function GuidedCategorizationDeck({ groups, onComplete, onFollowL
         previousRule: ruleState.previousRule,
         createdRule: ruleState.created,
       }]);
+      onAcceptedGroup?.(current);
       addToast("success", `${current.count} movimiento${current.count !== 1 ? "s" : ""} quedan en "${current.category_name}".`);
       next();
     } catch (error) {

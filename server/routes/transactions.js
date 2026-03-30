@@ -14,6 +14,7 @@ const {
 } = require("../services/smart-categories");
 const { normalizePatternValue } = require("../services/taxonomy");
 const {
+  buildTransactionReviewSuggestion,
   clearTransactionCategorization,
   logCategorizationEvent,
   markTransactionCategorized,
@@ -468,6 +469,7 @@ router.post("/batch", (req, res) => {
     disabledPatterns.map((row) => `${Number(row.category_id)}:${normalizePatternValue(row.normalized_pattern)}`)
   );
   const reviewGroups = createReviewGroupTracker();
+  const transactionReviewQueue = [];
 
   let created = 0;
   let duplicates = 0;
@@ -500,7 +502,7 @@ router.post("/batch", (req, res) => {
 
       if (exists) { duplicates += 1; continue; }
 
-      const classification = resolveClassification(normalizedDescBanco, Number(monto), moneda, category_id);
+      const classification = resolveTransactionClassification(db, normalizedDescBanco, Number(monto), moneda, category_id);
 
       const insertResult = insertStmt.run(
         fecha,
@@ -528,6 +530,16 @@ router.post("/batch", (req, res) => {
           }
         }
       }
+      const reviewItem = buildTransactionReviewSuggestion(db, {
+        id: insertResult.lastInsertRowid,
+        fecha,
+        desc_banco: normalizedDescBanco,
+        monto: Number(monto),
+        moneda,
+      }, { categories, classification });
+      if (reviewItem) {
+        transactionReviewQueue.push(reviewItem);
+      }
       created += 1;
     }
   });
@@ -546,6 +558,7 @@ router.post("/batch", (req, res) => {
     duplicates,
     errors,
     review_groups: listReviewGroups(reviewGroups),
+    transaction_review_queue: transactionReviewQueue,
     guided_review_groups: guidedReviewGroups,
     guided_onboarding_required: guidedOnboardingRequired,
     guided_onboarding_session: guidedOnboardingRequired ? { max_cards: guidedReviewGroups.length } : null,

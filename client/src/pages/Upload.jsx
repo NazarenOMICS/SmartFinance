@@ -7,6 +7,7 @@ import ColumnMapper from "../components/ColumnMapper";
 import BrandMark from "../components/BrandMark";
 import GuidedCategorizationDeck from "../components/GuidedCategorizationDeck";
 import RuleReviewDeck from "../components/RuleReviewDeck";
+import TransactionReviewDeck from "../components/TransactionReviewDeck";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.mjs",
@@ -287,6 +288,7 @@ function SavedFormats({ onDeleted }) {
 export default function Upload({ month, onDone, onNavigate }) {
   const { addToast } = useToast();
   const [accounts, setAccounts] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [history, setHistory] = useState([]);
   const [feedback, setFeedback] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -303,15 +305,38 @@ export default function Upload({ month, onDone, onNavigate }) {
   const [reviewGroups, setReviewGroups] = useState([]);
   const [guidedReviewGroups, setGuidedReviewGroups] = useState([]);
   const [guidedOnboardingRequired, setGuidedOnboardingRequired] = useState(false);
+  const [transactionReviewQueue, setTransactionReviewQueue] = useState([]);
+  const [acceptedReviewGroupKeys, setAcceptedReviewGroupKeys] = useState([]);
+  const [resolvedReviewTransactionIds, setResolvedReviewTransactionIds] = useState([]);
+
+  function resetReviewFlowState() {
+    setReviewGroups([]);
+    setGuidedReviewGroups([]);
+    setGuidedOnboardingRequired(false);
+    setTransactionReviewQueue([]);
+    setAcceptedReviewGroupKeys([]);
+    setResolvedReviewTransactionIds([]);
+  }
+
+  function applyImportReviewState(result = {}) {
+    resetReviewFlowState();
+    setReviewGroups(result.review_groups || []);
+    setGuidedReviewGroups(result.guided_review_groups || []);
+    setGuidedOnboardingRequired(
+      Boolean(result.guided_onboarding_required && (result.guided_review_groups || []).length > 0)
+    );
+    setTransactionReviewQueue(result.transaction_review_queue || []);
+  }
 
   async function load() {
     const requestId = ++loadRequestIdRef.current;
     setLoading(true);
     try {
-      const [nextAccounts, nextHistory] = await Promise.all([api.getAccounts(), api.getUploads()]);
+      const [nextAccounts, nextHistory, nextCategories] = await Promise.all([api.getAccounts(), api.getUploads(), api.getCategories()]);
       if (loadRequestIdRef.current !== requestId) return;
       setAccounts(nextAccounts);
       setHistory(nextHistory);
+      setCategories(nextCategories);
       if (nextAccounts.every((account) => account.id !== selectedAccount)) {
         setSelectedAccount(nextAccounts.length === 1 ? nextAccounts[0].id : "");
       } else if (!selectedAccount && nextAccounts.length === 1) {
@@ -362,9 +387,7 @@ export default function Upload({ month, onDone, onNavigate }) {
   }
 
   function finishUploadFlow() {
-    setGuidedReviewGroups([]);
-    setGuidedOnboardingRequired(false);
-    setReviewGroups([]);
+    resetReviewFlowState();
     onDone?.();
   }
 
@@ -372,7 +395,11 @@ export default function Upload({ month, onDone, onNavigate }) {
     try {
       await api.completeGuidedCategorizationOnboarding();
       addToast("success", "Listo. La app ya arranca con una base mucho mas confiable.");
-      finishUploadFlow();
+      setGuidedOnboardingRequired(false);
+      setGuidedReviewGroups([]);
+      if (displayedRuleReviewGroups.length === 0 && displayedTransactionReviewQueue.length === 0) {
+        onDone?.();
+      }
     } catch (error) {
       addToast("error", error.message);
     }
@@ -394,7 +421,18 @@ export default function Upload({ month, onDone, onNavigate }) {
 
   function handleRuleReviewDone() {
     setReviewGroups([]);
-    onDone?.();
+    if (displayedTransactionReviewQueue.length === 0) {
+      onDone?.();
+    }
+  }
+
+  function handleAcceptedReviewGroup(group) {
+    setAcceptedReviewGroupKeys((prev) => (prev.includes(group.key) ? prev : [...prev, group.key]));
+    setResolvedReviewTransactionIds((prev) => {
+      const next = new Set(prev);
+      (group.transaction_ids || []).forEach((id) => next.add(id));
+      return [...next];
+    });
   }
 
   async function handleUpload(event) {
@@ -431,17 +469,15 @@ export default function Upload({ month, onDone, onNavigate }) {
       }
 
       setFeedback(result);
-      const nextReviewGroups = result.review_groups || [];
-      const nextGuidedReviewGroups = result.guided_review_groups || [];
-      const nextGuidedRequired = Boolean(result.guided_onboarding_required && nextGuidedReviewGroups.length > 0);
-      setReviewGroups(nextReviewGroups);
-      setGuidedReviewGroups(nextGuidedReviewGroups);
-      setGuidedOnboardingRequired(nextGuidedRequired);
+      applyImportReviewState(result);
       setUploadForm((prev) => ({ ...prev, file: null }));
       await load();
       if (result.new_transactions > 0) {
         addToast("success", `${result.new_transactions} transacciones nuevas importadas.`);
-        if (!nextGuidedRequired && nextReviewGroups.length === 0) {
+        const hasGuided = Boolean(result.guided_onboarding_required && (result.guided_review_groups || []).length > 0);
+        const hasReviewGroups = (result.review_groups || []).length > 0;
+        const hasTransactionQueue = (result.transaction_review_queue || []).length > 0;
+        if (!hasGuided && !hasReviewGroups && !hasTransactionQueue) {
           setTimeout(() => onDone?.(), 2500);
         }
       } else if (result.duplicates_skipped > 0) {
@@ -472,6 +508,12 @@ export default function Upload({ month, onDone, onNavigate }) {
   }
 
   const selectedAccountData = accounts.find((a) => a.id === selectedAccount);
+  const displayedTransactionReviewQueue = transactionReviewQueue.filter(
+    (item) => !resolvedReviewTransactionIds.includes(item.transaction_id)
+  );
+  const displayedRuleReviewGroups = reviewGroups.filter(
+    (group) => !acceptedReviewGroupKeys.includes(group.key)
+  );
 
   return (
     <div className="space-y-6">
@@ -493,16 +535,14 @@ export default function Upload({ month, onDone, onNavigate }) {
               auto_categorized: 0,
               pending_review: 0,
             });
-            const nextReviewGroups = result.review_groups || [];
-            const nextGuidedReviewGroups = result.guided_review_groups || [];
-            const nextGuidedRequired = Boolean(result.guided_onboarding_required && nextGuidedReviewGroups.length > 0);
-            setReviewGroups(nextReviewGroups);
-            setGuidedReviewGroups(nextGuidedReviewGroups);
-            setGuidedOnboardingRequired(nextGuidedRequired);
+            applyImportReviewState(result);
             load();
             if (result.created > 0) {
               addToast("success", `${result.created} transacciones importadas correctamente.`);
-              if (!nextGuidedRequired && nextReviewGroups.length === 0) {
+              const hasGuided = Boolean(result.guided_onboarding_required && (result.guided_review_groups || []).length > 0);
+              const hasReviewGroups = (result.review_groups || []).length > 0;
+              const hasTransactionQueue = (result.transaction_review_queue || []).length > 0;
+              if (!hasGuided && !hasReviewGroups && !hasTransactionQueue) {
                 setTimeout(() => onDone?.(), 2500);
               }
             } else if (result.duplicates > 0) {
@@ -517,17 +557,29 @@ export default function Upload({ month, onDone, onNavigate }) {
       {guidedOnboardingRequired && guidedReviewGroups.length > 0 && (
         <GuidedCategorizationDeck
           groups={guidedReviewGroups}
+          onAcceptedGroup={handleAcceptedReviewGroup}
           onComplete={handleGuidedComplete}
           onFollowLater={handleGuidedFollowLater}
           onSkip={handleGuidedSkip}
         />
       )}
-      {!guidedOnboardingRequired && reviewGroups.length > 0 && (
+      {!guidedOnboardingRequired && displayedRuleReviewGroups.length > 0 && (
         <RuleReviewDeck
-          groups={reviewGroups}
+          groups={displayedRuleReviewGroups}
+          onAcceptedGroup={handleAcceptedReviewGroup}
           onDone={() => {
             load();
             handleRuleReviewDone();
+          }}
+        />
+      )}
+      {!guidedOnboardingRequired && displayedRuleReviewGroups.length === 0 && displayedTransactionReviewQueue.length > 0 && (
+        <TransactionReviewDeck
+          items={displayedTransactionReviewQueue}
+          categories={categories}
+          onCategoryCreated={load}
+          onDone={() => {
+            finishUploadFlow();
           }}
         />
       )}
@@ -778,14 +830,12 @@ export default function Upload({ month, onDone, onNavigate }) {
             auto_categorized: 0,
             pending_review: 0,
           });
-          const nextReviewGroups = result?.review_groups || [];
-          const nextGuidedReviewGroups = result?.guided_review_groups || [];
-          const nextGuidedRequired = Boolean(result?.guided_onboarding_required && nextGuidedReviewGroups.length > 0);
-          setReviewGroups(nextReviewGroups);
-          setGuidedReviewGroups(nextGuidedReviewGroups);
-          setGuidedOnboardingRequired(nextGuidedRequired);
+          applyImportReviewState(result);
           load();
-          if (!nextGuidedRequired && nextReviewGroups.length === 0) {
+          const hasGuided = Boolean(result?.guided_onboarding_required && (result?.guided_review_groups || []).length > 0);
+          const hasReviewGroups = (result?.review_groups || []).length > 0;
+          const hasTransactionQueue = (result?.transaction_review_queue || []).length > 0;
+          if (!hasGuided && !hasReviewGroups && !hasTransactionQueue) {
             onDone?.();
           }
         }}

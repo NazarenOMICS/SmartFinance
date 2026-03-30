@@ -1,5 +1,5 @@
 {
-  "version": "2026-03-modern-uy-v1",
+  "version": "2026-03-modern-uy-v2",
   "ambiguous_merchants": [
     "mercado pago",
     "mercadopago",
@@ -92,11 +92,13 @@
       "color": "#D85A30",
       "sort_order": 4,
       "origin": "seed",
-      "keywords": ["suscripcion", "chatgpt", "openai", "playstation", "xbox", "steam", "apple.com", "apple services", "google play", "google one"],
+      "keywords": ["suscripcion", "chatgpt", "openai", "claude", "anthropic", "playstation", "xbox", "steam", "apple.com", "apple services", "google play", "google one"],
       "seed_patterns": [
         { "pattern": "suscripcion", "tier": "clear_suggest" },
         { "pattern": "chatgpt", "tier": "obvious_auto" },
         { "pattern": "openai", "tier": "obvious_auto" },
+        { "pattern": "claude", "tier": "obvious_auto" },
+        { "pattern": "anthropic", "tier": "obvious_auto" },
         { "pattern": "steam", "tier": "obvious_auto" },
         { "pattern": "playstation", "tier": "obvious_auto" },
         { "pattern": "xbox", "tier": "obvious_auto" },
@@ -239,10 +241,11 @@
       "color": "#E24B4A",
       "sort_order": 12,
       "origin": "seed",
-      "keywords": ["farmacia", "farmashop", "san roque", "mutualista", "casmu", "hospital", "clinica", "doctor", "medica", "medico", "dentista", "optica", "laboratorio"],
+      "keywords": ["farmacia", "farmashop", "farmacity", "san roque", "mutualista", "casmu", "hospital", "clinica", "doctor", "medica", "medico", "dentista", "optica", "laboratorio"],
       "seed_patterns": [
         { "pattern": "farmacia", "tier": "clear_suggest" },
         { "pattern": "farmashop", "tier": "obvious_auto" },
+        { "pattern": "farmacity", "tier": "obvious_auto" },
         { "pattern": "san roque", "tier": "obvious_auto" },
         { "pattern": "hospital", "tier": "clear_suggest" },
         { "pattern": "clinica", "tier": "clear_suggest" },

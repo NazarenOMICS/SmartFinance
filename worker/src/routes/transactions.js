@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { getDb, getSettingsObject, isValidMonthString } from "../db.js";
 import { buildDedupHash } from "../services/dedup.js";
 import {
+  buildTransactionReviewSuggestion,
   bumpRule,
   classifyTransaction,
   ensureRuleForManualCategorization,
@@ -409,6 +410,7 @@ router.post("/batch", async (c) => {
     disabledPatterns.map((row) => `${Number(row.category_id)}:${normalizePatternValue(row.normalized_pattern)}`)
   );
   const reviewGroups = createReviewGroupTracker();
+  const transactionReviewQueue = [];
   if (batchAccount) {
     const batchAccountRow = await db.prepare(
       "SELECT currency FROM accounts WHERE id = ? AND user_id = ?"
@@ -489,6 +491,17 @@ router.post("/batch", async (c) => {
           }
         }
       }
+      const reviewItem = await buildTransactionReviewSuggestion(db, c.env, {
+        id: result.lastInsertRowid,
+        fecha,
+        desc_banco: normalizedDescBanco,
+        monto: Number(monto),
+        moneda: resolvedCurrency,
+        account_id: resolvedAccountId,
+      }, userId, { settings, categories, classification });
+      if (reviewItem) {
+        transactionReviewQueue.push(reviewItem);
+      }
       created++;
     } catch {
       errors++;
@@ -509,6 +522,7 @@ router.post("/batch", async (c) => {
     duplicates,
     errors,
     review_groups: listReviewGroups(reviewGroups),
+    transaction_review_queue: transactionReviewQueue,
     guided_review_groups: guidedReviewGroups,
     guided_onboarding_required: guidedOnboardingRequired,
     guided_onboarding_session: guidedOnboardingRequired ? { max_cards: guidedReviewGroups.length } : null,
