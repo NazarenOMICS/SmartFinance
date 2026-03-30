@@ -62,13 +62,13 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
     const rawValue = String(localBalances[id] ?? "").trim();
     if (!rawValue) {
       setLocalBalances((prev) => ({ ...prev, [id]: String(account?.balance ?? 0) }));
-      addToast("warning", "El balance no puede quedar vacio.");
+      addToast("warning", "El balance no puede quedar vacío.");
       return;
     }
     const balance = Number(rawValue);
     if (!Number.isFinite(balance)) {
       setLocalBalances((prev) => ({ ...prev, [id]: String(account?.balance ?? 0) }));
-      addToast("warning", "Ingresa un balance valido.");
+      addToast("warning", "Ingresá un balance válido.");
       return;
     }
     try {
@@ -127,7 +127,7 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
         ...prev,
         [key]: settings[key] || (key === "exchange_rate_usd_uyu" ? "42.5" : "0.045"),
       }));
-      addToast("warning", "Ingresa un tipo de cambio mayor a 0.");
+      addToast("warning", "Ingresá un tipo de cambio mayor a 0.");
       return;
     }
     if (String(settings[key] || "") === rawValue) return;
@@ -195,7 +195,7 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
                     const nextName = e.target.value.trim();
                     if (!nextName) {
                       setNameDrafts((prev) => ({ ...prev, [account.id]: account.name }));
-                      addToast("warning", "El nombre no puede quedar vacio.");
+                      addToast("warning", "El nombre no puede quedar vacío.");
                       return;
                     }
                     if (nextName === account.name) {

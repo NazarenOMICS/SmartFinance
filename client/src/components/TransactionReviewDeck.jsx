@@ -6,10 +6,10 @@ import { fmtMoney } from "../utils";
 
 function formatSuggestionSource(source) {
   if (source === "rule_suggest" || source === "regla") return "Regla";
-  if (source === "heuristica" || source === "keyword" || source === "history") return "Heuristica";
+  if (source === "heuristica" || source === "keyword" || source === "history") return "Heurística";
   if (source === "ollama") return "Ollama";
-  if (source === "ollama_new_category") return "Categoria nueva sugerida";
-  if (source === "fallback_new_category") return "Nueva categoria sugerida";
+  if (source === "ollama_new_category") return "Categoría nueva sugerida";
+  if (source === "fallback_new_category") return "Nueva categoría sugerida";
   return "Sugerencia";
 }
 
@@ -94,7 +94,7 @@ export default function TransactionReviewDeck({ items, categories, onDone, onCat
       return;
     }
 
-    addToast("warning", "No hay una categoria sugerida lista para aceptar.");
+    addToast("warning", "No hay una categoría sugerida lista para aceptar.");
   }
 
   function handleSkip() {
@@ -137,12 +137,12 @@ export default function TransactionReviewDeck({ items, categories, onDone, onCat
       <div className="w-full max-w-2xl rounded-[32px] bg-white p-6 shadow-2xl dark:bg-neutral-900">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Revision individual</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Revisión individual</p>
             <h3 className="mt-1 font-display text-3xl text-finance-ink dark:text-neutral-100">
-              Ajustemos lo que todavia no quedo claro
+              Ajustemos lo que todavía no quedó claro
             </h3>
             <p className="mt-2 max-w-xl text-sm leading-6 text-neutral-500 dark:text-neutral-300">
-              Cada movimiento entra con una sugerencia concreta para que no quede enterrado bajo una categoria incorrecta.
+              Cada movimiento tiene una sugerencia para que no quede bajo una categoría incorrecta.
             </p>
           </div>
           <button
@@ -198,7 +198,7 @@ export default function TransactionReviewDeck({ items, categories, onDone, onCat
         </div>
 
         <div className="mt-5 rounded-[26px] border border-neutral-200 bg-white/80 p-5 dark:border-neutral-700 dark:bg-neutral-950/60">
-          <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Cambiar categoria</p>
+          <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Cambiar categoría</p>
           <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="flex-1">
               <CategorySelect
@@ -218,7 +218,7 @@ export default function TransactionReviewDeck({ items, categories, onDone, onCat
             </button>
           </div>
           <p className="mt-2 text-xs leading-6 text-neutral-500 dark:text-neutral-300">
-            Si no existe, puedes crear una propia desde el selector.
+            Si no existe, podés crear una desde el selector.
           </p>
         </div>
 

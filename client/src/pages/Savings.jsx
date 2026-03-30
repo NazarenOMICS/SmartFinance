@@ -43,14 +43,14 @@ export default function Savings({ month, settings, refreshSettings }) {
       await Promise.all(Object.entries(form).map(([key, value]) => api.updateSetting(key, value)));
       await refreshSettings();
       await load();
-      addToast("success", "Configuracion guardada.");
+      addToast("success", "Configuración guardada.");
     } catch (e) {
       addToast("error", e.message);
     }
   }
 
   if (state.loading) {
-    return <div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel dark:bg-neutral-900/80">Calculando proyeccion...</div>;
+    return <div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel dark:bg-neutral-900/80">Calculando proyección...</div>;
   }
   if (state.error) {
     return <div className="rounded-[28px] bg-finance-redSoft p-6 text-finance-red shadow-panel dark:bg-red-900/30">{state.error}</div>;
@@ -88,7 +88,7 @@ export default function Savings({ month, settings, refreshSettings }) {
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-xs uppercase tracking-[0.18em] text-neutral-400">Moneda proyeccion</span>
+            <span className="text-xs uppercase tracking-[0.18em] text-neutral-400">Moneda proyección</span>
             <select
               className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
               value={form.savings_currency}
@@ -153,11 +153,11 @@ export default function Savings({ month, settings, refreshSettings }) {
       })()}
 
       <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
-        <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Serie historica y futura</p>
-        <h2 className="font-display text-3xl text-finance-ink">Proyeccion de ahorro</h2>
+        <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Serie histórica y futura</p>
+        <h2 className="font-display text-3xl text-finance-ink">Proyección de ahorro</h2>
         <div className="mt-4 flex gap-4 text-xs text-neutral-500">
           <span className="flex items-center gap-1.5"><span className="h-2 w-5 rounded-full bg-finance-teal opacity-60" /> Ahorro real</span>
-          <span className="flex items-center gap-1.5"><span className="h-2 w-5 rounded-full border-t-2 border-dashed border-finance-blue" /> Proyeccion</span>
+          <span className="flex items-center gap-1.5"><span className="h-2 w-5 rounded-full border-t-2 border-dashed border-finance-blue" /> Proyección</span>
           <span className="flex items-center gap-1.5"><span className="h-2 w-5 rounded-full border-t-2 border-finance-amber opacity-70" /> Objetivo</span>
         </div>
         <div className="mt-4 h-80">
@@ -167,7 +167,7 @@ export default function Savings({ month, settings, refreshSettings }) {
               <YAxis tick={{ fill: "#737373", fontSize: 12 }} axisLine={false} tickLine={false} />
               <Tooltip formatter={(value) => fmtMoney(value, projection.currency)} />
               <Area type="monotone" dataKey="real" stroke="#1D9E75" fill="#1D9E75" fillOpacity={0.12} strokeWidth={2} name="Ahorro real" />
-              <Line type="monotone" dataKey="projected" stroke="#378ADD" strokeWidth={2} strokeDasharray="6 4" dot={false} name="Proyeccion" />
+              <Line type="monotone" dataKey="projected" stroke="#378ADD" strokeWidth={2} strokeDasharray="6 4" dot={false} name="Proyección" />
               <Line type="monotone" dataKey="goal" stroke="#BA7517" strokeWidth={1.5} dot={false} name="Objetivo" />
             </ComposedChart>
           </ResponsiveContainer>
@@ -177,7 +177,7 @@ export default function Savings({ month, settings, refreshSettings }) {
       <div className="grid gap-6 lg:grid-cols-[1fr_0.95fr]">
         <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
           <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Cuotas</p>
-          <h2 className="font-display text-3xl text-finance-ink">Compromisos proximos</h2>
+          <h2 className="font-display text-3xl text-finance-ink">Compromisos próximos</h2>
           <div className="mt-6 h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={projection.commitments}>
@@ -199,7 +199,7 @@ export default function Savings({ month, settings, refreshSettings }) {
                 <strong>Categoria que mas crecio:</strong>{" "}
                 {insights.growth
                   ? `${insights.growth.category} (${Math.round(insights.growth.delta_pct)}%, ${fmtMoney(insights.growth.previous_amount, insightsCurrency)} -> ${fmtMoney(insights.growth.current_amount, insightsCurrency)})`
-                  : "sin suficiente historico"}
+                  : "sin suficiente histórico"}
               </p>
             </div>
             <div className="flex items-start gap-2">
@@ -216,7 +216,7 @@ export default function Savings({ month, settings, refreshSettings }) {
             </div>
             <div className="flex items-start gap-2">
               <span className="text-base">🎯</span>
-              <p><strong>ETA al objetivo:</strong> {insights.eta_months ? `${insights.eta_months} meses` : "aun no estimable"}</p>
+              <p><strong>ETA al objetivo:</strong> {insights.eta_months ? `${insights.eta_months} meses` : "aún no estimable"}</p>
             </div>
           </div>
         </div>

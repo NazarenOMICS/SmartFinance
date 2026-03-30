@@ -126,7 +126,7 @@ export default function CategorySelect({ categories, value, onChange, onCategory
             <span className="flex-1 truncate text-finance-ink dark:text-neutral-100">{selected.name}</span>
           </>
         ) : (
-          <span className="flex-1 text-neutral-400">Asignar categoria</span>
+          <span className="flex-1 text-neutral-400">Asignar categoría</span>
         )}
         <svg className={`h-3.5 w-3.5 shrink-0 text-neutral-400 transition-transform ${open ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="currentColor">
           <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
@@ -144,7 +144,7 @@ export default function CategorySelect({ categories, value, onChange, onCategory
               <input
                 ref={inputRef}
                 type="text"
-                placeholder="Buscar categoria..."
+                placeholder="Buscar categoría..."
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 className="w-full rounded-lg bg-neutral-50 px-3 py-2 text-sm text-finance-ink placeholder:text-neutral-400 focus:outline-none dark:bg-neutral-800 dark:text-neutral-100 dark:placeholder:text-neutral-500"
@@ -170,7 +170,7 @@ export default function CategorySelect({ categories, value, onChange, onCategory
               ))}
               {filtered.length === 0 && search && (
                 <p className="px-3 py-3 text-center text-xs text-neutral-400">
-                  No hay categorias con "{search}"
+                  No hay categorías con "{search}"
                 </p>
               )}
             </div>
@@ -178,7 +178,7 @@ export default function CategorySelect({ categories, value, onChange, onCategory
 
           {creating ? (
             <form onSubmit={handleCreate} className="border-t border-neutral-100 p-3 dark:border-neutral-800">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-400">Nueva categoria</p>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-400">Nueva categoría</p>
               <input
                 autoFocus
                 type="text"
@@ -244,7 +244,7 @@ export default function CategorySelect({ categories, value, onChange, onCategory
               className="flex w-full items-center gap-2 border-t border-neutral-100 px-3 py-2.5 text-left text-sm font-semibold text-finance-purple transition hover:bg-finance-purpleSoft/50 active:bg-finance-purpleSoft dark:border-neutral-800 dark:text-purple-300 dark:hover:bg-purple-900/20"
             >
               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-finance-purple/10 text-finance-purple dark:bg-purple-900/40 dark:text-purple-300">+</span>
-              Nueva categoria
+              Nueva categoría
             </button>
           )}
         </div>,

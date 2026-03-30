@@ -499,8 +499,8 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
               <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 dark:border-amber-900/40 dark:bg-amber-900/10">
                 <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">Reset de reglas</p>
                 <p className="mt-1 text-xs leading-6 text-neutral-500 dark:text-neutral-300">
-                  Borra las reglas aprendidas o mal creadas y vuelve al set base de la app. Ideal si la
-                  categorizacion automatica se fue de mambo.
+                  Borrá las reglas aprendidas o mal creadas y volvé al set base de la app. Ideal si la
+                  categorización automática se fue de mambo.
                 </p>
                 <button
                   type="button"

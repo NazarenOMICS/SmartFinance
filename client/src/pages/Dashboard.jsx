@@ -169,7 +169,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
                 ...(tx.installment_id && { installment_id: tx.installment_id }),
               });
               await load({ silent: true });
-              addToast("success", "Transaccion restaurada.");
+              addToast("success", "Transacción restaurada.");
             } catch (error) {
               addToast("error", error.message);
             }
@@ -278,8 +278,8 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
             <div>
               <p className="font-semibold text-finance-red dark:text-red-300">
                 {overBudget.length === 1
-                  ? `"${overBudget[0].name}" supero el presupuesto mensual`
-                  : `${overBudget.length} categorias superaron su presupuesto mensual`}
+                  ? `"${overBudget[0].name}" superó el presupuesto mensual`
+                  : `${overBudget.length} categorías superaron su presupuesto mensual`}
               </p>
               <p className="mt-1 text-sm text-finance-red/80 dark:text-red-400">
                 {overBudget.map((item) => `${item.name} (${money(item.spent)} / ${money(item.budget)})`).join(" | ")}
@@ -319,8 +319,8 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
         <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Distribucion mensual</p>
-              <h2 className="font-display text-3xl text-finance-ink">Gastos por categoria</h2>
+              <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Distribución mensual</p>
+              <h2 className="font-display text-3xl text-finance-ink">Gastos por categoría</h2>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <select
@@ -412,7 +412,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
         <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Evolucion</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Evolución</p>
               <h2 className="font-display text-3xl text-finance-ink">Ultimos 6 meses</h2>
             </div>
             {summary.pending_count > 0 && (

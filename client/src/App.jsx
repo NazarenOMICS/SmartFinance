@@ -98,24 +98,24 @@ function getGreeting(name) {
   if (hour < 6) {
     return {
       title: `Noche larga, ${name}`,
-      subtitle: "Si seguimos mirando el mapa, al menos que se sienta claro y bajo control.",
+      subtitle: "Revisá los números antes de irte a dormir.",
     };
   }
   if (hour < 12) {
     return {
-      title: `Buen dia, ${name}`,
-      subtitle: "Arranca el dia con una vista limpia de tu plata y tus prioridades.",
+      title: `Buen día, ${name}`,
+      subtitle: "Revisá gastos y presupuestos del mes.",
     };
   }
   if (hour < 20) {
     return {
       title: `Buenas tardes, ${name}`,
-      subtitle: "Todo el mes a la vista, para decidir rapido sin perder contexto.",
+      subtitle: "Tus gastos, ingresos y presupuestos del mes.",
     };
   }
   return {
     title: `Buenas noches, ${name}`,
-    subtitle: "Cierra el dia con tus numeros ordenados y menos ruido en la cabeza.",
+    subtitle: "Cerrá el día con los números al día.",
   };
 }
 
@@ -148,31 +148,31 @@ function AuthScreen() {
               <BrandMark size="sm" />
               <div>
                 <p className="text-[10px] uppercase tracking-[0.34em] text-neutral-400">SmartFinance</p>
-                <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">Tus movimientos, por fin con criterio</p>
+                <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">Importá, categorizá, controlá</p>
               </div>
             </div>
 
             <h1 className="mt-8 max-w-xl font-display text-5xl leading-tight text-finance-ink dark:text-neutral-100 md:text-6xl">
-              Empeza el mes sabiendo donde estas parado.
+              Tus finanzas en orden, mes a mes.
             </h1>
             <p className="mt-4 max-w-lg text-base leading-7 text-neutral-500 dark:text-neutral-300">
-              Entra, importa tus movimientos y convierte gastos, ahorro y metas en un mapa mucho mas claro.
+              Importá tus extractos bancarios, categorizá gastos y controlá presupuestos mes a mes.
             </p>
           </div>
 
           <div className="relative mt-10 grid gap-4 md:grid-cols-3">
             {[
               {
-                title: "Subes desde donde ya estas",
-                body: "PDF, CSV, TXT o carga manual. Nada de rehacer todo tu flujo.",
+                title: "Subí desde donde ya estás",
+                body: "PDF, CSV, TXT o carga manual. Sin rehacer nada.",
               },
               {
-                title: "Aprende tus decisiones",
-                body: "Las categorias confirmadas se convierten en memoria util para el proximo mes.",
+                title: "Categorización automática",
+                body: "Cada categoría que asignás se convierte en regla para el mes siguiente.",
               },
               {
-                title: "Miras el panorama real",
-                body: "Dashboard, ahorro, recurrentes y cuotas en un lenguaje mas humano.",
+                title: "Todo el mes en una vista",
+                body: "Gastos, ingresos, cuotas y ahorro en un solo lugar.",
               },
             ].map((item) => (
               <div
@@ -191,7 +191,7 @@ function AuthScreen() {
             <div className="mb-6 text-center md:text-left">
               <p className="text-xs uppercase tracking-[0.32em] text-neutral-400">Acceso</p>
               <h2 className="mt-2 font-display text-3xl text-finance-ink dark:text-neutral-100">
-                Inicia sesion para seguir ordenando tu mes
+                Iniciá sesión para continuar
               </h2>
             </div>
             <SignIn
@@ -365,14 +365,14 @@ function AppInner() {
 
         if (isNetworkError) {
           setApiDown(true);
-          setBootError("No pudimos cargar tus datos iniciales.");
+          setBootError("No pudimos cargar tus datos.");
           setOnboardStatus("boot_blocked");
         } else if (attempt < maxRetries) {
           const delay = 500 * (attempt + 1);
           setTimeout(() => initApp(attempt + 1), delay);
         } else {
           console.error("App boot failed during cached onboard flow", e);
-          setBootError("Fallo el arranque de tu espacio.");
+          setBootError("Falló el arranque. Reintentá.");
           setOnboardStatus("boot_blocked");
         }
       }
@@ -413,7 +413,7 @@ function AppInner() {
 
       if (isNetworkError) {
         setApiDown(true);
-        setBootError("No pudimos conectarnos al servidor para preparar tu espacio.");
+        setBootError("No pudimos conectarnos al servidor.");
         setOnboardStatus("boot_blocked");
       } else if (attempt < maxRetries) {
         const delay = 500 * (attempt + 1);
@@ -421,7 +421,7 @@ function AppInner() {
       } else {
         console.error("App boot failed during onboarding flow", e);
         setApiDown(false);
-        setBootError("Ocurrio un error preparando tu espacio.");
+        setBootError("Ocurrió un error al cargar. Reintentá.");
         setOnboardStatus("boot_blocked");
       }
     }
@@ -450,8 +450,8 @@ function AppInner() {
         <div className="flex flex-col items-center gap-4 rounded-[32px] border border-white/70 bg-white/85 px-8 py-7 shadow-panel dark:border-white/10 dark:bg-neutral-900/85">
           <BrandMark size="md" className="animate-pulse" />
           <div className="text-center">
-            <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">Preparando tu espacio</p>
-            <p className="mt-1 text-sm text-neutral-400">Conectando con tus datos...</p>
+            <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">Cargando...</p>
+            <p className="mt-1 text-sm text-neutral-400">Conectando con el servidor...</p>
           </div>
         </div>
       </div>
@@ -469,12 +469,12 @@ function AppInner() {
             La base necesita migraciones
           </h1>
           <p className="mt-3 text-sm leading-7 text-neutral-500 dark:text-neutral-300">
-            La app detecto un desajuste entre el schema esperado y la base publicada. Cuando el deploy aplique
-            la migracion correcta, todo vuelve a funcionar sin dejarte frente a errores SQL crudos.
+            La app detectó un desajuste entre el schema esperado y la base publicada. Cuando el deploy aplique
+            la migración correcta, todo vuelve a funcionar.
           </p>
           <div className="mt-5 rounded-[24px] bg-finance-cream/80 px-5 py-4 text-left text-sm text-neutral-500 dark:bg-neutral-800/80 dark:text-neutral-300">
             <p><strong>Esperado:</strong> {schemaStatus.expected_version}</p>
-            <p><strong>Actual:</strong> {schemaStatus.current_version || "sin version registrada"}</p>
+            <p><strong>Actual:</strong> {schemaStatus.current_version || "sin versión registrada"}</p>
             <p><strong>Motivo:</strong> {schemaStatus.blocking_reason}</p>
           </div>
           <button
@@ -499,7 +499,7 @@ function AppInner() {
             No pudimos hablar con el servidor
           </h1>
           <p className="mt-3 text-sm leading-7 text-neutral-500 dark:text-neutral-300">
-            {bootError || "Revisa tu conexion y vuelve a intentar. Cuando la API responda, retomamos donde estabas sin perder el contexto."}
+            {bootError || "Revisá tu conexión y volvé a intentar."}
           </p>
           <button
             onClick={initApp}
@@ -518,8 +518,8 @@ function AppInner() {
         <div className="flex flex-col items-center gap-4 rounded-[32px] border border-white/70 bg-white/85 px-8 py-7 shadow-panel dark:border-white/10 dark:bg-neutral-900/85">
           <BrandMark size="md" className="animate-pulse" />
           <div className="text-center">
-            <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">Preparando tu espacio</p>
-            <p className="mt-1 text-sm text-neutral-400">Conectando con tus datos...</p>
+            <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">Cargando...</p>
+            <p className="mt-1 text-sm text-neutral-400">Conectando con el servidor...</p>
           </div>
         </div>
       </div>
@@ -534,10 +534,10 @@ function AppInner() {
             <HelpIcon />
           </div>
           <h1 className="mt-6 font-display text-4xl text-finance-ink dark:text-neutral-100">
-            Algo bloqueo el arranque
+            Algo bloqueó el arranque
           </h1>
           <p className="mt-3 text-sm leading-7 text-neutral-500 dark:text-neutral-300">
-            {bootError || "No pudimos terminar de cargar tu espacio. Reintenta y, si vuelve a pasar, ya deberia quedar visible el tipo de fallo."}
+            {bootError || "No pudimos terminar de cargar. Reintentá y, si vuelve a pasar, ya debería quedar visible el tipo de fallo."}
           </p>
           <button
             onClick={initApp}
@@ -575,7 +575,7 @@ function AppInner() {
               <BrandMark size="sm" />
               <div className="text-left">
                 <p className="text-[10px] uppercase tracking-[0.34em] text-neutral-400">SmartFinance</p>
-                <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">Tu sistema financiero personal</p>
+                <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">Control de gastos personal</p>
               </div>
             </div>
 
@@ -590,7 +590,7 @@ function AppInner() {
           <div className="flex flex-wrap items-center gap-2.5 md:gap-3">
             <button
               onClick={() => setShowSearch(true)}
-              title="Busqueda global (Ctrl+K)"
+              title="Búsqueda global (Ctrl+K)"
               className="inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-white px-3.5 py-2 text-sm text-neutral-500 transition hover:bg-finance-purpleSoft hover:text-finance-purple dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
             >
               <SearchIcon />
@@ -712,13 +712,13 @@ export default function App() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-finance-cream px-4">
         <div className="max-w-md rounded-[32px] border border-finance-red/30 bg-finance-redSoft p-8 text-center">
-          <p className="text-2xl font-bold text-finance-red">Configuracion pendiente</p>
+          <p className="text-2xl font-bold text-finance-red">Configuración pendiente</p>
           <p className="mt-3 text-sm text-finance-red/80">
             Falta <code className="rounded bg-finance-red/10 px-1">VITE_CLERK_PUBLISHABLE_KEY</code> en
             el archivo <code>.env</code>.
           </p>
           <p className="mt-2 text-xs text-neutral-500">
-            Copia tu Publishable Key desde Clerk y agregala en <code>client/.env</code>.
+            Copiá tu Publishable Key desde Clerk y agregala en <code>client/.env</code>.
           </p>
         </div>
       </div>
@@ -732,13 +732,13 @@ export default function App() {
         signIn: {
           start: {
             title: "SmartFinance",
-            subtitle: "Inicia sesion para continuar",
+            subtitle: "Iniciá sesión para continuar",
           },
         },
         signUp: {
           start: {
             title: "SmartFinance",
-            subtitle: "Crea tu cuenta para empezar",
+            subtitle: "Creá tu cuenta para empezar",
           },
         },
       }}

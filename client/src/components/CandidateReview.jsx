@@ -45,7 +45,7 @@ export default function CandidateReview({ pattern, categoryId, categoryName, rul
 
   function finish(totalConfirmed = confirmed) {
     if (totalConfirmed > 0) {
-      addToast("success", `${totalConfirmed} transaccion${totalConfirmed !== 1 ? "es" : ""} categorizada${totalConfirmed !== 1 ? "s" : ""} como "${categoryName}".`);
+      addToast("success", `${totalConfirmed} transacción${totalConfirmed !== 1 ? "es" : ""} categorizada${totalConfirmed !== 1 ? "s" : ""} como "${categoryName}".`);
     }
     onDone?.();
   }
@@ -67,7 +67,7 @@ export default function CandidateReview({ pattern, categoryId, categoryName, rul
       setHistory((prev) => [...prev, { type: "confirm", transactionId: tx.id }]);
       advance({ confirmedDelta: 1 });
     } catch {
-      addToast("error", "No se pudo categorizar la transaccion.");
+      addToast("error", "No se pudo categorizar la transacción.");
       advance();
     }
   }
@@ -146,7 +146,7 @@ export default function CandidateReview({ pattern, categoryId, categoryName, rul
       <div className="w-full max-w-md rounded-[28px] bg-white p-6 shadow-2xl dark:bg-neutral-900">
         <div className="mb-4 flex items-center justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Confirmar categorias</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Confirmar categorías</p>
             <h3 className="font-display text-xl text-finance-ink dark:text-neutral-100">
               Regla: "{pattern}" {"->"} {categoryName}
             </h3>

@@ -107,7 +107,7 @@ export default function Installments({ month }) {
     const parsedValue = Number(rawValue);
     if (!Number.isInteger(parsedValue) || parsedValue < 1) {
       setLocalCuotas((prev) => ({ ...prev, [id]: String(installment?.cuota_actual ?? 1) }));
-      addToast("warning", "Ingresa una cuota actual valida.");
+      addToast("warning", "Ingresá una cuota actual válida.");
       return;
     }
     try {

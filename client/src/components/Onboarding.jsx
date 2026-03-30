@@ -4,30 +4,30 @@ import BrandMark from "./BrandMark";
 
 const PRESETS = [
   { label: "Cuenta bancaria", hint: "Caja de ahorro o cuenta sueldo", currency: "UYU", accent: "bg-finance-purpleSoft text-finance-purple" },
-  { label: "Tarjeta de credito", hint: "Para ver compras y vencimientos", currency: "UYU", accent: "bg-finance-blueSoft text-finance-blue" },
-  { label: "Efectivo", hint: "Gastos rapidos y movimientos manuales", currency: "UYU", accent: "bg-finance-amberSoft text-finance-amber" },
-  { label: "Cuenta USD", hint: "Ahorro o caja en dolares", currency: "USD", accent: "bg-finance-greenSoft text-finance-green" },
+  { label: "Tarjeta de crédito", hint: "Para ver compras y vencimientos", currency: "UYU", accent: "bg-finance-blueSoft text-finance-blue" },
+  { label: "Efectivo", hint: "Gastos rápidos y movimientos manuales", currency: "UYU", accent: "bg-finance-amberSoft text-finance-amber" },
+  { label: "Cuenta USD", hint: "Ahorro o caja en dólares", currency: "USD", accent: "bg-finance-greenSoft text-finance-green" },
 ];
 
 const HERO_POINTS = [
   {
-    title: "Subi primero, ordena despues",
-    body: "PDF, CSV, TXT o carga manual. La app se adapta al flujo que ya tenes.",
+    title: "Subí primero, ordená después",
+    body: "PDF, CSV, TXT o carga manual. La app se adapta al flujo que ya tenés.",
   },
   {
-    title: "Aprende tus patrones reales",
-    body: "Una categoria bien puesta hoy te ahorra trabajo todos los meses siguientes.",
+    title: "Categorización que mejora sola",
+    body: "Cada categoría que asignás se convierte en regla automática para el mes siguiente.",
   },
   {
-    title: "Mira el mes con criterio",
-    body: "Gastos, ahorro, cuotas y progreso en una vista mucho mas clara que una planilla cruda.",
+    title: "Todo el mes en una vista",
+    body: "Gastos, ahorro, cuotas y presupuestos. Más claro que cualquier planilla.",
   },
 ];
 
 const NEXT_STEPS = [
   {
     title: "Subir archivo bancario",
-    body: "Importa movimientos desde PDF, CSV o TXT y empeza con una base real.",
+    body: "Importá movimientos desde PDF, CSV o TXT y empezá con datos reales.",
     tone: "border-finance-purple/30 bg-finance-purpleSoft/70",
     accent: "from-finance-purple to-finance-blue",
   },
@@ -82,7 +82,7 @@ export default function Onboarding({ onComplete }) {
     e.preventDefault();
     setError("");
     if (!form.name.trim()) {
-      setError("Ingresa un nombre para la cuenta.");
+      setError("Ingresá un nombre para la cuenta.");
       return;
     }
     setSaving(true);
@@ -120,15 +120,15 @@ export default function Onboarding({ onComplete }) {
                 <BrandMark size="sm" />
                 <div className="text-left">
                   <p className="text-[10px] uppercase tracking-[0.34em] text-neutral-400">SmartFinance</p>
-                  <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">Orden financiero con memoria</p>
+                  <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">Importá, categorizá, controlá</p>
                 </div>
               </div>
 
               <h1 className="mt-6 max-w-xl font-display text-5xl leading-tight text-finance-ink md:text-6xl dark:text-neutral-100">
-                Convierte movimientos sueltos en un mes que se entiende.
+                Importá tu extracto bancario y la app categoriza tus gastos automáticamente.
               </h1>
               <p className="mt-4 max-w-xl text-base leading-7 text-neutral-500 dark:text-neutral-300">
-                Empezamos simple: conectas una cuenta, importas tus movimientos y SmartFinance aprende como gastas para darte una vista mucho mas clara de tu plata.
+                Creás una cuenta, importás tus movimientos y SmartFinance aprende cómo gastás para categorizar automáticamente.
               </p>
 
               <div className="mt-8 grid gap-3 md:grid-cols-3">
@@ -155,12 +155,12 @@ export default function Onboarding({ onComplete }) {
               <div className="absolute -right-8 top-8 h-28 w-28 rounded-full bg-finance-purple/10 blur-2xl" />
               <div className="absolute -left-10 bottom-0 h-32 w-32 rounded-full bg-finance-teal/10 blur-2xl" />
               <div className="relative">
-                <p className="text-xs uppercase tracking-[0.32em] text-neutral-400">Que vas a sentir</p>
+                <p className="text-xs uppercase tracking-[0.32em] text-neutral-400">Cómo funciona</p>
                 <div className="mt-5 space-y-4">
                   {[
-                    { kicker: "Carga", title: "Tus resúmenes dejan de ser ruido", body: "Subes el archivo y se ordena en transacciones legibles." },
-                    { kicker: "Aprendizaje", title: "La app recuerda tus decisiones", body: "Cada categoría bien puesta hace más inteligente al próximo mes." },
-                    { kicker: "Control", title: "Ves tendencias, cuotas y margen", body: "No solo cuanto gastaste: también en qué y cómo impacta." },
+                    { kicker: "Carga", title: "Importación automática", body: "Subís el PDF o CSV y se extraen las transacciones." },
+                    { kicker: "Aprendizaje", title: "Reglas automáticas", body: "Cada categoría que confirmás se aplica sola en los meses siguientes." },
+                    { kicker: "Control", title: "Presupuestos y tendencias", body: "Gastos, cuotas, ahorro y margen en una sola vista." },
                   ].map((item) => (
                     <div key={item.title} className="rounded-[26px] border border-white/70 bg-white/80 p-4 shadow-sm dark:border-white/10 dark:bg-neutral-900/70">
                       <p className="text-[10px] uppercase tracking-[0.28em] text-finance-purple">{item.kicker}</p>
@@ -183,15 +183,15 @@ export default function Onboarding({ onComplete }) {
                 <BrandMark size="sm" className="shadow-none ring-0" />
                 <span className="text-xs font-semibold uppercase tracking-[0.24em]">Primer paso</span>
               </div>
-              <h2 className="mt-5 font-display text-4xl text-finance-ink dark:text-neutral-100">Define de dónde sale tu plata.</h2>
+              <h2 className="mt-5 font-display text-4xl text-finance-ink dark:text-neutral-100">Definí de dónde sale tu plata.</h2>
               <p className="mt-3 max-w-md text-sm leading-7 text-neutral-500 dark:text-neutral-300">
-                Elige una cuenta base para arrancar. Puedes sumar más después, pero con una sola ya alcanza para importar y empezar a mirar patrones reales.
+                Elegí una cuenta base para arrancar. Podés sumar más después, pero con una sola ya alcanza para importar.
               </p>
 
               <div className="mt-6 rounded-[28px] border border-neutral-200 bg-finance-cream/70 p-5 dark:border-neutral-800 dark:bg-neutral-800/70">
                 <p className="text-xs uppercase tracking-[0.22em] text-neutral-400">Consejo</p>
                 <p className="mt-2 text-sm leading-6 text-neutral-500 dark:text-neutral-300">
-                  Si tu primer archivo va a ser una tarjeta, crea primero esa tarjeta. Si vienes de banco o sueldo, empieza por la cuenta principal.
+                  Si tu primer archivo va a ser una tarjeta, creá primero esa tarjeta. Si venís de banco o sueldo, empezá por la cuenta principal.
                 </p>
               </div>
             </div>
@@ -232,7 +232,7 @@ export default function Onboarding({ onComplete }) {
                     onChange={(e) => setForm((prev) => ({ ...prev, currency: e.target.value }))}
                   >
                     <option value="UYU">UYU - Pesos</option>
-                    <option value="USD">USD - Dolares</option>
+                    <option value="USD">USD - Dólares</option>
                     <option value="ARS">ARS - Pesos AR</option>
                   </select>
                   <input
@@ -268,7 +268,7 @@ export default function Onboarding({ onComplete }) {
             {createdAccount?.name || "Cuenta"} creada
           </h2>
           <p className="mx-auto mt-3 max-w-2xl text-sm leading-7 text-neutral-500 dark:text-neutral-300">
-            El siguiente movimiento importante es traer datos reales. Puedes importar un resumen bancario para empezar fuerte o cargar algo manual para familiarizarte con la app.
+            Ahora importá un resumen bancario o cargá algo manual para ver datos reales.
           </p>
 
           <div className="mt-8 grid gap-4 md:grid-cols-2">

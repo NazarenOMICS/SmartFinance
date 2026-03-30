@@ -88,12 +88,12 @@ export default function RuleReviewDeck({ groups, onDone, onAcceptedGroup }) {
       <div className="w-full max-w-xl rounded-[30px] bg-white p-6 shadow-2xl dark:bg-neutral-900">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Revision inteligente</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Revisión inteligente</p>
             <h3 className="mt-1 font-display text-2xl text-finance-ink dark:text-neutral-100">
               {current.pattern} {"->"} {current.category_name}
             </h3>
             <p className="mt-2 text-sm leading-6 text-neutral-500 dark:text-neutral-300">
-              Encontramos {current.count} movimiento{current.count !== 1 ? "s" : ""} parecidos. Queres que los usemos para crear una regla y categorizarlos asi?
+              Encontramos {current.count} movimiento{current.count !== 1 ? "s" : ""} parecidos. ¿Querés que los usemos para crear una regla y categorizarlos así?
             </p>
           </div>
           <button

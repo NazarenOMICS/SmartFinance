@@ -166,7 +166,7 @@ export default function GuidedCategorizationDeck({ groups, onComplete, onFollowL
               Ayudanos a evitar errores escondidos
             </h3>
             <p className="mt-2 max-w-xl text-sm leading-6 text-neutral-500 dark:text-neutral-300">
-              Antes de mandarte al dashboard, revisemos unos pocos patrones claros. Asi evitamos que una mala categoria quede enterrada en tus metricas.
+              Antes de ir al dashboard, revisemos unos patrones claros. Así evitamos que una mala categoría quede enterrada en tus métricas.
             </p>
           </div>
           <button
@@ -201,7 +201,7 @@ export default function GuidedCategorizationDeck({ groups, onComplete, onFollowL
             {current.pattern} {"->"} {current.category_name}
           </h4>
           <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-300">
-            {current.guided_reason || "Patron claro para aprender mas rapido"}.
+            {current.guided_reason || "Patrón claro para aprender más rápido"}.
           </p>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
@@ -214,13 +214,13 @@ export default function GuidedCategorizationDeck({ groups, onComplete, onFollowL
             <div className="rounded-2xl bg-white/80 px-4 py-3 dark:bg-neutral-900/80">
               <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-400">Aprendizaje</p>
               <p className="mt-1 text-sm font-semibold text-finance-ink dark:text-neutral-100">
-                {current.suggested_rule_mode === "auto" ? "Regla automatica" : "Regla en modo sugerencia"}
+                {current.suggested_rule_mode === "auto" ? "Regla automática" : "Regla en modo sugerencia"}
               </p>
             </div>
             <div className="rounded-2xl bg-white/80 px-4 py-3 dark:bg-neutral-900/80">
               <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-400">Objetivo</p>
               <p className="mt-1 text-sm font-semibold text-finance-ink dark:text-neutral-100">
-                Evitar mala categorizacion silenciosa
+                Evitar mala categorización silenciosa
               </p>
             </div>
           </div>

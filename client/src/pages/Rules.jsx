@@ -10,11 +10,11 @@ function describeThreshold(value, type) {
   if (type === "auto") {
     if (numeric >= 0.9) return "Muy prudente";
     if (numeric >= 0.8) return "Equilibrado";
-    return "Mas automatico";
+    return "Más automático";
   }
   if (numeric >= 0.75) return "Solo sugerencias fuertes";
   if (numeric >= 0.6) return "Equilibrado";
-  return "Mas abierto a sugerencias";
+  return "Más abierto a sugerencias";
 }
 
 function formatRuleSource(source) {
@@ -231,7 +231,7 @@ export default function Rules() {
   if (state.loading) {
     return (
       <div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel dark:bg-neutral-900/80">
-        Cargando control de categorias...
+        Cargando control de categorías...
       </div>
     );
   }
@@ -249,24 +249,24 @@ export default function Rules() {
       <section className="rounded-[34px] border border-white/70 bg-white/88 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/88">
         <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Control fino</p>
         <h1 className="mt-2 font-display text-4xl text-finance-ink dark:text-neutral-100">
-          Categorias y reglas bajo tu mando
+          Categorías y reglas
         </h1>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-neutral-500 dark:text-neutral-300">
-          Aqui puedes corregir presupuesto, color, tipo de categoria y todas las reglas que terminan
-          afectando la categorizacion automatica de los proximos resumenes.
+          Acá podés corregir presupuesto, color, tipo de categoría y las reglas que afectan
+          la categorización automática de los próximos resúmenes.
         </p>
       </section>
 
       <section className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Aprendizaje automatico</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Aprendizaje automático</p>
             <h2 className="mt-1 font-display text-3xl text-finance-ink dark:text-neutral-100">
-              Lo que la app esta aprendiendo de ti
+              Lo que la app está aprendiendo de vos
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-7 text-neutral-500 dark:text-neutral-300">
-              Aqui ves solo las reglas aprendidas automaticamente o por revisiones guiadas.
-              Si alguna se puso rara, la puedes desactivar sin entrar a tocar opciones tecnicas.
+              Acá ves solo las reglas aprendidas automáticamente o por revisiones guiadas.
+              Si alguna se puso rara, la podés desactivar sin tocar opciones técnicas.
             </p>
           </div>
         </div>
@@ -274,10 +274,10 @@ export default function Rules() {
         <div className="mt-6 rounded-[24px] border border-neutral-200 bg-finance-cream/60 p-4 dark:border-neutral-800 dark:bg-neutral-950/50">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Resumen rapido</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Resumen rápido</p>
               <p className="mt-2 max-w-2xl text-sm leading-7 text-neutral-500 dark:text-neutral-300">
-                Las reglas base quedan siempre activas. Lo que aparece abajo es lo aprendido despues,
-                incluyendo revisiones guiadas y cualquier ayuda automatica del motor.
+                Las reglas base quedan siempre activas. Lo que aparece abajo es lo aprendido después,
+                incluyendo revisiones guiadas y cualquier ayuda automática del motor.
               </p>
             </div>
             <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-finance-ink dark:bg-neutral-900 dark:text-neutral-100">
@@ -312,10 +312,10 @@ export default function Rules() {
       <section className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Categorias</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Categorías</p>
             <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-300">
-              Ajusta color y tipo sin depender del grafico. En categorias fijas, el monto del mes se toma como referencia automatica.
-              Si una categoria predefinida no te sirve, tambien la puedes borrar desde aqui.
+              Ajustá color y tipo sin depender del gráfico. En categorías fijas, el monto del mes se toma como referencia automática.
+              Si una categoría predefinida no te sirve, también la podés borrar desde acá.
             </p>
           </div>
         </div>
@@ -344,7 +344,7 @@ export default function Rules() {
 
                   {category.type === "fijo" ? (
                     <div className="rounded-2xl border border-neutral-200 bg-finance-cream/70 px-4 py-2.5 text-sm text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
-                      Presupuesto automatico
+                      Presupuesto automático
                     </div>
                   ) : (
                     <input
@@ -357,13 +357,13 @@ export default function Rules() {
                         const rawValue = String(e.target.value || "").trim();
                         if (!rawValue) {
                           setLocalBudgets((prev) => ({ ...prev, [category.id]: String(category.budget) }));
-                          addToast("warning", "El presupuesto no puede quedar vacio.");
+                          addToast("warning", "El presupuesto no puede quedar vacío.");
                           return;
                         }
                         const nextBudget = Number(rawValue);
                         if (!Number.isFinite(nextBudget)) {
                           setLocalBudgets((prev) => ({ ...prev, [category.id]: String(category.budget) }));
-                          addToast("warning", "Ingresa un presupuesto valido.");
+                          addToast("warning", "Ingresá un presupuesto válido.");
                           return;
                         }
                         if (nextBudget === Number(category.budget)) return;
@@ -411,7 +411,7 @@ export default function Rules() {
           ))}
 
           {expenseCategories.length === 0 && (
-            <p className="py-4 text-center text-neutral-400">Sin categorias todavia.</p>
+            <p className="py-4 text-center text-neutral-400">Sin categorías todavía.</p>
           )}
         </div>
       </section>
@@ -436,7 +436,7 @@ export default function Rules() {
           </select>
           {catForm.type === "fijo" ? (
             <div className="rounded-2xl border border-neutral-200 bg-finance-cream/70 px-4 py-3 text-sm text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
-              Presupuesto automatico
+              Presupuesto automático
             </div>
           ) : (
             <input
@@ -471,7 +471,7 @@ export default function Rules() {
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Opciones avanzadas</p>
             <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-300">
-              Ollama, sensibilidad del motor y reset general del aprendizaje automatico.
+              Ollama, sensibilidad del motor y reset general del aprendizaje automático.
             </p>
           </div>
           <span className="text-sm font-semibold text-finance-purple">{showAdvanced ? "Ocultar" : "Mostrar"}</span>
@@ -501,8 +501,8 @@ export default function Rules() {
               </div>
 
               <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50/80 p-4 text-xs leading-6 text-sky-800 dark:border-sky-900/40 dark:bg-sky-900/10 dark:text-sky-100">
-                En la web publica, Ollama necesita un endpoint accesible desde el worker.
-                Si corres la app self-hosted, puedes usar tu instancia propia.
+                En la web pública, Ollama necesita un endpoint accesible desde el worker.
+                Si corrés la app self-hosted, podés usar tu instancia propia.
               </div>
 
               <div className="mt-4 grid gap-3">
@@ -572,9 +572,9 @@ export default function Rules() {
               </div>
 
               <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 dark:border-amber-900/40 dark:bg-amber-900/10">
-                <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">Reset de aprendizaje automatico</p>
+                <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">Reset de aprendizaje automático</p>
                 <p className="mt-1 max-w-sm text-xs leading-6 text-neutral-500 dark:text-neutral-300">
-                  Limpia reglas aprendidas, revisiones confirmadas y categorizaciones automaticas para volver a un estado sano.
+                  Limpiá reglas aprendidas, revisiones confirmadas y categorizaciones automáticas para volver a un estado limpio.
                 </p>
                 <button
                   type="button"

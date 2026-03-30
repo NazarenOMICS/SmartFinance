@@ -157,7 +157,7 @@ export default function MonthComparison({ current = [], previous = [], loading, 
 
       {data.length > MAX_ITEMS && (
         <p className="mt-2 text-center text-xs text-neutral-400">
-          Mostrando {MAX_ITEMS} de {data.length} categorias
+          Mostrando {MAX_ITEMS} de {data.length} categorías
         </p>
       )}
     </div>

@@ -394,7 +394,7 @@ export default function Upload({ month, onDone, onNavigate }) {
   async function handleGuidedComplete() {
     try {
       await api.completeGuidedCategorizationOnboarding();
-      addToast("success", "Listo. La app ya arranca con una base mucho mas confiable.");
+      addToast("success", "Listo. Categorización inicial completa.");
       setGuidedOnboardingRequired(false);
       setGuidedReviewGroups([]);
       if (displayedRuleReviewGroups.length === 0 && displayedTransactionReviewQueue.length === 0) {
@@ -593,25 +593,24 @@ export default function Upload({ month, onDone, onNavigate }) {
               <div className="text-left">
                 <p className="text-[10px] uppercase tracking-[0.34em] text-neutral-400">Upload studio</p>
                 <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">
-                  Trae el archivo. Nosotros ordenamos el caos.
+                  Importá movimientos desde tu banco
                 </p>
               </div>
             </div>
 
             <h1 className="mt-6 max-w-2xl font-display text-4xl leading-tight text-finance-ink dark:text-neutral-100 md:text-5xl">
-              Importa movimientos reales con una entrada mucho mas clara.
+              Importá movimientos desde PDF, CSV o carga manual.
             </h1>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-neutral-500 dark:text-neutral-300">
-              Elige la cuenta, sube un archivo o carga algo manual y deja que SmartFinance convierta ese
-              material crudo en transacciones utilizables.
+              Elegí la cuenta, subí un archivo o cargá algo manual. SmartFinance extrae las transacciones automáticamente.
             </p>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
             {[
-              { title: "Importa", body: "PDF, CSV o TXT con deteccion y mapeo cuando haga falta.", tone: "bg-finance-purpleSoft/75 text-finance-purple" },
-              { title: "Aprende", body: "Los formatos guardados y tus categorias reducen trabajo repetido.", tone: "bg-finance-tealSoft/80 text-finance-teal" },
-              { title: "Recuerda", body: "Cada archivo suma contexto para mirar mejor el siguiente mes.", tone: "bg-finance-amberSoft/80 text-finance-amber" },
+              { title: "Importá", body: "PDF, CSV o TXT con detección y mapeo automático.", tone: "bg-finance-purpleSoft/75 text-finance-purple" },
+              { title: "Aprende", body: "Los formatos guardados y tus categorías reducen trabajo repetido.", tone: "bg-finance-tealSoft/80 text-finance-teal" },
+              { title: "Acumula", body: "Cada archivo importado suma historial para comparar meses.", tone: "bg-finance-amberSoft/80 text-finance-amber" },
             ].map((item, index) => (
               <div
                 key={item.title}
