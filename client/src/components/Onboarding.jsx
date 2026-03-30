@@ -11,16 +11,16 @@ const PRESETS = [
 
 const HERO_POINTS = [
   {
-    title: "Subí primero, ordená después",
-    body: "PDF, CSV, TXT o carga manual. La app se adapta al flujo que ya tenés.",
+    title: "PDF, CSV o carga manual",
+    body: "Subís el archivo de tu banco y se extraen las transacciones.",
   },
   {
-    title: "Categorización que mejora sola",
-    body: "Cada categoría que asignás se convierte en regla automática para el mes siguiente.",
+    title: "Categorizás una vez",
+    body: "Asignás la categoría y queda como regla para los meses siguientes.",
   },
   {
-    title: "Todo el mes en una vista",
-    body: "Gastos, ahorro, cuotas y presupuestos. Más claro que cualquier planilla.",
+    title: "Controlás el mes entero",
+    body: "Gastos, presupuestos, cuotas y ahorro en un solo lugar.",
   },
 ];
 
@@ -125,10 +125,10 @@ export default function Onboarding({ onComplete }) {
               </div>
 
               <h1 className="mt-6 max-w-xl font-display text-5xl leading-tight text-finance-ink md:text-6xl dark:text-neutral-100">
-                Importá tu extracto bancario y la app categoriza tus gastos automáticamente.
+                Tus finanzas en orden, mes a mes.
               </h1>
               <p className="mt-4 max-w-xl text-base leading-7 text-neutral-500 dark:text-neutral-300">
-                Creás una cuenta, importás tus movimientos y SmartFinance aprende cómo gastás para categorizar automáticamente.
+                Subís tu extracto bancario, categorizás los gastos una vez y la app aprende para los meses siguientes.
               </p>
 
               <div className="mt-8 grid gap-3 md:grid-cols-3">
@@ -147,7 +147,7 @@ export default function Onboarding({ onComplete }) {
                 onClick={() => setStep(1)}
                 className="mt-8 inline-flex w-full items-center justify-center rounded-full bg-finance-purple px-6 py-4 text-lg font-semibold text-white transition hover:opacity-90 md:w-auto md:min-w-[220px]"
               >
-                Empezar bien
+                Crear cuenta
               </button>
             </div>
 
@@ -155,12 +155,12 @@ export default function Onboarding({ onComplete }) {
               <div className="absolute -right-8 top-8 h-28 w-28 rounded-full bg-finance-purple/10 blur-2xl" />
               <div className="absolute -left-10 bottom-0 h-32 w-32 rounded-full bg-finance-teal/10 blur-2xl" />
               <div className="relative">
-                <p className="text-xs uppercase tracking-[0.32em] text-neutral-400">Cómo funciona</p>
+                <p className="text-xs uppercase tracking-[0.32em] text-neutral-400">Qué resuelve</p>
                 <div className="mt-5 space-y-4">
                   {[
-                    { kicker: "Carga", title: "Importación automática", body: "Subís el PDF o CSV y se extraen las transacciones." },
-                    { kicker: "Aprendizaje", title: "Reglas automáticas", body: "Cada categoría que confirmás se aplica sola en los meses siguientes." },
-                    { kicker: "Control", title: "Presupuestos y tendencias", body: "Gastos, cuotas, ahorro y margen en una sola vista." },
+                    { kicker: "01", title: "Dejás de armar planillas", body: "La app parsea tu extracto y arma la tabla de movimientos." },
+                    { kicker: "02", title: "No repetís trabajo", body: "Las reglas que creás categorizan automático los meses siguientes." },
+                    { kicker: "03", title: "Ves dónde estás parado", body: "Presupuestos, tendencias y proyección de ahorro al día." },
                   ].map((item) => (
                     <div key={item.title} className="rounded-[26px] border border-white/70 bg-white/80 p-4 shadow-sm dark:border-white/10 dark:bg-neutral-900/70">
                       <p className="text-[10px] uppercase tracking-[0.28em] text-finance-purple">{item.kicker}</p>
