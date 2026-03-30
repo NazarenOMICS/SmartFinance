@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api";
 import { useToast } from "../contexts/ToastContext";
-import BudgetBar from "../components/BudgetBar";
 import ExportButton from "../components/ExportButton";
 import MetricCard from "../components/MetricCard";
 import MonthComparison from "../components/MonthComparison";
@@ -438,22 +437,6 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
         <MetricCard label="Gastos variables" value={money(summary.byType.variable)} tone="text-finance-blue" />
         <MetricCard label="Cuotas del mes" value={money(summary.totals.installments)} tone="text-finance-amber" onClick={() => onNavigate?.("installments")} />
       </div>
-
-      <div className="space-y-3">
-        {summary.budgets.filter((item) => item.budget > 0 || item.spent > 0).map((item) => (
-          <BudgetBar
-            key={item.id}
-            label={item.name}
-            spent={item.spent}
-            budget={item.budget}
-            type={item.type}
-            color={item.color}
-            trend={state.trend?.[item.name]}
-            currency={summary.currency}
-          />
-        ))}
-      </div>
-
       <MonthComparison
         current={summary.byCategory}
         previous={state.prevSummary?.byCategory || []}
