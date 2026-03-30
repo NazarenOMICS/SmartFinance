@@ -509,7 +509,37 @@ function AppInner() {
     setPendingReminder(nextReminder);
   }
 
-  function openPendingActionDirectly() {
+  async function resumePendingGuidedFromMonth(targetMonth = month) {
+    try {
+      const transactions = await api.getTransactions(targetMonth);
+      const pendingTransactionIds = (transactions || [])
+        .filter((item) => ["uncategorized", "suggested"].includes(String(item.categorization_status || "")))
+        .map((item) => Number(item.id))
+        .filter((value) => Number.isInteger(value) && value > 0);
+
+      if (pendingTransactionIds.length === 0) {
+        setTab("dashboard");
+        setDashboardQuickFilter("pending");
+        return false;
+      }
+
+      setResumeGuidedReview({
+        source: "upload",
+        month: targetMonth,
+        accountId: null,
+        transactionIds: pendingTransactionIds,
+        createdAt: new Date().toISOString(),
+      });
+      setTab("upload");
+      return true;
+    } catch {
+      setTab("dashboard");
+      setDashboardQuickFilter("pending");
+      return false;
+    }
+  }
+
+  async function openPendingActionDirectly() {
     const nextReminder = buildPendingReminderState();
     if (!nextReminder) return;
 
@@ -528,8 +558,7 @@ function AppInner() {
       return;
     }
 
-    setTab("dashboard");
-    setDashboardQuickFilter("pending");
+    await resumePendingGuidedFromMonth(month);
   }
 
   function dismissPendingReminder() {
@@ -537,7 +566,7 @@ function AppInner() {
     setDismissedPendingReminder(true);
   }
 
-  function handleResumePendingReminder() {
+  async function handleResumePendingReminder() {
     if (pendingReminder?.type === "guided" && pendingReminder.context) {
       setPendingReminder(null);
       setDismissedPendingReminder(true);
@@ -553,11 +582,10 @@ function AppInner() {
     setTab(getPendingReviewTab(session.source));
   }
 
-  function handleOpenPendingDashboard() {
+  async function handleOpenPendingDashboard() {
     setPendingReminder(null);
     setDismissedPendingReminder(true);
-    setTab("dashboard");
-    setDashboardQuickFilter("pending");
+    await resumePendingGuidedFromMonth(month);
   }
 
   if (!isLoaded) {
