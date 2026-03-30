@@ -31,17 +31,19 @@ router.get("/", (req, res) => {
      FROM rules r
      JOIN categories c ON c.id = r.category_id
      LEFT JOIN accounts a ON a.id = r.account_id
+     WHERE r.source != 'guided_reject'
      ORDER BY datetime(r.created_at) DESC, r.match_count DESC, r.id ASC`
   ).all();
   res.json(rows);
 });
 
 router.post("/", (req, res) => {
-  const { pattern, category_id, mode = "suggest", confidence = 0.72, account_id = null, currency = null, direction = "any" } = req.body;
+  const { pattern, category_id, mode = "suggest", confidence = 0.72, account_id = null, currency = null, direction = "any", source = "manual" } = req.body;
   if (!pattern || !category_id) return res.status(400).json({ error: "pattern and category_id are required" });
   const normalizedPattern = normalizePatternValue(pattern);
   if (!normalizedPattern) return res.status(400).json({ error: "pattern and category_id are required" });
   if (!["auto", "suggest", "disabled"].includes(mode)) return res.status(400).json({ error: "mode must be auto, suggest or disabled" });
+  if (!["manual", "guided", "guided_reject"].includes(source)) return res.status(400).json({ error: "source must be manual, guided or guided_reject" });
   const normalizedConfidence = Number(confidence);
   if (!Number.isFinite(normalizedConfidence) || normalizedConfidence < 0 || normalizedConfidence > 1) {
     return res.status(400).json({ error: "confidence must be between 0 and 1" });
@@ -75,8 +77,8 @@ router.post("/", (req, res) => {
     `INSERT INTO rules (
       pattern, normalized_pattern, category_id, match_count, mode, confidence, source,
       account_id, currency, direction, merchant_key
-    ) VALUES (?, ?, ?, 0, ?, ?, 'manual', ?, ?, ?, ?)`
-  ).run(String(pattern).trim(), normalizedPattern, category_id, mode, normalizedConfidence, account_id, currency, direction, normalizedPattern);
+    ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(String(pattern).trim(), normalizedPattern, category_id, mode, normalizedConfidence, source, account_id, currency, direction, normalizedPattern);
 
   const rule = db.prepare("SELECT * FROM rules WHERE id = ?").get(result.lastInsertRowid);
   const candidates_count = findCandidatesForRule(db, String(pattern).trim(), Number(category_id)).length;

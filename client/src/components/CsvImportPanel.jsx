@@ -226,7 +226,7 @@ export default function CsvImportPanel({ selectedAccount, selectedCurrency = "UY
       setStep("done");
       if (res.created > 0) {
         addToast("success", `${res.created} transacciones importadas correctamente.`);
-        onImported?.();
+        onImported?.(res);
       } else if (res.duplicates > 0) {
         addToast("info", `Todas las transacciones ya existían (${res.duplicates} duplicados).`);
       }

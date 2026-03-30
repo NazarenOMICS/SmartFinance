@@ -9,6 +9,15 @@ const { parsePdfText } = require("../services/pdf-parser");
 const { extractTransactions } = require("../services/tx-extractor");
 const { buildDedupHash } = require("../services/dedup");
 const { resolveTransactionClassification } = require("../services/transaction-categorization");
+const {
+  createReviewGroupTracker,
+  ensureSmartCategoriesForTransactions,
+  listGuidedReviewGroups,
+  listReviewGroups,
+  matchSmartCategoryTemplate,
+  trackReviewGroup,
+} = require("../services/smart-categories");
+const { normalizePatternValue } = require("../services/taxonomy");
 
 const router = express.Router();
 const uploadsDir = path.join(__dirname, "..", "..", "uploads");
@@ -235,6 +244,22 @@ router.post("/", upload.single("file"), async (req, res, next) => {
       return res.status(400).json({ error: "unsupported file type" });
     }
 
+    const existingTransactions = db.prepare("SELECT COUNT(*) AS count FROM transactions").get();
+    const hadTransactionsBeforeUpload = Number(existingTransactions?.count || 0) > 0;
+    const settings = getSettingsObject();
+    const guidedOnboardingDone = String(settings.guided_categorization_onboarding_completed || "0") === "1";
+    const guidedOnboardingSkipped = String(settings.guided_categorization_onboarding_skipped || "0") === "1";
+    const disabledPatterns = db.prepare(
+      `SELECT normalized_pattern, category_id
+       FROM rules
+       WHERE mode = 'disabled'
+         AND normalized_pattern IS NOT NULL
+         AND normalized_pattern != ''`
+    ).all();
+    const skippedPatternKeys = new Set(
+      disabledPatterns.map((row) => `${Number(row.category_id)}:${normalizePatternValue(row.normalized_pattern)}`)
+    );
+
     const uploadResult = db
       .prepare("INSERT INTO uploads (filename, account_id, period, status) VALUES (?, ?, ?, 'pending')")
       .run(req.file.filename, account_id, period);
@@ -244,6 +269,7 @@ router.post("/", upload.single("file"), async (req, res, next) => {
     let duplicatesSkipped = 0;
     let autoCategorized = 0;
     let pendingReview = 0;
+    const reviewGroups = createReviewGroupTracker();
 
     // Resolve the account's currency so PDF transactions are stored correctly.
     // Falls back to UYU if account not found (shouldn't happen in normal flow).
@@ -259,9 +285,13 @@ router.post("/", upload.single("file"), async (req, res, next) => {
         : req.body.extracted_text
           ? String(req.body.extracted_text)
           : await parsePdfText(req.file.path);
-      const settings = getSettingsObject();
       const patterns = JSON.parse(settings.parsing_patterns || "[]");
       const extracted = extractTransactions(text, patterns, period);
+      ensureSmartCategoriesForTransactions(db, extracted.transactions);
+      const categories = db.prepare(
+        "SELECT id, name, slug, type, color FROM categories ORDER BY sort_order ASC, id ASC"
+      ).all();
+      const categoryByName = new Map(categories.map((category) => [category.name.toLowerCase(), category]));
 
       const insertTx = db.prepare(
         `
@@ -288,7 +318,7 @@ router.post("/", upload.single("file"), async (req, res, next) => {
           if (classification.autoCategorized) autoCategorized += 1;
           else pendingReview += 1;
 
-          insertTx.run(
+          const insertResult = insertTx.run(
             transaction.fecha,
             transaction.desc_banco,
             transaction.monto,
@@ -302,6 +332,18 @@ router.post("/", upload.single("file"), async (req, res, next) => {
             classification.categoryConfidence,
             classification.categoryRuleId
           );
+          const insertedId = insertResult.lastInsertRowid;
+          if (!classification.categoryId) {
+            const smartMatch = matchSmartCategoryTemplate(transaction.desc_banco);
+            if (smartMatch) {
+              const smartCategory = categoryByName.get(smartMatch.template.name.toLowerCase());
+              if (smartCategory) {
+                trackReviewGroup(reviewGroups, transaction, smartMatch, smartCategory.id, insertedId, {
+                  skipPatterns: skippedPatternKeys,
+                });
+              }
+            }
+          }
           newTransactions += 1;
         }
       });
@@ -356,6 +398,11 @@ router.post("/", upload.single("file"), async (req, res, next) => {
         const checkDup = db.prepare(
           "SELECT id FROM transactions WHERE dedup_hash = ? AND substr(fecha, 1, 7) = ? LIMIT 1"
         );
+        ensureSmartCategoriesForTransactions(db, []);
+        const categories = db.prepare(
+          "SELECT id, name, slug, type, color FROM categories ORDER BY sort_order ASC, id ASC"
+        ).all();
+        const categoryByName = new Map(categories.map((category) => [category.name.toLowerCase(), category]));
 
         const runCsvInserts = db.transaction((rowList) => {
           for (const row of rowList) {
@@ -383,7 +430,7 @@ router.post("/", upload.single("file"), async (req, res, next) => {
             if (classification.autoCategorized) autoCategorized += 1;
             else pendingReview += 1;
 
-            insertTx.run(
+            const insertResult = insertTx.run(
               fecha,
               desc,
               monto,
@@ -397,6 +444,18 @@ router.post("/", upload.single("file"), async (req, res, next) => {
               classification.categoryConfidence,
               classification.categoryRuleId
             );
+            const insertedId = insertResult.lastInsertRowid;
+            if (!classification.categoryId) {
+              const smartMatch = matchSmartCategoryTemplate(desc);
+              if (smartMatch) {
+                const smartCategory = categoryByName.get(smartMatch.template.name.toLowerCase());
+                if (smartCategory) {
+                  trackReviewGroup(reviewGroups, tx, smartMatch, smartCategory.id, insertedId, {
+                    skipPatterns: skippedPatternKeys,
+                  });
+                }
+              }
+            }
             newTransactions += 1;
           }
         });
@@ -406,13 +465,25 @@ router.post("/", upload.single("file"), async (req, res, next) => {
     }
 
     db.prepare("UPDATE uploads SET tx_count = ?, status = 'processed' WHERE id = ?").run(newTransactions, uploadResult.lastInsertRowid);
+    const guidedReviewGroups = listGuidedReviewGroups(reviewGroups, 6);
+    const guidedOnboardingRequired = (
+      !hadTransactionsBeforeUpload &&
+      newTransactions > 0 &&
+      !guidedOnboardingDone &&
+      !guidedOnboardingSkipped &&
+      guidedReviewGroups.length > 0
+    );
 
     res.status(201).json({
       upload_id: uploadResult.lastInsertRowid,
       new_transactions: newTransactions,
       duplicates_skipped: duplicatesSkipped,
       auto_categorized: autoCategorized,
-      pending_review: pendingReview
+      pending_review: pendingReview,
+      review_groups: listReviewGroups(reviewGroups),
+      guided_review_groups: guidedReviewGroups,
+      guided_onboarding_required: guidedOnboardingRequired,
+      guided_onboarding_session: guidedOnboardingRequired ? { max_cards: guidedReviewGroups.length } : null,
     });
   } catch (error) {
     if (uploadId != null) {

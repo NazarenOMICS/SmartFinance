@@ -96,13 +96,19 @@ function scoreRule(rule, tx) {
 
 function pickBestRule(rules, tx) {
   let best = null;
+  let suppressedByDisabledRule = false;
   for (const rule of rules) {
-    if (rule.mode === "disabled") continue;
     const score = scoreRule(rule, tx);
+    if (score <= 0) continue;
+    if (rule.mode === "disabled") {
+      suppressedByDisabledRule = true;
+      continue;
+    }
     if (!best || score > best.score) {
       best = { ...rule, score };
     }
   }
+  if (suppressedByDisabledRule) return null;
   return best?.score > 0 ? best : null;
 }
 

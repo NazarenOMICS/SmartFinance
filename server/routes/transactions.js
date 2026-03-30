@@ -1,9 +1,18 @@
 const express = require("express");
-const { db, isValidMonthString } = require("../db");
+const { db, getSettingsObject, isValidMonthString } = require("../db");
 const { buildDedupHash } = require("../services/dedup");
 const { ensureRuleForManualCategorization, getCandidatesForPattern } = require("../services/categorizer");
 const { computeMonthlyEvolution, computeSummary, getTransactionsForMonth } = require("../services/metrics");
 const { suggestSync } = require("../services/suggester");
+const {
+  createReviewGroupTracker,
+  ensureSmartCategoriesForTransactions,
+  listGuidedReviewGroups,
+  listReviewGroups,
+  matchSmartCategoryTemplate,
+  trackReviewGroup,
+} = require("../services/smart-categories");
+const { normalizePatternValue } = require("../services/taxonomy");
 const {
   clearTransactionCategorization,
   logCategorizationEvent,
@@ -439,8 +448,26 @@ router.post("/batch", (req, res) => {
   if (batchAccountId && !batchAccount) {
     return res.status(404).json({ error: "account not found" });
   }
+  const existingTransactions = db.prepare("SELECT COUNT(*) AS count FROM transactions").get();
+  const settings = getSettingsObject();
+  const guidedOnboardingDone = String(settings.guided_categorization_onboarding_completed || "0") === "1";
+  const guidedOnboardingSkipped = String(settings.guided_categorization_onboarding_skipped || "0") === "1";
   const batchCurrency = batchAccount?.currency || "UYU";
-  const validCategoryIds = new Set(db.prepare("SELECT id FROM categories").all().map((row) => Number(row.id)));
+  ensureSmartCategoriesForTransactions(db, transactions);
+  const categories = db.prepare("SELECT id, name, slug, type, color, origin FROM categories ORDER BY sort_order ASC, id ASC").all();
+  const categoryByName = new Map(categories.map((category) => [String(category.name || "").toLowerCase(), category]));
+  const validCategoryIds = new Set(categories.map((row) => Number(row.id)));
+  const disabledPatterns = db.prepare(
+    `SELECT normalized_pattern, category_id
+     FROM rules
+     WHERE mode = 'disabled'
+       AND normalized_pattern IS NOT NULL
+       AND normalized_pattern != ''`
+  ).all();
+  const skippedPatternKeys = new Set(
+    disabledPatterns.map((row) => `${Number(row.category_id)}:${normalizePatternValue(row.normalized_pattern)}`)
+  );
+  const reviewGroups = createReviewGroupTracker();
 
   let created = 0;
   let duplicates = 0;
@@ -475,7 +502,7 @@ router.post("/batch", (req, res) => {
 
       const classification = resolveClassification(normalizedDescBanco, Number(monto), moneda, category_id);
 
-      insertStmt.run(
+      const insertResult = insertStmt.run(
         fecha,
         normalizedDescBanco,
         normalizedDescUsuario,
@@ -490,12 +517,39 @@ router.post("/batch", (req, res) => {
         classification.categoryConfidence,
         classification.categoryRuleId
       );
+      if (!classification.categoryId) {
+        const smartMatch = matchSmartCategoryTemplate(normalizedDescBanco);
+        if (smartMatch) {
+          const smartCategory = categoryByName.get(smartMatch.template.name.toLowerCase());
+          if (smartCategory) {
+            trackReviewGroup(reviewGroups, { desc_banco: normalizedDescBanco }, smartMatch, smartCategory.id, insertResult.lastInsertRowid, {
+              skipPatterns: skippedPatternKeys,
+            });
+          }
+        }
+      }
       created += 1;
     }
   });
 
   runBatch(transactions);
-  res.status(201).json({ created, duplicates, errors });
+  const guidedReviewGroups = listGuidedReviewGroups(reviewGroups, 6);
+  const guidedOnboardingRequired = (
+    Number(existingTransactions?.count || 0) === 0 &&
+    created > 0 &&
+    !guidedOnboardingDone &&
+    !guidedOnboardingSkipped &&
+    guidedReviewGroups.length > 0
+  );
+  res.status(201).json({
+    created,
+    duplicates,
+    errors,
+    review_groups: listReviewGroups(reviewGroups),
+    guided_review_groups: guidedReviewGroups,
+    guided_onboarding_required: guidedOnboardingRequired,
+    guided_onboarding_session: guidedOnboardingRequired ? { max_cards: guidedReviewGroups.length } : null,
+  });
 });
 
 module.exports = router;

@@ -1,10 +1,10 @@
-import {
+const {
   CANONICAL_CATEGORIES,
   hasAmbiguousMerchantHint,
   matchCanonicalCategory,
   normalizePatternValue,
   normalizeText,
-} from "./taxonomy.js";
+} = require("./taxonomy");
 
 const REVIEWABLE_SLUGS = new Set([
   "transporte",
@@ -106,7 +106,7 @@ const OBVIOUS_AUTO_KEYWORDS = new Set([
   "ose",
 ]);
 
-export function matchSmartCategoryTemplate(descBanco) {
+function matchSmartCategoryTemplate(descBanco) {
   const match = matchCanonicalCategory(descBanco);
   if (!match || !REVIEWABLE_SLUGS.has(match.category.slug)) return null;
   return {
@@ -122,13 +122,39 @@ export function matchSmartCategoryTemplate(descBanco) {
   };
 }
 
+function ensureSmartCategoriesForTransactions(db, transactions) {
+  const existingCategories = db.prepare("SELECT id, name, slug FROM categories").all();
+  const bySlug = Object.fromEntries(existingCategories.map((row) => [row.slug || normalizeText(row.name).replace(/\s+/g, "_"), row]));
+  const byName = Object.fromEntries(existingCategories.map((row) => [normalizeText(row.name), row]));
+
+  for (const category of CANONICAL_CATEGORIES.filter((item) => REVIEWABLE_SLUGS.has(item.slug))) {
+    if (bySlug[category.slug]) continue;
+    if (byName[normalizeText(category.name)]) {
+      bySlug[category.slug] = { ...byName[normalizeText(category.name)], slug: category.slug };
+      continue;
+    }
+    db.prepare(
+      `INSERT OR IGNORE INTO categories (name, budget, type, color, sort_order, slug, origin)
+       VALUES (?, ?, ?, ?, ?, ?, 'seed')`
+    ).run(category.name, category.budget, category.type, category.color, category.sort_order, category.slug);
+    const inserted = db.prepare(
+      "SELECT id, name, slug FROM categories WHERE slug = ? OR name = ? COLLATE NOCASE ORDER BY id ASC LIMIT 1"
+    ).get(category.slug, category.name);
+    if (inserted) {
+      bySlug[category.slug] = { id: inserted.id, name: inserted.name, slug: inserted.slug || category.slug };
+    }
+  }
+
+  return bySlug;
+}
+
+function createReviewGroupTracker() {
+  return new Map();
+}
+
 function isGuidedKeyword(keyword) {
   const normalizedKeyword = normalizeText(keyword);
-  return (
-    Boolean(normalizedKeyword) &&
-    normalizedKeyword.length >= 4 &&
-    !GENERIC_GUIDED_KEYWORDS.has(normalizedKeyword)
-  );
+  return Boolean(normalizedKeyword) && normalizedKeyword.length >= 4 && !GENERIC_GUIDED_KEYWORDS.has(normalizedKeyword);
 }
 
 function buildGuidedMetadata(match, tx) {
@@ -148,44 +174,12 @@ function buildGuidedMetadata(match, tx) {
   };
 }
 
-export async function ensureSmartCategoriesForTransactions(db, userId, transactions) {
-  const existingCategories = await db.prepare(
-    "SELECT id, name, slug FROM categories WHERE user_id = ?"
-  ).all(userId);
-  const bySlug = Object.fromEntries(existingCategories.map((row) => [row.slug || normalizeText(row.name).replace(/\s+/g, "_"), row]));
-  const byName = Object.fromEntries(existingCategories.map((row) => [normalizeText(row.name), row]));
-
-  for (const category of CANONICAL_CATEGORIES.filter((item) => REVIEWABLE_SLUGS.has(item.slug))) {
-    if (bySlug[category.slug]) continue;
-    if (byName[normalizeText(category.name)]) {
-      bySlug[category.slug] = { ...byName[normalizeText(category.name)], slug: category.slug };
-      continue;
-    }
-    await db.prepare(
-      `INSERT OR IGNORE INTO categories (name, budget, type, color, sort_order, user_id, slug, origin)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'seed')`
-    ).run(category.name, category.budget, category.type, category.color, category.sort_order, userId, category.slug);
-    const inserted = await db.prepare(
-      "SELECT id, name, slug FROM categories WHERE user_id = ? AND (slug = ? OR name = ? COLLATE NOCASE) ORDER BY id ASC LIMIT 1"
-    ).get(userId, category.slug, category.name);
-    if (inserted) {
-      bySlug[category.slug] = { id: inserted.id, name: inserted.name, slug: inserted.slug || category.slug };
-    }
-  }
-
-  return bySlug;
-}
-
-export function createReviewGroupTracker() {
-  return new Map();
-}
-
-export function trackReviewGroup(groups, tx, match, categoryId, transactionId, options = {}) {
-  const guided = buildGuidedMetadata(match, tx);
+function trackReviewGroup(groups, tx, match, categoryId, transactionId, options = {}) {
   if (options.skipPatterns?.has(`${categoryId}:${normalizePatternValue(match.keyword)}`)) {
     return;
   }
 
+  const guided = buildGuidedMetadata(match, tx);
   const groupKey = `${match.template.slug}:${match.keyword}`;
   const current = groups.get(groupKey) || {
     key: groupKey,
@@ -212,11 +206,11 @@ export function trackReviewGroup(groups, tx, match, categoryId, transactionId, o
   groups.set(groupKey, current);
 }
 
-export function listReviewGroups(groups) {
+function listReviewGroups(groups) {
   return [...groups.values()].sort((left, right) => right.count - left.count);
 }
 
-export function listGuidedReviewGroups(groups, limit = 6) {
+function listGuidedReviewGroups(groups, limit = 6) {
   const priorityScore = { high: 3, medium: 2, low: 1 };
 
   return [...groups.values()]
@@ -228,3 +222,12 @@ export function listGuidedReviewGroups(groups, limit = 6) {
     })
     .slice(0, limit);
 }
+
+module.exports = {
+  createReviewGroupTracker,
+  ensureSmartCategoriesForTransactions,
+  listGuidedReviewGroups,
+  listReviewGroups,
+  matchSmartCategoryTemplate,
+  trackReviewGroup,
+};

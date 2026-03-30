@@ -14,7 +14,16 @@ import {
   markTransactionSuggested,
 } from "../services/categorization-events.js";
 import { computeMonthlyEvolution, computeSummary, getTransactionsForMonth } from "../services/metrics.js";
+import {
+  createReviewGroupTracker,
+  ensureSmartCategoriesForTransactions,
+  listGuidedReviewGroups,
+  listReviewGroups,
+  matchSmartCategoryTemplate,
+  trackReviewGroup,
+} from "../services/smart-categories.js";
 import { suggestSync } from "../services/suggester.js";
+import { normalizePatternValue } from "../services/taxonomy.js";
 
 const router = new Hono();
 const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
@@ -371,16 +380,35 @@ router.post("/batch", async (c) => {
   if (!Array.isArray(txList)) return c.json({ error: "transactions array required" }, 400);
 
   const db = getDb(c.env);
+  const existingTransactions = await db.prepare(
+    "SELECT COUNT(*) AS count FROM transactions WHERE user_id = ?"
+  ).get(userId);
   const settings = await getSettingsObject(c.env, userId);
+  const guidedOnboardingDone = String(settings.guided_categorization_onboarding_completed || "0") === "1";
+  const guidedOnboardingSkipped = String(settings.guided_categorization_onboarding_skipped || "0") === "1";
   if (batchAccount) {
     const batchAccountRow = await db.prepare(
       "SELECT currency FROM accounts WHERE id = ? AND user_id = ?"
     ).get(batchAccount, userId);
     if (!batchAccountRow) return c.json({ error: "account not found" }, 404);
   }
+  await ensureSmartCategoriesForTransactions(db, userId, txList);
   const accountCurrencyCache = new Map();
   const categories = await db.prepare("SELECT id, name, slug, type, color, origin FROM categories WHERE user_id = ?").all(userId);
+  const categoryByName = new Map(categories.map((category) => [String(category.name || "").toLowerCase(), category]));
   const categoryIds = new Set(categories.map((row) => Number(row.id)));
+  const disabledPatterns = await db.prepare(
+    `SELECT normalized_pattern, category_id
+     FROM rules
+     WHERE user_id = ?
+       AND mode = 'disabled'
+       AND normalized_pattern IS NOT NULL
+       AND normalized_pattern != ''`
+  ).all(userId);
+  const skippedPatternKeys = new Set(
+    disabledPatterns.map((row) => `${Number(row.category_id)}:${normalizePatternValue(row.normalized_pattern)}`)
+  );
+  const reviewGroups = createReviewGroupTracker();
   if (batchAccount) {
     const batchAccountRow = await db.prepare(
       "SELECT currency FROM accounts WHERE id = ? AND user_id = ?"
@@ -431,7 +459,7 @@ router.post("/batch", async (c) => {
         }
       }
 
-      await db.prepare(
+      const result = await db.prepare(
         `INSERT INTO transactions (
           fecha, desc_banco, monto, moneda, category_id, account_id, dedup_hash, user_id,
           categorization_status, category_source, category_confidence, category_rule_id
@@ -450,13 +478,41 @@ router.post("/batch", async (c) => {
         classification.category_confidence,
         classification.category_rule_id
       );
+      if (!resolvedCategoryId) {
+        const smartMatch = matchSmartCategoryTemplate(normalizedDescBanco);
+        if (smartMatch) {
+          const smartCategory = categoryByName.get(smartMatch.template.name.toLowerCase());
+          if (smartCategory) {
+            trackReviewGroup(reviewGroups, { desc_banco: normalizedDescBanco }, smartMatch, smartCategory.id, result.lastInsertRowid, {
+              skipPatterns: skippedPatternKeys,
+            });
+          }
+        }
+      }
       created++;
     } catch {
       errors++;
     }
   }
 
-  return c.json({ created, duplicates, errors });
+  const guidedReviewGroups = listGuidedReviewGroups(reviewGroups, 6);
+  const guidedOnboardingRequired = (
+    Number(existingTransactions?.count || 0) === 0 &&
+    created > 0 &&
+    !guidedOnboardingDone &&
+    !guidedOnboardingSkipped &&
+    guidedReviewGroups.length > 0
+  );
+
+  return c.json({
+    created,
+    duplicates,
+    errors,
+    review_groups: listReviewGroups(reviewGroups),
+    guided_review_groups: guidedReviewGroups,
+    guided_onboarding_required: guidedOnboardingRequired,
+    guided_onboarding_session: guidedOnboardingRequired ? { max_cards: guidedReviewGroups.length } : null,
+  });
 });
 
 router.put("/:id", async (c) => {

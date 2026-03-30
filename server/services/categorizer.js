@@ -68,7 +68,21 @@ function matchesRule(descBanco, rule) {
 }
 
 function findMatchingRule(db, descBanco) {
-  return getRules(db).find((rule) => rule.mode !== "disabled" && matchesRule(descBanco, rule)) || null;
+  const rules = getRules(db);
+  let best = null;
+  let suppressedByDisabledRule = false;
+
+  for (const rule of rules) {
+    if (!matchesRule(descBanco, rule)) continue;
+    if (rule.mode === "disabled") {
+      suppressedByDisabledRule = true;
+      continue;
+    }
+    if (!best) best = rule;
+  }
+
+  if (suppressedByDisabledRule) return null;
+  return best;
 }
 
 function isLikelyReintegro(db, descBanco, monto, moneda) {

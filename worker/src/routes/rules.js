@@ -16,6 +16,7 @@ router.get("/", async (c) => {
      JOIN categories c ON c.id = r.category_id AND c.user_id = r.user_id
      LEFT JOIN accounts a ON a.id = r.account_id AND a.user_id = r.user_id
      WHERE r.user_id = ?
+       AND r.source != 'guided_reject'
      ORDER BY datetime(r.created_at) DESC, r.match_count DESC, r.id ASC`
   ).all(userId));
 });
@@ -30,6 +31,7 @@ router.post("/", async (c) => {
     account_id = null,
     currency = null,
     direction = "any",
+    source = "manual",
   } = await c.req.json();
 
   if (!pattern || !category_id) return c.json({ error: "pattern and category_id are required" }, 400);
@@ -44,6 +46,9 @@ router.post("/", async (c) => {
   }
   if (!["any", "expense", "income"].includes(direction)) {
     return c.json({ error: "direction must be any, expense or income" }, 400);
+  }
+  if (!["manual", "guided", "guided_reject"].includes(source)) {
+    return c.json({ error: "source must be manual, guided or guided_reject" }, 400);
   }
 
   const db = getDb(c.env);
@@ -80,7 +85,7 @@ router.post("/", async (c) => {
     `INSERT INTO rules (
       pattern, normalized_pattern, category_id, match_count, user_id, mode, confidence, source,
       account_id, currency, direction, merchant_key
-    ) VALUES (?, ?, ?, 0, ?, ?, ?, 'manual', ?, ?, ?, ?)`
+    ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     String(pattern).trim(),
     normalizedPattern,
@@ -88,6 +93,7 @@ router.post("/", async (c) => {
     userId,
     mode,
     normalizedConfidence,
+    source,
     account_id,
     currency,
     direction,

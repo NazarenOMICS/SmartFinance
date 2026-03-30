@@ -20,7 +20,10 @@ const DEFAULT_SETTINGS = {
   categorizer_suggest_threshold: "0.68",
   categorizer_ollama_enabled: "0",
   categorizer_ollama_url: "",
-  categorizer_ollama_model: "qwen2.5:3b"
+  categorizer_ollama_model: "qwen2.5:3b",
+  guided_categorization_onboarding_completed: "0",
+  guided_categorization_onboarding_skipped: "0",
+  guided_categorization_onboarding_seen_at: ""
 };
 const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
 const EXPECTED_SCHEMA_VERSION = TAXONOMY_VERSION;

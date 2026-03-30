@@ -8,10 +8,12 @@ import { detectFormat, computeFormatKey, applyColumnMap } from "../services/form
 import {
   createReviewGroupTracker,
   ensureSmartCategoriesForTransactions,
+  listGuidedReviewGroups,
   listReviewGroups,
   matchSmartCategoryTemplate,
   trackReviewGroup,
 } from "../services/smart-categories.js";
+import { normalizePatternValue } from "../services/taxonomy.js";
 
 const router = new Hono();
 const SUPPORTED_IMPORT_EXTENSIONS = new Set(["csv", "pdf", "txt"]);
@@ -145,6 +147,11 @@ router.post("/", async (c) => {
     }
     const accountCurrency = account.currency;
 
+    const existingTransactions = await db.prepare(
+      "SELECT COUNT(*) AS count FROM transactions WHERE user_id = ?"
+    ).get(userId);
+    const hadTransactionsBeforeUpload = Number(existingTransactions?.count || 0) > 0;
+
     const uploadResult = await db.prepare(
       "INSERT INTO uploads (filename,account_id,period,status,user_id) VALUES (?,?,?,'pending',?)"
     ).run(filename, account_id, period, userId);
@@ -246,6 +253,20 @@ router.post("/", async (c) => {
     }
 
     const settings = await getSettingsObject(c.env, userId);
+    const guidedOnboardingDone = String(settings.guided_categorization_onboarding_completed || "0") === "1";
+    const guidedOnboardingSkipped = String(settings.guided_categorization_onboarding_skipped || "0") === "1";
+    const disabledPatterns = await db.prepare(
+      `SELECT normalized_pattern, category_id
+       FROM rules
+       WHERE user_id = ?
+         AND mode = 'disabled'
+         AND normalized_pattern IS NOT NULL
+         AND normalized_pattern != ''`
+    ).all(userId);
+    const skippedPatternKeys = new Set(
+      disabledPatterns.map((row) => `${Number(row.category_id)}:${normalizePatternValue(row.normalized_pattern)}`)
+    );
+
     await ensureSmartCategoriesForTransactions(db, userId, extractedTxs);
     const categories = await db.prepare(
       "SELECT id, name, type, color FROM categories WHERE user_id = ? ORDER BY sort_order ASC, id ASC"
@@ -325,19 +346,30 @@ router.post("/", async (c) => {
         categoryRuleId
       );
       if (!categoryId) {
-        const smartMatch = matchSmartCategoryTemplate(normalizedDescBanco);
-        if (smartMatch) {
-          const smartCategory = categoryByName.get(smartMatch.template.name.toLowerCase());
-          if (smartCategory) {
-            trackReviewGroup(reviewGroups, normalizedTx, smartMatch, smartCategory.id, insertResult.lastInsertRowid);
+          const smartMatch = matchSmartCategoryTemplate(normalizedDescBanco);
+          if (smartMatch) {
+            const smartCategory = categoryByName.get(smartMatch.template.name.toLowerCase());
+            if (smartCategory) {
+              trackReviewGroup(reviewGroups, normalizedTx, smartMatch, smartCategory.id, insertResult.lastInsertRowid, {
+                skipPatterns: skippedPatternKeys,
+              });
+            }
           }
         }
-      }
       newTransactions++;
     }
 
     await db.prepare("UPDATE uploads SET tx_count=?,status='processed' WHERE id=? AND user_id=?")
       .run(newTransactions, uploadId, userId);
+
+    const guidedReviewGroups = listGuidedReviewGroups(reviewGroups, 6);
+    const guidedOnboardingRequired = (
+      !hadTransactionsBeforeUpload &&
+      newTransactions > 0 &&
+      !guidedOnboardingDone &&
+      !guidedOnboardingSkipped &&
+      guidedReviewGroups.length > 0
+    );
 
     return c.json({
       upload_id: uploadId,
@@ -346,6 +378,11 @@ router.post("/", async (c) => {
       auto_categorized: autoCategorized,
       pending_review: pendingReview,
       review_groups: listReviewGroups(reviewGroups),
+      guided_review_groups: guidedReviewGroups,
+      guided_onboarding_required: guidedOnboardingRequired,
+      guided_onboarding_session: guidedOnboardingRequired
+        ? { max_cards: guidedReviewGroups.length }
+        : null,
     }, 201);
   } catch (error) {
     if (uploadId != null) {

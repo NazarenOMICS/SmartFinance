@@ -43,6 +43,10 @@ export const api = {
   // Onboarding
   onboard: () => request("/api/onboard", { method: "POST" }),
   claimLegacy: () => request("/api/onboard/claim-legacy", { method: "POST" }),
+  completeGuidedCategorizationOnboarding: () =>
+    request("/api/onboard/guided-categorization/complete", { method: "POST" }),
+  skipGuidedCategorizationOnboarding: () =>
+    request("/api/onboard/guided-categorization/skip", { method: "POST" }),
 
   // Transactions
   getSummary: (month) => request(`/api/transactions/summary?month=${month}`),

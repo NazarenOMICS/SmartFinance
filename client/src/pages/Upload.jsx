@@ -5,6 +5,7 @@ import { useToast } from "../contexts/ToastContext";
 import CsvImportPanel from "../components/CsvImportPanel";
 import ColumnMapper from "../components/ColumnMapper";
 import BrandMark from "../components/BrandMark";
+import GuidedCategorizationDeck from "../components/GuidedCategorizationDeck";
 import RuleReviewDeck from "../components/RuleReviewDeck";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -300,6 +301,8 @@ export default function Upload({ month, onDone, onNavigate }) {
   // ColumnMapper state — shown when server returns needs_mapping:true for a CSV
   const [columnMapper, setColumnMapper] = useState(null); // null | { columns, sample, formatKey }
   const [reviewGroups, setReviewGroups] = useState([]);
+  const [guidedReviewGroups, setGuidedReviewGroups] = useState([]);
+  const [guidedOnboardingRequired, setGuidedOnboardingRequired] = useState(false);
 
   async function load() {
     const requestId = ++loadRequestIdRef.current;
@@ -358,6 +361,42 @@ export default function Upload({ month, onDone, onNavigate }) {
     if (file) setUploadForm((prev) => ({ ...prev, file }));
   }
 
+  function finishUploadFlow() {
+    setGuidedReviewGroups([]);
+    setGuidedOnboardingRequired(false);
+    setReviewGroups([]);
+    onDone?.();
+  }
+
+  async function handleGuidedComplete() {
+    try {
+      await api.completeGuidedCategorizationOnboarding();
+      addToast("success", "Listo. La app ya arranca con una base mucho mas confiable.");
+      finishUploadFlow();
+    } catch (error) {
+      addToast("error", error.message);
+    }
+  }
+
+  function handleGuidedFollowLater() {
+    finishUploadFlow();
+  }
+
+  async function handleGuidedSkip() {
+    try {
+      await api.skipGuidedCategorizationOnboarding();
+      addToast("info", "Perfecto. Lo dejamos para mas adelante.");
+      finishUploadFlow();
+    } catch (error) {
+      addToast("error", error.message);
+    }
+  }
+
+  function handleRuleReviewDone() {
+    setReviewGroups([]);
+    onDone?.();
+  }
+
   async function handleUpload(event) {
     event.preventDefault();
     if (!selectedAccount) { addToast("warning", "Primero elegí la cuenta de origen."); return; }
@@ -392,12 +431,19 @@ export default function Upload({ month, onDone, onNavigate }) {
       }
 
       setFeedback(result);
-      setReviewGroups(result.review_groups || []);
+      const nextReviewGroups = result.review_groups || [];
+      const nextGuidedReviewGroups = result.guided_review_groups || [];
+      const nextGuidedRequired = Boolean(result.guided_onboarding_required && nextGuidedReviewGroups.length > 0);
+      setReviewGroups(nextReviewGroups);
+      setGuidedReviewGroups(nextGuidedReviewGroups);
+      setGuidedOnboardingRequired(nextGuidedRequired);
       setUploadForm((prev) => ({ ...prev, file: null }));
       await load();
       if (result.new_transactions > 0) {
         addToast("success", `${result.new_transactions} transacciones nuevas importadas.`);
-        setTimeout(() => onDone?.(), 2500);
+        if (!nextGuidedRequired && nextReviewGroups.length === 0) {
+          setTimeout(() => onDone?.(), 2500);
+        }
       } else if (result.duplicates_skipped > 0) {
         addToast("info", `Archivo ya procesado: ${result.duplicates_skipped} duplicados salteados.`);
       } else {
@@ -441,10 +487,24 @@ export default function Upload({ month, onDone, onNavigate }) {
           onSuccess={(result) => {
             setColumnMapper(null);
             setUploadForm((prev) => ({ ...prev, file: null }));
+            setFeedback({
+              new_transactions: result.created || 0,
+              duplicates_skipped: result.duplicates || 0,
+              auto_categorized: 0,
+              pending_review: 0,
+            });
+            const nextReviewGroups = result.review_groups || [];
+            const nextGuidedReviewGroups = result.guided_review_groups || [];
+            const nextGuidedRequired = Boolean(result.guided_onboarding_required && nextGuidedReviewGroups.length > 0);
+            setReviewGroups(nextReviewGroups);
+            setGuidedReviewGroups(nextGuidedReviewGroups);
+            setGuidedOnboardingRequired(nextGuidedRequired);
             load();
             if (result.created > 0) {
               addToast("success", `${result.created} transacciones importadas correctamente.`);
-              setTimeout(() => onDone?.(), 2500);
+              if (!nextGuidedRequired && nextReviewGroups.length === 0) {
+                setTimeout(() => onDone?.(), 2500);
+              }
             } else if (result.duplicates > 0) {
               addToast("info", `Todas las transacciones ya existían (${result.duplicates} duplicados).`);
             } else {
@@ -454,13 +514,20 @@ export default function Upload({ month, onDone, onNavigate }) {
           onCancel={() => setColumnMapper(null)}
         />
       )}
-      {reviewGroups.length > 0 && (
+      {guidedOnboardingRequired && guidedReviewGroups.length > 0 && (
+        <GuidedCategorizationDeck
+          groups={guidedReviewGroups}
+          onComplete={handleGuidedComplete}
+          onFollowLater={handleGuidedFollowLater}
+          onSkip={handleGuidedSkip}
+        />
+      )}
+      {!guidedOnboardingRequired && reviewGroups.length > 0 && (
         <RuleReviewDeck
           groups={reviewGroups}
           onDone={() => {
-            setReviewGroups([]);
             load();
-            onDone?.();
+            handleRuleReviewDone();
           }}
         />
       )}
@@ -704,7 +771,24 @@ export default function Upload({ month, onDone, onNavigate }) {
         selectedAccount={selectedAccount}
         selectedCurrency={selectedAccountData?.currency || "UYU"}
         month={uploadForm.period}
-        onImported={() => { load(); onDone?.(); }}
+        onImported={(result) => {
+          setFeedback({
+            new_transactions: result?.created || 0,
+            duplicates_skipped: result?.duplicates || 0,
+            auto_categorized: 0,
+            pending_review: 0,
+          });
+          const nextReviewGroups = result?.review_groups || [];
+          const nextGuidedReviewGroups = result?.guided_review_groups || [];
+          const nextGuidedRequired = Boolean(result?.guided_onboarding_required && nextGuidedReviewGroups.length > 0);
+          setReviewGroups(nextReviewGroups);
+          setGuidedReviewGroups(nextGuidedReviewGroups);
+          setGuidedOnboardingRequired(nextGuidedRequired);
+          load();
+          if (!nextGuidedRequired && nextReviewGroups.length === 0) {
+            onDone?.();
+          }
+        }}
       />
 
       {/* Upload history */}

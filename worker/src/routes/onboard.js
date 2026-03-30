@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getDb } from "../db.js";
+import { getDb, upsertSetting } from "../db.js";
 import { DEFAULT_PATTERNS } from "../services/tx-extractor.js";
 import { ensureCanonicalCategories, ensureSeedRules } from "../services/taxonomy-store.js";
 
@@ -18,6 +18,9 @@ const DEFAULT_SETTINGS = [
   { key: "categorizer_ollama_enabled", value: "0" },
   { key: "categorizer_ollama_url", value: "" },
   { key: "categorizer_ollama_model", value: "qwen2.5:3b" },
+  { key: "guided_categorization_onboarding_completed", value: "0" },
+  { key: "guided_categorization_onboarding_skipped", value: "0" },
+  { key: "guided_categorization_onboarding_seen_at", value: "" },
 ];
 
 const LEGACY_TABLES = [
@@ -117,6 +120,23 @@ router.post("/claim-legacy", async (c) => {
   await ensureSeedRules(db, userId);
 
   return c.json({ status: "claimed", counts });
+});
+
+router.post("/guided-categorization/complete", async (c) => {
+  const userId = c.get("userId");
+  const now = new Date().toISOString();
+  await upsertSetting(c.env, "guided_categorization_onboarding_completed", "1", userId);
+  await upsertSetting(c.env, "guided_categorization_onboarding_skipped", "0", userId);
+  await upsertSetting(c.env, "guided_categorization_onboarding_seen_at", now, userId);
+  return c.json({ completed: true, seen_at: now });
+});
+
+router.post("/guided-categorization/skip", async (c) => {
+  const userId = c.get("userId");
+  const now = new Date().toISOString();
+  await upsertSetting(c.env, "guided_categorization_onboarding_skipped", "1", userId);
+  await upsertSetting(c.env, "guided_categorization_onboarding_seen_at", now, userId);
+  return c.json({ skipped: true, seen_at: now });
 });
 
 export default router;

@@ -1,5 +1,5 @@
 const express = require("express");
-const { db } = require("../db");
+const { db, upsertSetting } = require("../db");
 const { CANONICAL_CATEGORIES, buildSeedRules } = require("../services/taxonomy");
 
 const router = express.Router();
@@ -81,6 +81,21 @@ router.post("/", (req, res) => {
 
 router.post("/claim-legacy", (req, res) => {
   res.json({ claimed: 0 });
+});
+
+router.post("/guided-categorization/complete", (req, res) => {
+  const now = new Date().toISOString();
+  upsertSetting("guided_categorization_onboarding_completed", "1");
+  upsertSetting("guided_categorization_onboarding_skipped", "0");
+  upsertSetting("guided_categorization_onboarding_seen_at", now);
+  res.json({ completed: true, seen_at: now });
+});
+
+router.post("/guided-categorization/skip", (req, res) => {
+  const now = new Date().toISOString();
+  upsertSetting("guided_categorization_onboarding_skipped", "1");
+  upsertSetting("guided_categorization_onboarding_seen_at", now);
+  res.json({ skipped: true, seen_at: now });
 });
 
 module.exports = router;
