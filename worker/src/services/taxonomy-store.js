@@ -1,5 +1,25 @@
 import { buildSeedRules, CANONICAL_CATEGORIES, slugifyCategoryName } from "./taxonomy.js";
 
+async function getHiddenSeedCategorySlugs(db, userId) {
+  const row = await db.prepare(
+    "SELECT value FROM settings WHERE user_id = ? AND key = 'hidden_seed_category_slugs' LIMIT 1"
+  ).get(userId);
+  try {
+    const parsed = JSON.parse(String(row?.value || "[]"));
+    return new Set(Array.isArray(parsed) ? parsed.map((item) => String(item || "").trim()).filter(Boolean) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+async function saveHiddenSeedCategorySlugs(db, userId, slugs) {
+  const value = JSON.stringify([...new Set(slugs)].sort());
+  await db.prepare(
+    `INSERT INTO settings (user_id, key, value) VALUES (?, 'hidden_seed_category_slugs', ?)
+     ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value`
+  ).run(userId, value);
+}
+
 async function getCategoryBySlug(db, userId, slug) {
   return db.prepare(
     "SELECT * FROM categories WHERE user_id = ? AND slug = ? ORDER BY id ASC LIMIT 1"
@@ -14,7 +34,9 @@ async function getCategoryByName(db, userId, name) {
 
 export async function ensureCanonicalCategories(db, userId) {
   const bySlug = new Map();
+  const hiddenSlugs = await getHiddenSeedCategorySlugs(db, userId);
   for (const category of CANONICAL_CATEGORIES) {
+    if (hiddenSlugs.has(category.slug)) continue;
     const existing = await getCategoryBySlug(db, userId, category.slug);
     if (existing) {
       await db.prepare(
@@ -79,8 +101,10 @@ export async function ensureCanonicalCategories(db, userId) {
 
 export async function ensureSeedRules(db, userId) {
   const categoriesBySlug = await ensureCanonicalCategories(db, userId);
+  const hiddenSlugs = await getHiddenSeedCategorySlugs(db, userId);
 
   for (const rule of buildSeedRules()) {
+    if (hiddenSlugs.has(rule.slug)) continue;
     const category = categoriesBySlug.get(rule.slug);
     if (!category) continue;
     const existing = await db.prepare(
@@ -129,14 +153,16 @@ export async function ensureSeedRules(db, userId) {
 }
 
 export async function ensureTaxonomyReady(db, userId) {
+  const hiddenSlugs = await getHiddenSeedCategorySlugs(db, userId);
+  const expectedSeedCategoryCount = CANONICAL_CATEGORIES.filter((category) => !hiddenSlugs.has(category.slug)).length;
   const seedCategoryCount = await db.prepare(
     "SELECT COUNT(*) AS count FROM categories WHERE user_id = ? AND origin = 'seed'"
   ).get(userId);
-  if (Number(seedCategoryCount?.count || 0) < CANONICAL_CATEGORIES.length) {
+  if (Number(seedCategoryCount?.count || 0) < expectedSeedCategoryCount) {
     await ensureCanonicalCategories(db, userId);
   }
 
-  const expectedSeedRules = buildSeedRules().length;
+  const expectedSeedRules = buildSeedRules().filter((rule) => !hiddenSlugs.has(rule.slug)).length;
   const seedRuleCount = await db.prepare(
     "SELECT COUNT(*) AS count FROM rules WHERE user_id = ? AND source = 'seed'"
   ).get(userId);
@@ -154,7 +180,7 @@ export async function resetLearnedCategorization(db, userId) {
          category_confidence = NULL,
          category_rule_id = NULL
      WHERE user_id = ?
-       AND category_source IN ('rule_auto', 'rule_review', 'upload_review')`
+       AND category_source IN ('rule_auto', 'rule_review', 'upload_review', 'ollama_auto', 'ollama_suggest')`
   ).run(userId);
 
   const autoCategoryIds = await db.prepare(
@@ -185,6 +211,12 @@ export async function resetLearnedCategorization(db, userId) {
   await db.prepare("DELETE FROM rule_exclusions WHERE user_id = ?").run(userId);
   await db.prepare("DELETE FROM categorization_events WHERE user_id = ?").run(userId);
   await ensureSeedRules(db, userId);
+}
+
+export async function hideSeedCategory(db, userId, slug) {
+  const hiddenSlugs = await getHiddenSeedCategorySlugs(db, userId);
+  hiddenSlugs.add(slug);
+  await saveHiddenSeedCategorySlugs(db, userId, hiddenSlugs);
 }
 
 export async function createOrUpdateManualCategory(db, userId, category) {

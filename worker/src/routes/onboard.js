@@ -25,6 +25,7 @@ const DEFAULT_SETTINGS = [
   { key: "guided_categorization_onboarding_completed", value: "0" },
   { key: "guided_categorization_onboarding_skipped", value: "0" },
   { key: "guided_categorization_onboarding_seen_at", value: "" },
+  { key: "hidden_seed_category_slugs", value: "[]" },
 ];
 
 const LEGACY_TABLES = [

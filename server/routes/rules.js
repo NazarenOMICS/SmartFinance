@@ -116,7 +116,7 @@ router.post("/reset", (req, res) => {
            category_source = NULL,
            category_confidence = NULL,
            category_rule_id = NULL
-       WHERE category_source IN ('rule_auto', 'rule_review', 'upload_review')`
+       WHERE category_source IN ('rule_auto', 'rule_review', 'upload_review', 'ollama_auto', 'ollama_suggest')`
     ).run();
     db.prepare("DELETE FROM categories WHERE origin = 'auto'").run();
     reseedRules();

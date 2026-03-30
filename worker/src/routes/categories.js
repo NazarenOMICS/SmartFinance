@@ -1,10 +1,22 @@
 import { Hono } from "hono";
 import { getDb } from "../db.js";
-import { createOrUpdateManualCategory } from "../services/taxonomy-store.js";
+import { createOrUpdateManualCategory, hideSeedCategory } from "../services/taxonomy-store.js";
 import { getCanonicalCategoryBySlug, slugifyCategoryName } from "../services/taxonomy.js";
 
 const router = new Hono();
 const SUPPORTED_CATEGORY_TYPES = new Set(["variable", "fijo", "transferencia"]);
+
+async function getHiddenSeedCategorySlugs(db, userId) {
+  const row = await db.prepare(
+    "SELECT value FROM settings WHERE user_id = ? AND key = 'hidden_seed_category_slugs' LIMIT 1"
+  ).get(userId);
+  try {
+    const parsed = JSON.parse(String(row?.value || "[]"));
+    return new Set(Array.isArray(parsed) ? parsed.map((item) => String(item || "").trim()).filter(Boolean) : []);
+  } catch {
+    return new Set();
+  }
+}
 
 router.get("/", async (c) => {
   const userId = c.get("userId");
@@ -26,8 +38,9 @@ router.post("/", async (c) => {
   }
 
   const slug = slugifyCategoryName(normalizedName);
-  if (getCanonicalCategoryBySlug(slug)) {
-    const db = getDb(c.env);
+  const db = getDb(c.env);
+  const hiddenSeedSlugs = await getHiddenSeedCategorySlugs(db, userId);
+  if (getCanonicalCategoryBySlug(slug) && !hiddenSeedSlugs.has(slug)) {
     const existingCanonical = await db.prepare(
       "SELECT id FROM categories WHERE user_id = ? AND slug = ? LIMIT 1"
     ).get(userId, slug);
@@ -36,7 +49,6 @@ router.post("/", async (c) => {
     }
   }
 
-  const db = getDb(c.env);
   const created = await createOrUpdateManualCategory(db, userId, {
     name: normalizedName,
     budget: normalizedBudget,
@@ -93,7 +105,7 @@ router.delete("/:id", async (c) => {
   ).get(id, userId);
   if (!existing) return c.json({ error: "category not found" }, 404);
   if (existing.origin === "seed") {
-    return c.json({ error: "No se puede borrar una categoria canonica" }, 409);
+    await hideSeedCategory(db, userId, existing.slug);
   }
 
   await c.env.DB.batch([

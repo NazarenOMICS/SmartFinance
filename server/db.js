@@ -22,7 +22,8 @@ const DEFAULT_SETTINGS = {
   categorizer_ollama_model: "qwen2.5:3b",
   guided_categorization_onboarding_completed: "0",
   guided_categorization_onboarding_skipped: "0",
-  guided_categorization_onboarding_seen_at: ""
+  guided_categorization_onboarding_seen_at: "",
+  hidden_seed_category_slugs: "[]"
 };
 const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
 const SCHEMA_VERSION = "2026-03-contract-v2";

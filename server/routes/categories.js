@@ -5,6 +5,23 @@ const { getCanonicalCategoryByName, slugifyCategoryName } = require("../services
 const router = express.Router();
 const SUPPORTED_CATEGORY_TYPES = new Set(["variable", "fijo", "transferencia"]);
 
+function getHiddenSeedCategorySlugs() {
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'hidden_seed_category_slugs' LIMIT 1").get();
+  try {
+    const parsed = JSON.parse(String(row?.value || "[]"));
+    return new Set(Array.isArray(parsed) ? parsed.map((item) => String(item || "").trim()).filter(Boolean) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveHiddenSeedCategorySlugs(slugs) {
+  db.prepare(
+    `INSERT INTO settings (key, value) VALUES ('hidden_seed_category_slugs', ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+  ).run(JSON.stringify([...new Set(slugs)].sort()));
+}
+
 router.get("/", (req, res) => {
   res.json(db.prepare("SELECT * FROM categories ORDER BY sort_order ASC, id ASC").all());
 });
@@ -18,9 +35,10 @@ router.post("/", (req, res) => {
   if (!SUPPORTED_CATEGORY_TYPES.has(type)) return res.status(400).json({ error: "type must be fijo, variable or transferencia" });
 
   const slug = slugifyCategoryName(normalizedName);
+  const hiddenSeedSlugs = getHiddenSeedCategorySlugs();
   const duplicate = db.prepare("SELECT id FROM categories WHERE slug = ? LIMIT 1").get(slug);
   const duplicateByName = db.prepare("SELECT id FROM categories WHERE name = ? COLLATE NOCASE LIMIT 1").get(normalizedName);
-  if (duplicate || duplicateByName || getCanonicalCategoryByName(normalizedName)) {
+  if (duplicate || duplicateByName || (getCanonicalCategoryByName(normalizedName) && !hiddenSeedSlugs.has(slug))) {
     return res.status(409).json({ error: `Ya existe una categoria con el nombre "${normalizedName}"` });
   }
 
@@ -62,11 +80,13 @@ router.delete("/:id", (req, res) => {
   const id = Number(req.params.id);
   const existing = db.prepare("SELECT * FROM categories WHERE id = ?").get(id);
   if (!existing) return res.status(404).json({ error: "category not found" });
-  if (existing.origin === "seed") {
-    return res.status(409).json({ error: "No se puede borrar una categoria canonica" });
-  }
 
   db.transaction(() => {
+    if (existing.origin === "seed") {
+      const hidden = getHiddenSeedCategorySlugs();
+      hidden.add(existing.slug);
+      saveHiddenSeedCategorySlugs(hidden);
+    }
     db.prepare(
       `UPDATE transactions
        SET category_id = NULL,

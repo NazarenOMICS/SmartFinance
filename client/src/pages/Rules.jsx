@@ -5,6 +5,29 @@ import CandidateReview from "../components/CandidateReview";
 
 const PRESET_COLORS = ["#534AB7", "#1D9E75", "#D85A30", "#378ADD", "#BA7517", "#639922", "#E24B4A", "#888780", "#9B59B6", "#2ECC71"];
 
+function describeThreshold(value, type) {
+  const numeric = Number(value || (type === "auto" ? 0.88 : 0.68));
+  if (type === "auto") {
+    if (numeric >= 0.9) return "Muy prudente";
+    if (numeric >= 0.8) return "Equilibrado";
+    return "Mas automatico";
+  }
+  if (numeric >= 0.75) return "Solo sugerencias fuertes";
+  if (numeric >= 0.6) return "Equilibrado";
+  return "Mas abierto a sugerencias";
+}
+
+function formatRuleSource(source) {
+  if (source === "seed") return "base";
+  if (source === "manual") return "manual";
+  if (source === "guided") return "guiada";
+  if (source === "guided_reject") return "rechazada";
+  if (source === "ollama") return "ollama";
+  if (source === "ollama_auto") return "ollama auto";
+  if (source === "ollama_suggest") return "ollama sugerido";
+  return source || "manual";
+}
+
 export default function Rules() {
   const { addToast } = useToast();
   const [state, setState] = useState({ loading: true, error: "", categories: [], rules: [], settings: {}, accounts: [] });
@@ -201,7 +224,7 @@ export default function Rules() {
 
   const expenseCategories = state.categories.filter((category) => category.type !== "transferencia" && category.name !== "Ingreso");
   const recentLearnedRules = [...state.rules]
-    .filter((rule) => rule.source !== "seed")
+    .filter((rule) => !["seed", "manual"].includes(rule.source))
     .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")))
     .slice(0, 6);
 
@@ -237,79 +260,51 @@ export default function Rules() {
       <section className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Motor hibrido</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Aprendizaje automatico</p>
             <h2 className="mt-1 font-display text-3xl text-finance-ink dark:text-neutral-100">
-              Reglas con confianza + fallback opcional a Ollama
+              Lo que la app esta aprendiendo de ti
             </h2>
-          <p className="mt-2 max-w-3xl text-sm leading-7 text-neutral-500 dark:text-neutral-300">
-              La idea ya no es categorizar todo a lo bruto. Las reglas pueden quedar en auto, sugerencia o desactivadas.
-              Los ajustes tecnicos mas finos quedan al fondo, en opciones avanzadas.
+            <p className="mt-2 max-w-3xl text-sm leading-7 text-neutral-500 dark:text-neutral-300">
+              Aqui ves solo las reglas aprendidas automaticamente o por revisiones guiadas.
+              Si alguna se puso rara, la puedes desactivar sin entrar a tocar opciones tecnicas.
             </p>
           </div>
         </div>
 
-        <div className="mt-6 grid gap-4 lg:grid-cols-2">
-          <label className="rounded-[24px] border border-neutral-200 bg-finance-cream/60 p-4 dark:border-neutral-800 dark:bg-neutral-950/50">
-            <span className="text-xs uppercase tracking-[0.18em] text-neutral-400">Auto threshold</span>
-            <input
-              className="mt-3 w-full accent-finance-purple"
-              type="range"
-              min="0.5"
-              max="0.98"
-              step="0.01"
-              value={state.settings.categorizer_auto_threshold || "0.88"}
-              onChange={(e) => setState((prev) => ({ ...prev, settings: { ...prev.settings, categorizer_auto_threshold: e.target.value } }))}
-              onMouseUp={(e) => saveSetting("categorizer_auto_threshold", e.currentTarget.value)}
-              onTouchEnd={(e) => saveSetting("categorizer_auto_threshold", e.currentTarget.value)}
-            />
-            <div className="mt-2 flex items-center justify-between text-sm text-neutral-500 dark:text-neutral-300">
-              <span>Solo auto-categoriza si supera esta confianza.</span>
-              <strong>{Math.round(Number(state.settings.categorizer_auto_threshold || 0.88) * 100)}%</strong>
+        <div className="mt-6 rounded-[24px] border border-neutral-200 bg-finance-cream/60 p-4 dark:border-neutral-800 dark:bg-neutral-950/50">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Resumen rapido</p>
+              <p className="mt-2 max-w-2xl text-sm leading-7 text-neutral-500 dark:text-neutral-300">
+                Las reglas base quedan siempre activas. Lo que aparece abajo es lo aprendido despues,
+                incluyendo revisiones guiadas y cualquier ayuda automatica del motor.
+              </p>
             </div>
-          </label>
+            <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-finance-ink dark:bg-neutral-900 dark:text-neutral-100">
+              {recentLearnedRules.length} reciente{recentLearnedRules.length === 1 ? "" : "s"}
+            </span>
+          </div>
 
-          <label className="rounded-[24px] border border-neutral-200 bg-finance-cream/60 p-4 dark:border-neutral-800 dark:bg-neutral-950/50">
-            <span className="text-xs uppercase tracking-[0.18em] text-neutral-400">Suggest threshold</span>
-            <input
-              className="mt-3 w-full accent-finance-purple"
-              type="range"
-              min="0.4"
-              max="0.9"
-              step="0.01"
-              value={state.settings.categorizer_suggest_threshold || "0.68"}
-              onChange={(e) => setState((prev) => ({ ...prev, settings: { ...prev.settings, categorizer_suggest_threshold: e.target.value } }))}
-              onMouseUp={(e) => saveSetting("categorizer_suggest_threshold", e.currentTarget.value)}
-              onTouchEnd={(e) => saveSetting("categorizer_suggest_threshold", e.currentTarget.value)}
-            />
-            <div className="mt-2 flex items-center justify-between text-sm text-neutral-500 dark:text-neutral-300">
-              <span>Debajo de esto, la transaccion queda sin categoria.</span>
-              <strong>{Math.round(Number(state.settings.categorizer_suggest_threshold || 0.68) * 100)}%</strong>
-            </div>
-          </label>
-
-          <div className="rounded-[24px] border border-neutral-200 bg-finance-cream/60 p-4 dark:border-neutral-800 dark:bg-neutral-950/50">
-            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Aprendido recientemente</p>
-            <div className="mt-4 space-y-3">
-              {recentLearnedRules.length > 0 ? recentLearnedRules.map((rule) => (
-                <div key={`recent-${rule.id}`} className="flex items-center justify-between gap-3 rounded-2xl bg-white/80 px-3 py-3 dark:bg-neutral-900/80">
-                  <div className="min-w-0">
-                    <p className="truncate font-mono text-sm text-finance-ink dark:text-neutral-100">{rule.pattern}</p>
-                    <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-300">
-                      {rule.category_name} · {rule.source || "manual"} · {Math.round(Number(rule.confidence || 0) * 100)}%
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => updateRule(rule, { mode: "disabled" })}
-                    className="rounded-full bg-finance-redSoft px-3 py-1.5 text-xs font-semibold text-finance-red transition hover:bg-finance-red hover:text-white"
-                  >
-                    Desactivar
-                  </button>
+          <div className="mt-4 space-y-3">
+            {recentLearnedRules.length > 0 ? recentLearnedRules.map((rule) => (
+              <div key={`recent-${rule.id}`} className="flex items-center justify-between gap-3 rounded-2xl bg-white/80 px-4 py-3 dark:bg-neutral-900/80">
+                <div className="min-w-0">
+                  <p className="truncate font-mono text-sm text-finance-ink dark:text-neutral-100">{rule.pattern}</p>
+                  <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-300">
+                    {rule.category_name} · {formatRuleSource(rule.source)} · {describeThreshold(rule.confidence, rule.mode === "auto" ? "auto" : "suggest")}
+                  </p>
                 </div>
-              )) : (
-                <p className="text-sm text-neutral-400">Todavia no hay reglas aprendidas recientes.</p>
-              )}
-            </div>
+                <button
+                  type="button"
+                  onClick={() => updateRule(rule, { mode: "disabled" })}
+                  className="rounded-full bg-finance-redSoft px-3 py-1.5 text-xs font-semibold text-finance-red transition hover:bg-finance-red hover:text-white"
+                >
+                  Desactivar
+                </button>
+              </div>
+            )) : (
+              <p className="text-sm text-neutral-400">Todavia no hay reglas aprendidas recientes.</p>
+            )}
           </div>
         </div>
       </section>
@@ -320,6 +315,7 @@ export default function Rules() {
             <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Categorias</p>
             <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-300">
               Ajusta color y tipo sin depender del grafico. En categorias fijas, el monto del mes se toma como referencia automatica.
+              Si una categoria predefinida no te sirve, tambien la puedes borrar desde aqui.
             </p>
           </div>
         </div>
@@ -475,7 +471,7 @@ export default function Rules() {
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Opciones avanzadas</p>
             <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-300">
-              Ollama, endpoint remoto y reset general de reglas.
+              Ollama, sensibilidad del motor y reset general del aprendizaje automatico.
             </p>
           </div>
           <span className="text-sm font-semibold text-finance-purple">{showAdvanced ? "Ocultar" : "Mostrar"}</span>
@@ -488,7 +484,7 @@ export default function Rules() {
                 <div>
                   <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Ollama</p>
                   <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-300">
-                    Fallback semantico solo para casos ambiguos.
+                    Fallback semantico solo para casos ambiguos y siempre fuera del camino principal.
                   </p>
                 </div>
                 <button
@@ -527,24 +523,72 @@ export default function Rules() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 dark:border-amber-900/40 dark:bg-amber-900/10">
-              <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">Reset de reglas</p>
-              <p className="mt-1 max-w-sm text-xs leading-6 text-neutral-500 dark:text-neutral-300">
-                Si la app empezo a categorizar demasiado automatico por reglas mal aprendidas, aqui limpias
-                todo y vuelves a un estado sano.
-              </p>
-              <button
-                type="button"
-                onClick={handleResetRules}
-                disabled={saving}
-                className={`mt-3 rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                  confirmResetRules
-                    ? "bg-finance-red text-white hover:opacity-90"
-                    : "bg-white text-finance-ink hover:bg-neutral-100 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800"
-                } disabled:opacity-50`}
-              >
-                {confirmResetRules ? "Confirmar reset de reglas" : "Resetear reglas"}
-              </button>
+            <div className="space-y-4">
+              <div className="rounded-[24px] border border-neutral-200 bg-finance-cream/60 p-4 dark:border-neutral-800 dark:bg-neutral-950/50">
+                <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Sensibilidad del motor</p>
+                <div className="mt-4 space-y-4">
+                  <label className="block">
+                    <div className="flex items-center justify-between gap-3 text-sm text-finance-ink dark:text-neutral-100">
+                      <span>Auto-categorizacion</span>
+                      <strong>{describeThreshold(state.settings.categorizer_auto_threshold, "auto")}</strong>
+                    </div>
+                    <input
+                      className="mt-3 w-full accent-finance-purple"
+                      type="range"
+                      min="0.5"
+                      max="0.98"
+                      step="0.01"
+                      value={state.settings.categorizer_auto_threshold || "0.88"}
+                      onChange={(e) => setState((prev) => ({ ...prev, settings: { ...prev.settings, categorizer_auto_threshold: e.target.value } }))}
+                      onMouseUp={(e) => saveSetting("categorizer_auto_threshold", e.currentTarget.value)}
+                      onTouchEnd={(e) => saveSetting("categorizer_auto_threshold", e.currentTarget.value)}
+                    />
+                    <p className="mt-2 text-xs leading-6 text-neutral-500 dark:text-neutral-300">
+                      Solo deja que el motor categorice solo cuando la coincidencia se vea realmente clara.
+                    </p>
+                  </label>
+
+                  <label className="block">
+                    <div className="flex items-center justify-between gap-3 text-sm text-finance-ink dark:text-neutral-100">
+                      <span>Sugerencias</span>
+                      <strong>{describeThreshold(state.settings.categorizer_suggest_threshold, "suggest")}</strong>
+                    </div>
+                    <input
+                      className="mt-3 w-full accent-finance-purple"
+                      type="range"
+                      min="0.4"
+                      max="0.9"
+                      step="0.01"
+                      value={state.settings.categorizer_suggest_threshold || "0.68"}
+                      onChange={(e) => setState((prev) => ({ ...prev, settings: { ...prev.settings, categorizer_suggest_threshold: e.target.value } }))}
+                      onMouseUp={(e) => saveSetting("categorizer_suggest_threshold", e.currentTarget.value)}
+                      onTouchEnd={(e) => saveSetting("categorizer_suggest_threshold", e.currentTarget.value)}
+                    />
+                    <p className="mt-2 text-xs leading-6 text-neutral-500 dark:text-neutral-300">
+                      Debajo de este nivel, una transaccion deberia quedar sin categoria antes que adivinar mal.
+                    </p>
+                  </label>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 dark:border-amber-900/40 dark:bg-amber-900/10">
+                <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">Reset de aprendizaje automatico</p>
+                <p className="mt-1 max-w-sm text-xs leading-6 text-neutral-500 dark:text-neutral-300">
+                  Limpia reglas aprendidas, revisiones confirmadas y categorizaciones automaticas para volver a un estado sano.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleResetRules}
+                  disabled={saving}
+                  className={`mt-3 rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                    confirmResetRules
+                      ? "bg-finance-red text-white hover:opacity-90"
+                      : "bg-white text-finance-ink hover:bg-neutral-100 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800"
+                  } disabled:opacity-50`}
+                >
+                  {confirmResetRules ? "Confirmar reset" : "Resetear aprendizaje"}
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -614,7 +658,7 @@ export default function Rules() {
               <div className="min-w-0">
                 <span className="truncate font-mono text-sm text-finance-ink dark:text-neutral-100">{rule.pattern}</span>
                 <p className="mt-1 truncate text-xs text-neutral-400">
-                  {rule.account_name ? `Cuenta: ${rule.account_name}` : "Todas las cuentas"} · {rule.direction || "any"} · {rule.source || "manual"}
+                  {rule.account_name ? `Cuenta: ${rule.account_name}` : "Todas las cuentas"} · {rule.direction || "any"} · {formatRuleSource(rule.source)}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -642,7 +686,7 @@ export default function Rules() {
                   onTouchEnd={(e) => updateRule(rule, { mode: rule.mode || "suggest", confidence: Number(e.currentTarget.value) })}
                 />
                 <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-300">
-                  {Math.round(Number(rule.confidence || 0.72) * 100)}% · {rule.match_count} matches
+                  {describeThreshold(rule.confidence, rule.mode === "auto" ? "auto" : "suggest")} · {rule.match_count} coincidencia{Number(rule.match_count || 0) === 1 ? "" : "s"}
                 </span>
               </div>
               <button
@@ -676,3 +720,4 @@ export default function Rules() {
     </div>
   );
 }
+
