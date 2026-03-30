@@ -104,7 +104,7 @@ export function parseCSV(text) {
     // Must contain "fecha" (or "date") AND at least one amount-related word
     const hasFecha  = norm.includes("fecha") || norm === "date" || /\bfec\b/.test(norm);
     // "dbito"/"crdito" are the garbled forms after Latin-1→UTF-8 + U+FFFD strip
-    const hasAmount = /debito|dbito|credito|crdito|monto|importe|amount|cargo|abono|ingreso|egreso/.test(norm);
+    const hasAmount = /debito|dbito|credito|crdito|monto|importe|amount|cargo|abono|ingreso|egreso|caja de ahorro|cuenta corriente/.test(norm);
     if (hasFecha && hasAmount) { headerIdx = i; break; }
   }
 
@@ -137,7 +137,7 @@ export function parseCSV(text) {
   // becomes U+FFFD which normHeader strips, leaving "dbito" / "crdito".
   const idxDebito  = col([/debito/, /dbito/, /^debe$/, /cargo/, /egreso/]);
   const idxCredito = col([/credito/, /crdito/, /^haber$/, /abono/, /ingreso/]);
-  const idxMonto   = col([/^monto$/, /^importe$/, /^amount$/, /^valor$/, /^impt/]);
+  const idxMonto   = col([/^monto$/, /^importe$/, /^amount$/, /^valor$/, /^impt/, /caja de ahorro/, /cuenta corriente/]);
 
   if (idxFecha === -1) {
     return { transactions: [], unmatched: lines.filter(Boolean) };

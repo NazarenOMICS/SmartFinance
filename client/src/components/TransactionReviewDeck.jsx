@@ -13,7 +13,7 @@ function formatSuggestionSource(source) {
   return "Sugerencia";
 }
 
-export default function TransactionReviewDeck({ items, categories, onDone, onCategoryCreated }) {
+export default function TransactionReviewDeck({ items, categories, onDone, onClose, onCategoryCreated }) {
   const { addToast } = useToast();
   const [index, setIndex] = useState(0);
   const [history, setHistory] = useState([]);
@@ -136,9 +136,9 @@ export default function TransactionReviewDeck({ items, categories, onDone, onCat
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm"
-      onClick={(event) => { if (event.target === event.currentTarget) onDone?.(); }}
+      onClick={(event) => { if (event.target === event.currentTarget) onClose?.(); }}
     >
-      <div className="w-full max-w-2xl rounded-[32px] bg-white p-6 shadow-2xl dark:bg-neutral-900">
+      <div className="max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-[32px] bg-white p-6 shadow-2xl dark:bg-neutral-900">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Revisión individual</p>
@@ -151,7 +151,7 @@ export default function TransactionReviewDeck({ items, categories, onDone, onCat
           </div>
           <button
             type="button"
-            onClick={() => onDone?.()}
+            onClick={() => onClose?.()}
             className="flex h-8 w-8 items-center justify-center rounded-full text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800"
           >
             x

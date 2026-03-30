@@ -40,6 +40,7 @@ export default function Rules({
   onInvalidResumePendingReview,
   pendingCount = 0,
   onOpenPendingReminder,
+  onResumePendingAction,
 }) {
   const { addToast } = useToast();
   const [state, setState] = useState({ loading: true, error: "", categories: [], rules: [], settings: {}, accounts: [] });
@@ -442,7 +443,7 @@ export default function Rules({
           {(storedPendingReview || pendingCount > 0) && (
             <button
               type="button"
-              onClick={storedPendingReview ? openStoredPendingReview : onOpenPendingReminder}
+              onClick={storedPendingReview ? openStoredPendingReview : (onResumePendingAction || onOpenPendingReminder)}
               className="shrink-0 rounded-full bg-finance-purple px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
             >
               {storedPendingReview ? "Retomar categorizacion pendiente" : "Resolver pendientes de categorizacion"}

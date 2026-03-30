@@ -3,6 +3,7 @@ import { getDb } from "../db.js";
 import { findCandidatesForRule } from "../services/categorizer.js";
 import { resetLearnedCategorization } from "../services/taxonomy-store.js";
 import { normalizePatternValue } from "../services/taxonomy.js";
+import { recordGlobalPatternLearning } from "../services/global-learning.js";
 
 const router = new Hono();
 
@@ -102,6 +103,9 @@ router.post("/", async (c) => {
 
   const candidates_count = (await findCandidatesForRule(db, pattern, category_id, userId)).length;
   const rule = await db.prepare("SELECT * FROM rules WHERE id = ? AND user_id = ?").get(result.lastInsertRowid, userId);
+  if (source === "manual" || source === "guided") {
+    await recordGlobalPatternLearning(db, userId, String(pattern).trim(), category_id, "confirm");
+  }
   return c.json({ ...rule, candidates_count }, 201);
 });
 

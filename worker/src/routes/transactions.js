@@ -26,6 +26,7 @@ import {
 import { suggestSync } from "../services/suggester.js";
 import { normalizePatternValue } from "../services/taxonomy.js";
 import { SUPPORTED_CURRENCY_LIST } from "../db.js";
+import { recordGlobalPatternLearning } from "../services/global-learning.js";
 
 const router = new Hono();
 const SUPPORTED_CURRENCIES = new Set(SUPPORTED_CURRENCY_LIST);
@@ -62,6 +63,98 @@ async function fetchTransactionRow(db, userId, id) {
      LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
      WHERE t.id = ? AND t.user_id = ?`
   ).get(id, userId);
+}
+
+async function buildPendingGuidedReviewPayload(db, env, userId, transactions, settings, categories) {
+  const activeTransactions = transactions.filter(
+    (transaction) => transaction && transaction.categorization_status !== "categorized"
+  );
+  if (activeTransactions.length === 0) {
+    return {
+      review_groups: [],
+      transaction_review_queue: [],
+      guided_review_groups: [],
+      guided_onboarding_required: false,
+      guided_onboarding_session: null,
+      remaining_transaction_ids: [],
+    };
+  }
+
+  await ensureSmartCategoriesForTransactions(db, userId, activeTransactions);
+  const allCategories = categories || await db.prepare(
+    "SELECT id, name, slug, type, color, origin FROM categories WHERE user_id = ? ORDER BY sort_order ASC, id ASC"
+  ).all(userId);
+  const settingsObject = settings || await getSettingsObject(env, userId);
+  const categoryByName = new Map(
+    allCategories.map((category) => [String(category.name || "").toLowerCase(), category])
+  );
+  const disabledPatterns = await db.prepare(
+    `SELECT normalized_pattern, category_id
+     FROM rules
+     WHERE user_id = ?
+       AND mode = 'disabled'
+       AND normalized_pattern IS NOT NULL
+       AND normalized_pattern != ''`
+  ).all(userId);
+  const skippedPatternKeys = new Set(
+    disabledPatterns.map((row) => `${Number(row.category_id)}:${normalizePatternValue(row.normalized_pattern)}`)
+  );
+  const reviewGroups = createReviewGroupTracker();
+  const transactionReviewQueue = [];
+
+  for (const transaction of activeTransactions) {
+    const classification = await classifyTransaction(db, env, {
+      desc_banco: transaction.desc_banco,
+      monto: Number(transaction.monto),
+      moneda: transaction.moneda,
+      account_id: transaction.account_id,
+    }, userId, { settings: settingsObject, categories: allCategories });
+
+    const smartMatch = matchSmartCategoryTemplate(transaction.desc_banco);
+    if (smartMatch) {
+      const smartCategory = categoryByName.get(String(smartMatch.template.name || "").toLowerCase());
+      if (smartCategory) {
+        trackReviewGroup(
+          reviewGroups,
+          transaction,
+          smartMatch,
+          smartCategory.id,
+          transaction.id,
+          { skipPatterns: skippedPatternKeys }
+        );
+      }
+    }
+
+    const reviewItem = await buildTransactionReviewSuggestion(db, env, {
+      id: transaction.id,
+      fecha: transaction.fecha,
+      desc_banco: transaction.desc_banco,
+      monto: Number(transaction.monto),
+      moneda: transaction.moneda,
+      account_id: transaction.account_id,
+    }, userId, {
+      settings: settingsObject,
+      categories: allCategories,
+      classification,
+    });
+    if (reviewItem) {
+      transactionReviewQueue.push(reviewItem);
+    }
+  }
+
+  const guidedReviewGroups = listGuidedReviewGroups(reviewGroups, 6);
+  const guidedOnboardingDone = String(settingsObject.guided_categorization_onboarding_completed || "0") === "1";
+  const guidedOnboardingSkipped = String(settingsObject.guided_categorization_onboarding_skipped || "0") === "1";
+  const guidedOnboardingRequired = !guidedOnboardingDone && !guidedOnboardingSkipped && guidedReviewGroups.length > 0;
+
+  return {
+    review_groups: listReviewGroups(reviewGroups),
+    transaction_review_queue: transactionReviewQueue,
+    guided_review_groups: guidedReviewGroups,
+    guided_onboarding_required: guidedOnboardingRequired,
+    guided_onboarding_session: guidedOnboardingRequired ? { max_cards: guidedReviewGroups.length } : null,
+    remaining_transaction_ids: activeTransactions.map((transaction) => Number(transaction.id)),
+  };
 }
 
 router.get("/search", async (c) => {
@@ -105,6 +198,49 @@ router.get("/candidates", async (c) => {
   return c.json(await getCandidatesForPattern(db, pattern, categoryId, userId));
 });
 
+router.post("/review/pending-guided", async (c) => {
+  const userId = c.get("userId");
+  const { transaction_ids = [], month = null, account_id = null } = await c.req.json();
+  if (!Array.isArray(transaction_ids) || transaction_ids.length === 0) {
+    return c.json({ error: "transaction_ids are required" }, 400);
+  }
+
+  const ids = transaction_ids
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value) && value > 0);
+  if (ids.length === 0) {
+    return c.json({ error: "transaction_ids are required" }, 400);
+  }
+
+  const db = getDb(c.env);
+  const placeholders = ids.map(() => "?").join(", ");
+  const params = [userId, ...ids];
+  let filters = `AND t.id IN (${placeholders})`;
+
+  if (month && isValidMonthString(month)) {
+    filters += " AND substr(t.fecha, 1, 7) = ?";
+    params.push(month);
+  }
+  if (account_id) {
+    filters += " AND t.account_id = ?";
+    params.push(account_id);
+  }
+
+  const transactions = await db.prepare(
+    `SELECT t.id, t.fecha, t.desc_banco, t.monto, t.moneda, t.account_id, t.categorization_status
+     FROM transactions t
+     WHERE t.user_id = ?
+       ${filters}
+     ORDER BY t.fecha DESC, t.id DESC`
+  ).all(...params);
+  const settings = await getSettingsObject(c.env, userId);
+  const categories = await db.prepare(
+    "SELECT id, name, slug, type, color, origin FROM categories WHERE user_id = ? ORDER BY sort_order ASC, id ASC"
+  ).all(userId);
+
+  return c.json(await buildPendingGuidedReviewPayload(db, c.env, userId, transactions, settings, categories));
+});
+
 router.post("/confirm-category", async (c) => {
   const userId = c.get("userId");
   const { transaction_ids = [], category_id, rule_id = null, origin = "review" } = await c.req.json();
@@ -114,7 +250,7 @@ router.post("/confirm-category", async (c) => {
 
   const db = getDb(c.env);
   const category = await db.prepare(
-    "SELECT id FROM categories WHERE id = ? AND user_id = ?"
+    "SELECT id, slug FROM categories WHERE id = ? AND user_id = ?"
   ).get(Number(category_id), userId);
   if (!category) return c.json({ error: "category not found" }, 404);
 
@@ -136,6 +272,12 @@ router.post("/confirm-category", async (c) => {
       decision: "confirm",
       origin,
     });
+    const fullTx = await db.prepare(
+      "SELECT desc_banco FROM transactions WHERE id = ? AND user_id = ?"
+    ).get(Number(txId), userId);
+    if (fullTx?.desc_banco) {
+      await recordGlobalPatternLearning(db, userId, fullTx.desc_banco, category_id, "confirm");
+    }
     updated += 1;
   }
 
@@ -630,6 +772,7 @@ router.put("/:id", async (c) => {
       decision: "confirm",
       origin: "manual_edit",
     });
+    await recordGlobalPatternLearning(db, userId, next.desc_banco, body.category_id, "confirm");
   } else if (body.category_id === null && tx.category_id != null) {
     await logCategorizationEvent(db, userId, {
       transactionId: id,

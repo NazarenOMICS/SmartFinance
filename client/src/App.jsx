@@ -20,6 +20,7 @@ import { SkeletonDashboard } from "./components/SkeletonLoader";
 import { isoMonth } from "./utils";
 import {
   getPendingReviewTab,
+  readPendingGuidedReviewContext,
   readPendingReviewSession,
 } from "./utils/pendingReviewSession";
 
@@ -239,6 +240,7 @@ function AppInner() {
   const [schemaStatus, setSchemaStatus] = useState(null);
   const [bootError, setBootError] = useState(null);
   const [resumePendingReview, setResumePendingReview] = useState(null);
+  const [resumeGuidedReview, setResumeGuidedReview] = useState(null);
   const [pendingReminder, setPendingReminder] = useState(null);
   const [dismissedPendingReminder, setDismissedPendingReminder] = useState(false);
   const [dashboardQuickFilter, setDashboardQuickFilter] = useState(null);
@@ -331,8 +333,13 @@ function AppInner() {
     setResumePendingReview(null);
   }
 
+  function consumeResumeGuidedReview() {
+    setResumeGuidedReview(null);
+  }
+
   function handleInvalidResumePendingReview() {
     setResumePendingReview(null);
+    setResumeGuidedReview(null);
     if (pendingCount > 0) {
       setPendingReminder({ type: "general", pendingCount });
       setDismissedPendingReminder(false);
@@ -340,6 +347,10 @@ function AppInner() {
   }
 
   function buildPendingReminderState() {
+    const guidedContext = readPendingGuidedReviewContext(userId);
+    if (guidedContext) {
+      return { type: "guided", context: guidedContext };
+    }
     const exactSession = readPendingReviewSession(userId);
     if (exactSession) {
       return { type: "exact", session: exactSession };
@@ -472,6 +483,7 @@ function AppInner() {
 
   useEffect(() => {
     setResumePendingReview(null);
+    setResumeGuidedReview(null);
     setPendingReminder(null);
     setDismissedPendingReminder(false);
   }, [userId]);
@@ -497,12 +509,42 @@ function AppInner() {
     setPendingReminder(nextReminder);
   }
 
+  function openPendingActionDirectly() {
+    const nextReminder = buildPendingReminderState();
+    if (!nextReminder) return;
+
+    setPendingReminder(null);
+    setDismissedPendingReminder(true);
+
+    if (nextReminder.type === "guided" && nextReminder.context) {
+      setResumeGuidedReview(nextReminder.context);
+      setTab("upload");
+      return;
+    }
+
+    if (nextReminder.type === "exact" && nextReminder.session) {
+      setResumePendingReview(nextReminder.session);
+      setTab(getPendingReviewTab(nextReminder.session.source));
+      return;
+    }
+
+    setTab("dashboard");
+    setDashboardQuickFilter("pending");
+  }
+
   function dismissPendingReminder() {
     setPendingReminder(null);
     setDismissedPendingReminder(true);
   }
 
   function handleResumePendingReminder() {
+    if (pendingReminder?.type === "guided" && pendingReminder.context) {
+      setPendingReminder(null);
+      setDismissedPendingReminder(true);
+      setResumeGuidedReview(pendingReminder.context);
+      setTab("upload");
+      return;
+    }
     if (!pendingReminder?.session) return;
     const session = pendingReminder.session;
     setPendingReminder(null);
@@ -645,18 +687,33 @@ function AppInner() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(22,25,51,0.38)] px-4 backdrop-blur-md">
           <div className="w-full max-w-md rounded-[30px] border border-white/85 bg-[rgba(255,253,249,0.98)] p-6 shadow-[0_32px_90px_rgba(22,25,51,0.28)] dark:border-white/12 dark:bg-[rgba(23,23,36,0.97)]">
             <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">
-              {pendingReminder.type === "exact" ? "Revision pendiente" : "Pendientes por revisar"}
+              {pendingReminder.type === "guided"
+                ? "Categorizacion guiada"
+                : pendingReminder.type === "exact"
+                  ? "Revision pendiente"
+                  : "Pendientes por revisar"}
             </p>
             <h2 className="mt-2 font-display text-3xl text-finance-ink dark:text-neutral-100">
-              {pendingReminder.type === "exact"
-                ? "Quedo una revision de categorizacion pendiente"
-                : "Tenes transacciones sin categorizar"}
+              {pendingReminder.type === "guided"
+                ? "Quedo una categorizacion guiada pendiente"
+                : pendingReminder.type === "exact"
+                  ? "Quedo una revision de categorizacion pendiente"
+                  : "Tenes transacciones sin categorizar"}
             </h2>
             <p className="mt-3 text-sm leading-7 text-neutral-500 dark:text-neutral-300">
-              {pendingReminder.type === "exact"
-                ? "Si cerraste el popup por error, podes retomarlo ahora mismo exactamente donde lo dejaste."
-                : `Hay ${pendingReminder.pendingCount} transaccion${pendingReminder.pendingCount === 1 ? "" : "es"} pendiente${pendingReminder.pendingCount === 1 ? "" : "s"} y conviene resolverlas antes de que queden escondidas en el dashboard.`}
+              {pendingReminder.type === "guided"
+                ? "Si cerraste la revision del upload antes de terminar, la app puede reconstruirla ahora con lo que sigue pendiente."
+                : pendingReminder.type === "exact"
+                  ? "Si cerraste el popup por error, podes retomarlo ahora mismo exactamente donde lo dejaste."
+                  : `Hay ${pendingReminder.pendingCount} transaccion${pendingReminder.pendingCount === 1 ? "" : "es"} pendiente${pendingReminder.pendingCount === 1 ? "" : "s"} y conviene resolverlas antes de que queden escondidas en el dashboard.`}
             </p>
+            {pendingReminder.type === "guided" && pendingReminder.context ? (
+              <div className="mt-4 rounded-2xl border border-neutral-200/80 bg-finance-cream px-4 py-3 text-sm text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+                <p className="font-semibold text-finance-ink dark:text-neutral-100">
+                  {pendingReminder.context.transactionIds.length} movimiento{pendingReminder.context.transactionIds.length === 1 ? "" : "s"} siguen pendientes de esta importacion
+                </p>
+              </div>
+            ) : null}
             {pendingReminder.type === "exact" && pendingReminder.session ? (
               <div className="mt-4 rounded-2xl border border-neutral-200/80 bg-finance-cream px-4 py-3 text-sm text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
                 <p className="font-semibold text-finance-ink dark:text-neutral-100">
@@ -674,10 +731,10 @@ function AppInner() {
               </button>
               <button
                 type="button"
-                onClick={pendingReminder.type === "exact" ? handleResumePendingReminder : handleOpenPendingDashboard}
+                onClick={pendingReminder.type === "general" ? handleOpenPendingDashboard : handleResumePendingReminder}
                 className="rounded-full bg-finance-purple px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
               >
-                {pendingReminder.type === "exact" ? "Retomar ahora" : "Resolver ahora"}
+                {pendingReminder.type === "general" ? "Resolver ahora" : "Retomar ahora"}
               </button>
             </div>
           </div>
@@ -781,12 +838,21 @@ function AppInner() {
             forcedQuickFilter={dashboardQuickFilter}
             onConsumeForcedQuickFilter={() => setDashboardQuickFilter(null)}
             onOpenPendingReminder={showPendingReminder}
-            hasPendingReminder={Boolean(readPendingReviewSession(userId) || pendingCount > 0)}
+            onResumePendingAction={openPendingActionDirectly}
+            hasPendingReminder={Boolean(
+              readPendingGuidedReviewContext(userId) ||
+              readPendingReviewSession(userId) ||
+              pendingCount > 0
+            )}
           />
         )}
         {tab === "upload" && (
           <Upload
             month={month}
+            userId={userId}
+            resumeGuidedReview={resumeGuidedReview}
+            onConsumeResumeGuidedReview={consumeResumeGuidedReview}
+            onInvalidResumeGuidedReview={handleInvalidResumePendingReview}
             onDone={() => {
               setTab("dashboard");
               refreshPendingCount();
@@ -805,6 +871,7 @@ function AppInner() {
             onInvalidResumePendingReview={handleInvalidResumePendingReview}
             pendingCount={pendingCount}
             onOpenPendingReminder={showPendingReminder}
+            onResumePendingAction={openPendingActionDirectly}
           />
         )}
         {tab === "accounts" && (

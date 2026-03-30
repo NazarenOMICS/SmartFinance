@@ -3,6 +3,7 @@ import { getDb, getSettingsObject, isValidMonthString } from "../db.js";
 import { buildDedupHash } from "../services/dedup.js";
 import { buildTransactionReviewSuggestion, bumpRule, classifyTransaction } from "../services/categorizer.js";
 import { extractTransactions } from "../services/tx-extractor.js";
+import { extractTransactionsFromOcrWithOllama } from "../services/ocr-import.js";
 import { parseCSV } from "../services/csv-parser.js";
 import { detectFormat, computeFormatKey, applyColumnMap } from "../services/format-detector.js";
 import {
@@ -16,7 +17,8 @@ import {
 import { normalizePatternValue } from "../services/taxonomy.js";
 
 const router = new Hono();
-const SUPPORTED_IMPORT_EXTENSIONS = new Set(["csv", "pdf", "txt"]);
+const SUPPORTED_IMPORT_EXTENSIONS = new Set(["csv", "pdf", "txt", "png", "jpg", "jpeg", "webp"]);
+const OCR_IMPORT_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp"]);
 
 function isValidISODate(value) {
   const raw = String(value || "");
@@ -137,8 +139,8 @@ router.post("/", async (c) => {
     if (!SUPPORTED_IMPORT_EXTENSIONS.has(ext)) {
       return c.json({ error: "unsupported file type" }, 400);
     }
-    if (ext === "pdf" && !extracted_text) {
-      return c.json({ error: "pdf uploads require extracted_text" }, 400);
+    if ((ext === "pdf" || OCR_IMPORT_EXTENSIONS.has(ext)) && !extracted_text) {
+      return c.json({ error: "image and pdf uploads require extracted_text" }, 400);
     }
 
     const account = await db.prepare("SELECT currency FROM accounts WHERE id=? AND user_id=?").get(account_id, userId);
@@ -250,6 +252,14 @@ router.post("/", async (c) => {
         }
         const { transactions } = extractTransactions(textToParse, patterns, period);
         extractedTxs = transactions;
+        if (extractedTxs.length === 0 && OCR_IMPORT_EXTENSIONS.has(ext)) {
+          const ocrResult = await extractTransactionsFromOcrWithOllama(settings, {
+            text: textToParse,
+            period,
+            moneda: accountCurrency,
+          });
+          extractedTxs = ocrResult.transactions || [];
+        }
       }
     }
 

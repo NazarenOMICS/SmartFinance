@@ -2,13 +2,14 @@ import { useMemo, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../contexts/ToastContext";
 
-export default function RuleReviewDeck({ groups, onDone, onAcceptedGroup }) {
+export default function RuleReviewDeck({ groups, onDone, onClose, onAcceptedGroup }) {
   const { addToast } = useToast();
   const [index, setIndex] = useState(0);
   const [history, setHistory] = useState([]);
   const [saving, setSaving] = useState(false);
 
   const current = groups[index] || null;
+  const visibleSamples = (current?.samples || []).slice(0, 3);
   const remaining = Math.max(groups.length - index, 0);
   const progress = useMemo(() => {
     if (groups.length === 0) return 0;
@@ -84,8 +85,8 @@ export default function RuleReviewDeck({ groups, onDone, onAcceptedGroup }) {
   if (!current) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={(e) => { if (e.target === e.currentTarget) onDone?.(); }}>
-      <div className="w-full max-w-xl rounded-[30px] bg-white p-6 shadow-2xl dark:bg-neutral-900">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }}>
+      <div className="max-h-[88vh] w-full max-w-xl overflow-y-auto rounded-[30px] bg-white p-6 shadow-2xl dark:bg-neutral-900">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Revisión inteligente</p>
@@ -98,7 +99,7 @@ export default function RuleReviewDeck({ groups, onDone, onAcceptedGroup }) {
           </div>
           <button
             type="button"
-            onClick={() => onDone?.()}
+            onClick={() => onClose?.()}
             className="flex h-8 w-8 items-center justify-center rounded-full text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800"
           >
             x
@@ -113,9 +114,16 @@ export default function RuleReviewDeck({ groups, onDone, onAcceptedGroup }) {
         </p>
 
         <div className="mt-5 rounded-[26px] border border-neutral-200 bg-finance-cream/60 p-5 dark:border-neutral-700 dark:bg-neutral-800/80">
-          <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Ejemplos</p>
-          <div className="mt-3 space-y-2">
-            {current.samples.map((sample) => (
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Ejemplos</p>
+            {current.count > visibleSamples.length ? (
+              <p className="text-xs text-neutral-400">
+                Mostrando {visibleSamples.length} de {current.count}
+              </p>
+            ) : null}
+          </div>
+          <div className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
+            {visibleSamples.map((sample) => (
               <div key={sample} className="rounded-2xl bg-white/80 px-4 py-3 text-sm text-finance-ink dark:bg-neutral-900/80 dark:text-neutral-100">
                 {sample}
               </div>

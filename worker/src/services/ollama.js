@@ -13,10 +13,16 @@ function safeJsonParse(raw) {
 function cleanDescriptor(descBanco) {
   return String(descBanco || "")
     .replace(/COMPRA CON TARJETA DEBITO/gi, "")
+    .replace(/COMPRA CON TARJETA DE DEBITO/gi, "")
     .replace(/COMPRA CON VISA DEBITO/gi, "")
     .replace(/COMISION COMPRA INTERNACIONAL/gi, "")
     .replace(/DEBITO OPERACION EN SUPERNET O SMS/gi, "")
     .replace(/CREDITO POR OPERACION EN SUPERNET/gi, "")
+    .replace(/TRANSFERENCIA INMEDIATA/gi, "")
+    .replace(/TRANSFERENCIA REALIZADA/gi, "")
+    .replace(/TRANSF RECIBIDA/gi, "")
+    .replace(/DEBITO DEBIN/gi, "")
+    .replace(/-\s*TARJ NRO\.?\s*[#\d.\-]+/gi, "")
     .replace(/EXT\./gi, "")
     .replace(/TARJ:\s*[#\d.\-]+/gi, "")
     .replace(/FECHA\s*:\s*\d{8}/gi, "")
@@ -43,7 +49,7 @@ export async function suggestCategoryWithOllama(settings, payload) {
     "Prioriza siempre categorias existentes. Solo propone una categoria nueva si ninguna encaja razonablemente.",
     "Nunca mezcles dominios incompatibles: salud no es transporte, transporte no es supermercado, software no es supermercado.",
     "Si la descripcion es ambigua, no auto-categorices.",
-    "Toma como contexto que estos descriptores vienen de BROU/Uruguay y suelen incluir mucho ruido bancario.",
+    "Toma como contexto que estos descriptores vienen de bancos de Uruguay y Argentina y suelen incluir mucho ruido bancario.",
     "Responde SOLO JSON con las claves: category_name, proposed_category_name, proposed_category_type, confidence, should_auto, reason.",
     `Categorias disponibles: ${categoryNames}`,
     `Descripcion bancaria: ${payload.desc_banco}`,
@@ -61,6 +67,12 @@ export async function suggestCategoryWithOllama(settings, payload) {
     "- 'DLO.UBER.RIDES' => Transporte",
     "- 'FROG' o 'SUPERMERCADOS EL DOR' => Supermercado",
     "- 'FARMACITY' => Salud",
+    "- 'Compra con tarjeta de debito Emova subte' => Transporte",
+    "- 'Compra con tarjeta de debito Sube viajes - buses' => Transporte",
+    "- 'Transferencia inmediata A andres ...' => Transferencia",
+    "- 'Transferencia realizada A angeles ...' => Transferencia",
+    "- 'Debito debin' => Transferencia",
+    "- 'Merpago*...' es ambiguo: no lo mandes a Supermercado por descarte.",
     "Si una descripcion contiene un nombre de persona o parece transferencia entre personas, prioriza Transferencia.",
     "Si es un credito por operacion en supernet tipo P--/, prioriza Ingreso.",
     "Si es ORT o educacion universitaria, prioriza Educacion.",

@@ -30,6 +30,7 @@ export default function Dashboard({
   forcedQuickFilter = null,
   onConsumeForcedQuickFilter,
   onOpenPendingReminder,
+  onResumePendingAction,
   hasPendingReminder = false,
 }) {
   const { addToast } = useToast();
@@ -537,7 +538,7 @@ export default function Dashboard({
             </div>
             <button
               type="button"
-              onClick={onOpenPendingReminder}
+              onClick={onResumePendingAction || onOpenPendingReminder}
               className="shrink-0 rounded-full bg-finance-purple px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
             >
               Revisar pendientes

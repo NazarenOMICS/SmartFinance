@@ -9,6 +9,7 @@ export default function GuidedCategorizationDeck({ groups, onComplete, onFollowL
   const [saving, setSaving] = useState(false);
 
   const current = groups[index] || null;
+  const visibleSamples = (current?.samples || []).slice(0, 3);
   const remaining = Math.max(groups.length - index, 0);
   const progress = useMemo(() => {
     if (groups.length === 0) return 0;
@@ -158,7 +159,7 @@ export default function GuidedCategorizationDeck({ groups, onComplete, onFollowL
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-sm"
       onClick={(event) => { if (event.target === event.currentTarget) onFollowLater?.(); }}
     >
-      <div className="w-full max-w-2xl rounded-[32px] bg-white p-6 shadow-2xl dark:bg-neutral-900">
+      <div className="max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-[32px] bg-white p-6 shadow-2xl dark:bg-neutral-900">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Aprendizaje guiado</p>
@@ -227,9 +228,16 @@ export default function GuidedCategorizationDeck({ groups, onComplete, onFollowL
         </div>
 
         <div className="mt-5 rounded-[26px] border border-neutral-200 bg-finance-cream/60 p-5 dark:border-neutral-700 dark:bg-neutral-800/80">
-          <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Ejemplos reales</p>
-          <div className="mt-3 space-y-2">
-            {current.samples.map((sample) => (
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Ejemplos reales</p>
+            {current.count > visibleSamples.length ? (
+              <p className="text-xs text-neutral-400">
+                Mostrando {visibleSamples.length} de {current.count}
+              </p>
+            ) : null}
+          </div>
+          <div className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
+            {visibleSamples.map((sample) => (
               <div key={sample} className="rounded-2xl bg-white/80 px-4 py-3 text-sm text-finance-ink dark:bg-neutral-900/80 dark:text-neutral-100">
                 {sample}
               </div>

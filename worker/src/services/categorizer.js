@@ -1,5 +1,6 @@
 import { suggest } from "./suggester.js";
 import { suggestCategoryWithOllama } from "./ollama.js";
+import { findGlobalAliasMatch } from "./global-learning.js";
 import { hasAmbiguousMerchantHint, matchCanonicalCategory, normalizePatternValue, normalizeText } from "./taxonomy.js";
 
 const CATEGORY_PROPOSAL_COLORS = ["#534AB7", "#1D9E75", "#D85A30", "#378ADD", "#BA7517", "#639922", "#E24B4A", "#888780", "#9B59B6", "#2ECC71"];
@@ -112,6 +113,9 @@ function inferGenericCategoryName(descBanco = "") {
   if ([" uber ", " cabify ", " bolt ", " didi ", " taxi ", " peaje ", " parking "].some((item) => desc.includes(item))) {
     return "Transporte";
   }
+  if ([" sube ", " sube viajes ", " emova ", " subte "].some((item) => desc.includes(item))) {
+    return "Transporte";
+  }
   if ([" disco ", " devoto ", " tienda inglesa ", " frog ", " dorado ", " supermercado "].some((item) => desc.includes(item))) {
     return "Supermercado";
   }
@@ -217,10 +221,18 @@ const TRANSFER_KEYWORDS = [
   "transferencia interna",
   "movimiento entre cuentas",
   "debito transferencia interna",
+  "transferencia inmediata",
+  "transferencia realizada",
+  "transf recibida",
+  "debito debin",
+  "credito debin",
 ];
 
 const PERSON_TRANSFER_KEYWORDS = [
   "transferencia enviada",
+  "transferencia inmediata a ",
+  "transferencia realizada a ",
+  "transf recibida ",
   "trf plaza",
   "trf. plaza",
   "t--/",
@@ -291,6 +303,13 @@ async function resolveCategoryByName(db, userId, name) {
   return db.prepare(
     "SELECT id, name, slug, color, type FROM categories WHERE user_id = ? AND name = ? COLLATE NOCASE"
   ).get(userId, name);
+}
+
+async function resolveCategoryBySlug(db, userId, slug) {
+  if (!slug) return null;
+  return db.prepare(
+    "SELECT id, name, slug, color, type FROM categories WHERE user_id = ? AND slug = ?"
+  ).get(userId, slug);
 }
 
 function buildSuggestion(rule, category, confidence, reason, source = "regla") {
@@ -568,6 +587,33 @@ export async function classifyTransaction(db, env, tx, userId, options = {}) {
         category_rule_id: null,
         reason: "Detectado como reintegro/devolucion",
         category: refundCategory,
+      };
+    }
+  }
+
+  const globalAlias = await findGlobalAliasMatch(db, tx.desc_banco);
+  if (globalAlias?.category_slug) {
+    const category = await resolveCategoryBySlug(db, userId, globalAlias.category_slug);
+    if (category) {
+      return {
+        categoryId: null,
+        action: "suggest",
+        confidence: 0.82,
+        source: "global_alias",
+        rule: null,
+        suggestion: {
+          category_id: category.id,
+          category_name: category.name,
+          source: "alias global",
+          confidence: 0.82,
+          reason: `Alias agregado aprobado: ${globalAlias.normalized_pattern}`,
+        },
+        categorization_status: "suggested",
+        category_source: "global_alias",
+        category_confidence: 0.82,
+        category_rule_id: null,
+        reason: `Alias agregado aprobado: ${globalAlias.normalized_pattern}`,
+        category,
       };
     }
   }

@@ -91,7 +91,12 @@ function autoDetectRoles(headers) {
     else if (roles.desc === undefined && /concepto|descripcion|desc|detalle|text|verwendung|narration/.test(n))   roles.desc   = i;
     else if (roles.debit === undefined && /dbito|debito|cargo|egreso|debe|withdrawal/.test(n))                     roles.debit  = i;
     else if (roles.credit === undefined && /crdito|credito|abono|ingreso|haber|deposit/.test(n))                   roles.credit = i;
-    else if (roles.monto === undefined && /^monto$|^importe$|^amount$|^betrag$|^valor$/.test(n))                   roles.monto  = i;
+    else if (
+      roles.monto === undefined &&
+      (/^monto$|^importe$|^amount$|^betrag$|^valor$/.test(n) || /caja de ahorro|cuenta corriente/.test(n))
+    ) {
+      roles.monto  = i;
+    }
   });
   return roles;
 }

@@ -43,7 +43,7 @@ const DEFAULT_GLOBAL_EXCHANGE_RATES = {
   exchange_rate_fetch_error: "",
 };
 const SUPPORTED_CURRENCIES = new Set(SUPPORTED_CURRENCY_LIST);
-const SCHEMA_VERSION = "2026-03-contract-v2";
+const SCHEMA_VERSION = "2026-03-contract-v3";
 const EXPECTED_SCHEMA_VERSION = SCHEMA_VERSION;
 
 function getExchangeRateSettingKey(currency) {
@@ -183,6 +183,38 @@ function migrate() {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS global_pattern_candidates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      normalized_pattern TEXT NOT NULL,
+      category_slug TEXT NOT NULL,
+      sample_count INTEGER NOT NULL DEFAULT 0,
+      user_count INTEGER NOT NULL DEFAULT 0,
+      confirm_count INTEGER NOT NULL DEFAULT 0,
+      reject_count INTEGER NOT NULL DEFAULT 0,
+      confidence_score REAL NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT DEFAULT (datetime('now')),
+      last_seen_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS global_pattern_candidate_users (
+      candidate_id INTEGER NOT NULL,
+      user_fingerprint TEXT NOT NULL,
+      last_decision TEXT NOT NULL DEFAULT 'confirm',
+      created_at TEXT DEFAULT (datetime('now')),
+      last_seen_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (candidate_id, user_fingerprint)
+    );
+
+    CREATE TABLE IF NOT EXISTS global_pattern_aliases (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      normalized_pattern TEXT NOT NULL UNIQUE,
+      category_slug TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'auto_approved',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
   `);
 
   const categoryColumns = new Set(db.prepare("PRAGMA table_info(categories)").all().map((column) => column.name));
@@ -245,6 +277,8 @@ function migrate() {
   db.exec("CREATE INDEX IF NOT EXISTS idx_rule_exclusions_tx ON rule_exclusions(transaction_id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_categorization_events_tx ON categorization_events(transaction_id, created_at DESC)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(categorization_status, fecha DESC)");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_global_pattern_candidate_scope ON global_pattern_candidates(normalized_pattern, category_slug)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_global_pattern_candidates_status ON global_pattern_candidates(status, confidence_score DESC, user_count DESC)");
 
   const insertSetting = db.prepare(`
     INSERT INTO settings (key, value) VALUES (?, ?)

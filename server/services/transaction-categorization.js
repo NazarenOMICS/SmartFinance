@@ -11,6 +11,7 @@ const {
   matchCanonicalCategory,
   normalizeText,
 } = require("./taxonomy");
+const { findGlobalAliasMatch } = require("./global-learning");
 
 const CATEGORY_PROPOSAL_COLORS = [
   "#5B4FCF",
@@ -59,6 +60,9 @@ function inferGenericCategoryName(descBanco = "") {
     return "Delivery";
   }
   if ([" uber ", " cabify ", " bolt ", " didi ", " taxi ", " peaje ", " parking "].some((item) => desc.includes(item))) {
+    return "Transporte";
+  }
+  if ([" sube ", " sube viajes ", " emova ", " subte "].some((item) => desc.includes(item))) {
     return "Transporte";
   }
   if ([" disco ", " devoto ", " tienda inglesa ", " frog ", " dorado ", " supermercado "].some((item) => desc.includes(item))) {
@@ -229,6 +233,19 @@ function resolveTransactionClassification(db, descBanco, monto, moneda, explicit
         status: "categorized",
         source: "refund",
         confidence: 0.9,
+      });
+    }
+  }
+
+  const globalAlias = findGlobalAliasMatch(db, descBanco);
+  if (globalAlias?.category_slug) {
+    const category = db.prepare("SELECT id FROM categories WHERE slug = ?").get(globalAlias.category_slug);
+    if (category) {
+      return buildCategorizationRecord({
+        categoryId: category.id,
+        status: "suggested",
+        source: "global_alias",
+        confidence: 0.82,
       });
     }
   }

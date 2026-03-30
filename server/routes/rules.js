@@ -2,6 +2,7 @@ const express = require("express");
 const { db } = require("../db");
 const { findCandidatesForRule } = require("../services/categorizer");
 const { buildSeedRules, normalizePatternValue } = require("../services/taxonomy");
+const { recordGlobalPatternLearning } = require("../services/global-learning");
 
 const router = express.Router();
 
@@ -82,6 +83,9 @@ router.post("/", (req, res) => {
 
   const rule = db.prepare("SELECT * FROM rules WHERE id = ?").get(result.lastInsertRowid);
   const candidates_count = findCandidatesForRule(db, String(pattern).trim(), Number(category_id)).length;
+  if (source === "manual" || source === "guided") {
+    recordGlobalPatternLearning(db, "local-user", String(pattern).trim(), category_id, "confirm");
+  }
   res.status(201).json({ ...rule, candidates_count });
 });
 

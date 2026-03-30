@@ -28,10 +28,18 @@ const TRANSFER_KEYWORDS = [
   "transferencia interna",
   "movimiento entre cuentas",
   "debito transferencia interna",
+  "transferencia inmediata",
+  "transferencia realizada",
+  "transf recibida",
+  "debito debin",
+  "credito debin",
 ];
 
 const PERSON_TRANSFER_KEYWORDS = [
   "transferencia enviada",
+  "transferencia inmediata a ",
+  "transferencia realizada a ",
+  "transf recibida ",
   "trf plaza",
   "trf. plaza",
   "t--/",

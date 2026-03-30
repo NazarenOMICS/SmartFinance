@@ -3,6 +3,7 @@ const express = require("express");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const XLSX = require("xlsx");
 
 const { db, getSettingsObject, isValidMonthString } = require("../db");
 const { parsePdfText } = require("../services/pdf-parser");
@@ -12,6 +13,7 @@ const {
   buildTransactionReviewSuggestion,
   resolveTransactionClassification,
 } = require("../services/transaction-categorization");
+const { extractTransactionsFromOcrWithOllama } = require("../services/ocr-import");
 const {
   createReviewGroupTracker,
   ensureSmartCategoriesForTransactions,
@@ -21,10 +23,12 @@ const {
   trackReviewGroup,
 } = require("../services/smart-categories");
 const { normalizePatternValue } = require("../services/taxonomy");
+const { detectFormat, applyColumnMap } = require("../services/format-detector");
 
 const router = express.Router();
 const uploadsDir = path.join(__dirname, "..", "..", "uploads");
-const SUPPORTED_IMPORT_EXTENSIONS = new Set([".pdf", ".csv", ".txt"]);
+const SUPPORTED_IMPORT_EXTENSIONS = new Set([".pdf", ".csv", ".txt", ".xlsx", ".xls", ".png", ".jpg", ".jpeg", ".webp"]);
+const OCR_IMPORT_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 
 function resolveUploadClassification(descBanco, monto, moneda) {
   const classification = resolveTransactionClassification(db, descBanco, monto, moneda);
@@ -91,6 +95,56 @@ function parseCsvRows(text) {
     .map(l => splitCSVLine(l, delim))
     .filter(r => r.some(c => c.length > 0));
   return rows;
+}
+
+function normalizeSheetCell(value) {
+  if (value == null) return "";
+  return String(value).trim();
+}
+
+function trimEmptySpreadsheetColumns(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return rows;
+  const maxColumns = rows.reduce((max, row) => Math.max(max, row.length), 0);
+  const keepIndexes = [];
+  for (let columnIndex = 0; columnIndex < maxColumns; columnIndex++) {
+    const hasContent = rows.some((row) => String(row[columnIndex] || "").trim());
+    if (hasContent) keepIndexes.push(columnIndex);
+  }
+  return rows.map((row) => keepIndexes.map((columnIndex) => row[columnIndex] ?? ""));
+}
+
+function findSpreadsheetHeaderRow(rows) {
+  for (let i = 0; i < Math.min(rows.length, 40); i++) {
+    const normalized = (rows[i] || []).map((cell) => normH(cell));
+    const hasFecha = normalized.some((value) => value === "fecha" || value === "date");
+    const hasAmount = normalized.some((value) =>
+      /dbito|debito|credito|crdito|monto|importe|amount|valor|caja de ahorro|cuenta corriente|saldo/.test(value)
+    );
+    if (hasFecha && hasAmount) return i;
+  }
+  return rows.findIndex((row) => row.some((cell) => String(cell || "").trim()));
+}
+
+function readSpreadsheetRows(filePath) {
+  const workbook = XLSX.readFile(filePath, { raw: false, cellDates: false });
+  const sheetName = workbook.SheetNames.find((name) => {
+    const sheet = workbook.Sheets[name];
+    if (!sheet) return false;
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" });
+    return rows.some((row) => Array.isArray(row) && row.some((cell) => String(cell || "").trim()));
+  });
+  if (!sheetName) return null;
+
+  const sheet = workbook.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" })
+    .map((row) => (Array.isArray(row) ? row.map(normalizeSheetCell) : []))
+    .filter((row) => row.some((cell) => String(cell || "").trim()));
+  if (rows.length === 0) return null;
+
+  const headerIdx = findSpreadsheetHeaderRow(rows);
+  if (headerIdx < 0 || headerIdx >= rows.length) return null;
+
+  return trimEmptySpreadsheetColumns(rows.slice(headerIdx));
 }
 
 function formatKeyFromHeaders(headers) {
@@ -246,6 +300,10 @@ router.post("/", upload.single("file"), async (req, res, next) => {
       cleanupUploadedFile(req.file.path);
       return res.status(400).json({ error: "unsupported file type" });
     }
+    if ((extension === ".pdf" || OCR_IMPORT_EXTENSIONS.has(extension)) && !req.body.extracted_text) {
+      cleanupUploadedFile(req.file.path);
+      return res.status(400).json({ error: "image and pdf uploads require extracted_text" });
+    }
 
     const existingTransactions = db.prepare("SELECT COUNT(*) AS count FROM transactions").get();
     const hadTransactionsBeforeUpload = Number(existingTransactions?.count || 0) > 0;
@@ -279,7 +337,133 @@ router.post("/", upload.single("file"), async (req, res, next) => {
     // Falls back to UYU if account not found (shouldn't happen in normal flow).
     const accountCurrency = accountRow?.currency || "UYU";
 
-    if (extension === ".pdf" || extension === ".txt") {
+    if (extension === ".xlsx" || extension === ".xls") {
+      const rows = readSpreadsheetRows(req.file.path);
+      if (!rows || rows.length < 2) {
+        cleanupUploadedFile(req.file.path);
+        db.prepare("UPDATE uploads SET status='error' WHERE id = ?").run(uploadId);
+        return res.status(400).json({ error: "Excel file is empty or malformed" });
+      }
+
+      const headers = rows[0];
+      const formatKey = formatKeyFromHeaders(headers);
+
+      let savedFormat = null;
+      try {
+        savedFormat = db.prepare("SELECT * FROM bank_formats WHERE format_key = ?").get(formatKey);
+      } catch (_) {
+        savedFormat = null;
+      }
+
+      let columns = null;
+      if (savedFormat) {
+        columns = {
+          fecha: savedFormat.col_fecha,
+          desc: savedFormat.col_desc,
+          debit: savedFormat.col_debit,
+          credit: savedFormat.col_credit,
+          monto: savedFormat.col_monto,
+        };
+      }
+
+      if (!columns) {
+        const detected = detectFormat(headers);
+        if (detected) columns = detected.columns;
+      }
+
+      if (!columns || columns.fecha < 0) {
+        cleanupUploadedFile(req.file.path);
+        db.prepare("UPDATE uploads SET status='needs_mapping' WHERE id = ?").run(uploadId);
+        return res.status(200).json({
+          upload_id: uploadId,
+          needs_mapping: true,
+          format_key: formatKey,
+          columns: headers,
+          sample: rows.slice(0, 6),
+          new_transactions: 0,
+          duplicates_skipped: 0,
+          auto_categorized: 0,
+          pending_review: 0,
+        });
+      }
+
+      const { transactions } = applyColumnMap(rows.slice(1), columns, period);
+      ensureSmartCategoriesForTransactions(db, transactions);
+      const categories = db.prepare(
+        "SELECT id, name, slug, type, color FROM categories ORDER BY sort_order ASC, id ASC"
+      ).all();
+      const categoryByName = new Map(categories.map((category) => [category.name.toLowerCase(), category]));
+
+      const insertTx = db.prepare(
+        `
+        INSERT INTO transactions (
+          fecha, desc_banco, monto, moneda, category_id, account_id, upload_id, dedup_hash,
+          categorization_status, category_source, category_confidence, category_rule_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+      );
+      const checkDup = db.prepare(
+        "SELECT id FROM transactions WHERE dedup_hash = ? AND substr(fecha, 1, 7) = ? LIMIT 1"
+      );
+
+      const runInserts = db.transaction((txList) => {
+        for (const transaction of txList) {
+          if (!isValidISODate(transaction.fecha) || !Number.isFinite(Number(transaction.monto))) continue;
+          const dedupHash = buildDedupHash(transaction);
+          if (checkDup.get(dedupHash, transaction.fecha.slice(0, 7))) {
+            duplicatesSkipped += 1;
+            continue;
+          }
+
+          const classification = resolveUploadClassification(
+            transaction.desc_banco,
+            Number(transaction.monto),
+            accountCurrency
+          );
+          if (classification.autoCategorized) autoCategorized += 1;
+          else pendingReview += 1;
+
+          const insertResult = insertTx.run(
+            transaction.fecha,
+            transaction.desc_banco,
+            Number(transaction.monto),
+            accountCurrency,
+            classification.categoryId,
+            account_id,
+            uploadId,
+            dedupHash,
+            classification.categorizationStatus,
+            classification.categorySource,
+            classification.categoryConfidence,
+            classification.categoryRuleId
+          );
+          newTransactions += 1;
+
+          if (!classification.categoryId) {
+            const smartMatch = matchSmartCategoryTemplate(transaction.desc_banco);
+            if (smartMatch) {
+              const smartCategory = categoryByName.get(smartMatch.template.name.toLowerCase());
+              if (smartCategory) {
+                trackReviewGroup(reviewGroups, transaction, smartMatch, smartCategory.id, insertResult.lastInsertRowid, {
+                  skipPatterns: skippedPatternKeys,
+                });
+              }
+            }
+          }
+
+          const reviewItem = buildTransactionReviewSuggestion(db, transaction, categories, {
+            accountId: account_id,
+            transactionId: insertResult.lastInsertRowid,
+            settings,
+          });
+          if (reviewItem) {
+            transactionReviewQueue.push(reviewItem);
+          }
+        }
+      });
+
+      runInserts(transactions);
+    } else if (extension === ".pdf" || extension === ".txt" || OCR_IMPORT_EXTENSIONS.has(extension)) {
       // The browser client (PDF.js) extracts text client-side and sends it as
       // the `extracted_text` form field to avoid a round-trip server PDF parse.
       // Fall back to server-side pdf-parse only when the field is absent
@@ -291,7 +475,16 @@ router.post("/", upload.single("file"), async (req, res, next) => {
           : await parsePdfText(req.file.path);
       const patterns = JSON.parse(settings.parsing_patterns || "[]");
       const extracted = extractTransactions(text, patterns, period);
-      ensureSmartCategoriesForTransactions(db, extracted.transactions);
+      let extractedTransactions = extracted.transactions;
+      if (extractedTransactions.length === 0 && OCR_IMPORT_EXTENSIONS.has(extension)) {
+        const ocrResult = await extractTransactionsFromOcrWithOllama(settings, {
+          text,
+          period,
+          moneda: accountCurrency,
+        });
+        extractedTransactions = ocrResult.transactions || [];
+      }
+      ensureSmartCategoriesForTransactions(db, extractedTransactions);
       const categories = db.prepare(
         "SELECT id, name, slug, type, color FROM categories ORDER BY sort_order ASC, id ASC"
       ).all();
@@ -362,7 +555,7 @@ router.post("/", upload.single("file"), async (req, res, next) => {
         }
       });
 
-      runInserts(extracted.transactions);
+      runInserts(extractedTransactions);
     } else if (extension === ".csv") {
       const text = fs.readFileSync(req.file.path, "utf-8");
       const rows = parseCsvRows(text);
@@ -498,6 +691,7 @@ router.post("/", upload.single("file"), async (req, res, next) => {
       guidedReviewGroups.length > 0
     );
 
+    cleanupUploadedFile(req.file?.path);
     res.status(201).json({
       upload_id: uploadResult.lastInsertRowid,
       new_transactions: newTransactions,

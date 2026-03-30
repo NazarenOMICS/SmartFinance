@@ -1,9 +1,11 @@
 {
-  "version": "2026-03-modern-uy-v2",
+  "version": "2026-03-modern-uy-v3",
   "ambiguous_merchants": [
     "mercado pago",
     "mercadopago",
     "prex",
+    "merpago",
+    "mercadopago*",
     "redpagos",
     "red pagos",
     "abitab",
@@ -67,7 +69,7 @@
       "color": "#1D9E75",
       "sort_order": 3,
       "origin": "seed",
-      "keywords": ["uber", "uber trip", "uber one", "cabify", "bolt", "didi", "cutcsa", "taxi", "peaje", "ancap", "nafta", "gasolina", "combustible", "autobus", "omnibus", "stm ", "stm", "moovit", "parking"],
+      "keywords": ["uber", "uber trip", "uber one", "cabify", "bolt", "didi", "cutcsa", "taxi", "peaje", "ancap", "nafta", "gasolina", "combustible", "autobus", "omnibus", "stm ", "stm", "moovit", "parking", "sube", "sube viajes", "emova", "subte"],
       "seed_patterns": [
         { "pattern": "uber", "tier": "obvious_auto" },
         { "pattern": "uber trip", "tier": "obvious_auto" },
@@ -81,7 +83,11 @@
         { "pattern": "taxi", "tier": "clear_suggest" },
         { "pattern": "peaje", "tier": "clear_suggest" },
         { "pattern": "stm", "tier": "clear_suggest" },
-        { "pattern": "moovit", "tier": "clear_suggest" }
+        { "pattern": "moovit", "tier": "clear_suggest" },
+        { "pattern": "sube", "tier": "clear_suggest" },
+        { "pattern": "sube viajes", "tier": "clear_suggest" },
+        { "pattern": "emova", "tier": "clear_suggest" },
+        { "pattern": "subte", "tier": "clear_suggest" }
       ]
     },
     {

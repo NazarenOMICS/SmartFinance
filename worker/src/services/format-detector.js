@@ -66,6 +66,23 @@ export const KNOWN_FORMATS = [
   },
 
   {
+    id: "santander_ar",
+    name: "Santander Argentina",
+    detect: (nh) =>
+      nh.some(h => h === "fecha") &&
+      nh.some(h => /descripcion/.test(h)) &&
+      nh.some(h => /caja de ahorro|cuenta corriente/.test(h)) &&
+      nh.some(h => /^saldo$/.test(h)),
+    map: (nh) => ({
+      fecha:  nh.findIndex(h => h === "fecha"),
+      desc:   nh.findIndex(h => /descripcion|detalle|concepto/.test(h)),
+      debit:  -1,
+      credit: -1,
+      monto:  nh.findIndex(h => /caja de ahorro|cuenta corriente|importe|monto|valor/.test(h)),
+    }),
+  },
+
+  {
     id: "itau_uy",
     name: "Itaú Uruguay",
     detect: (nh) =>
@@ -272,7 +289,7 @@ export function detectFormat(rawHeaders) {
   // 2. Generic heuristic fallback (no specific bank detected but pattern matches)
   const fi = nh.findIndex(h => /fecha|date|datum|dato/.test(h));
   const di = nh.findIndex(h => /concepto|descripcion|desc|detalle|text|verwendung|narration|particulars/.test(h));
-  const mi = nh.findIndex(h => /monto|importe|amount|betrag|valor/.test(h));
+  const mi = nh.findIndex(h => /monto|importe|amount|betrag|valor|caja de ahorro|cuenta corriente/.test(h));
   const bi = nh.findIndex(h => /dbito|debito|cargo|egreso|debe|withdrawal/.test(h));
   const ci = nh.findIndex(h => /crdito|credito|abono|ingreso|haber|deposit/.test(h));
 

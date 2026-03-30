@@ -13,7 +13,9 @@
     "pdfjs-dist": "^4.9.155",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "recharts": "^2.15.1"
+    "recharts": "^2.15.1",
+    "tesseract.js": "^7.0.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.4.1",
@@ -23,4 +25,3 @@
     "vite": "^6.2.2"
   }
 }
-

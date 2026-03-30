@@ -59,6 +59,11 @@ export const api = {
     request(`/api/transactions/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   batchCreateTransactions: (body) =>
     request("/api/transactions/batch", { method: "POST", body: JSON.stringify(body) }),
+  resumePendingGuidedReview: (body) =>
+    request("/api/transactions/review/pending-guided", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   getEvolution: (end, months = 6) =>
     request(`/api/transactions/monthly-evolution?end=${end}&months=${months}`),
   deleteTransaction: (id) =>

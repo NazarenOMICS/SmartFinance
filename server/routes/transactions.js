@@ -21,6 +21,7 @@ const {
   markTransactionSuggested,
   resolveTransactionClassification,
 } = require("../services/transaction-categorization");
+const { recordGlobalPatternLearning } = require("../services/global-learning");
 
 const router = express.Router();
 const SUPPORTED_CURRENCIES = new Set(SUPPORTED_CURRENCY_LIST);
@@ -50,6 +51,88 @@ function isValidISODate(value) {
     date.getUTCMonth() === month - 1 &&
     date.getUTCDate() === day
   );
+}
+
+function buildPendingGuidedReviewPayload(transactions, settings, categories) {
+  const activeTransactions = transactions.filter(
+    (transaction) => transaction && transaction.categorization_status !== "categorized"
+  );
+  if (activeTransactions.length === 0) {
+    return {
+      review_groups: [],
+      transaction_review_queue: [],
+      guided_review_groups: [],
+      guided_onboarding_required: false,
+      guided_onboarding_session: null,
+      remaining_transaction_ids: [],
+    };
+  }
+
+  ensureSmartCategoriesForTransactions(db, activeTransactions);
+  const categoryByName = new Map(
+    categories.map((category) => [String(category.name || "").toLowerCase(), category])
+  );
+  const disabledPatterns = db.prepare(
+    `SELECT normalized_pattern, category_id
+     FROM rules
+     WHERE mode = 'disabled'
+       AND normalized_pattern IS NOT NULL
+       AND normalized_pattern != ''`
+  ).all();
+  const skippedPatternKeys = new Set(
+    disabledPatterns.map((row) => `${Number(row.category_id)}:${normalizePatternValue(row.normalized_pattern)}`)
+  );
+  const reviewGroups = createReviewGroupTracker();
+  const transactionReviewQueue = [];
+
+  for (const transaction of activeTransactions) {
+    const classification = resolveTransactionClassification(
+      db,
+      transaction.desc_banco,
+      Number(transaction.monto),
+      transaction.moneda,
+      null
+    );
+
+    const smartMatch = matchSmartCategoryTemplate(transaction.desc_banco);
+    if (smartMatch) {
+      const smartCategory = categoryByName.get(String(smartMatch.template.name || "").toLowerCase());
+      if (smartCategory) {
+        trackReviewGroup(reviewGroups, transaction, smartMatch, smartCategory.id, transaction.id, {
+          skipPatterns: skippedPatternKeys,
+        });
+      }
+    }
+
+    const reviewItem = buildTransactionReviewSuggestion(db, {
+      id: transaction.id,
+      fecha: transaction.fecha,
+      desc_banco: transaction.desc_banco,
+      monto: Number(transaction.monto),
+      moneda: transaction.moneda,
+      account_id: transaction.account_id,
+    }, {
+      categories,
+      classification,
+    });
+    if (reviewItem) {
+      transactionReviewQueue.push(reviewItem);
+    }
+  }
+
+  const guidedReviewGroups = listGuidedReviewGroups(reviewGroups, 6);
+  const guidedOnboardingDone = String(settings.guided_categorization_onboarding_completed || "0") === "1";
+  const guidedOnboardingSkipped = String(settings.guided_categorization_onboarding_skipped || "0") === "1";
+  const guidedOnboardingRequired = !guidedOnboardingDone && !guidedOnboardingSkipped && guidedReviewGroups.length > 0;
+
+  return {
+    review_groups: listReviewGroups(reviewGroups),
+    transaction_review_queue: transactionReviewQueue,
+    guided_review_groups: guidedReviewGroups,
+    guided_onboarding_required: guidedOnboardingRequired,
+    guided_onboarding_session: guidedOnboardingRequired ? { max_cards: guidedReviewGroups.length } : null,
+    remaining_transaction_ids: activeTransactions.map((transaction) => Number(transaction.id)),
+  };
 }
 
 router.get("/pending", (req, res) => {
@@ -97,6 +180,46 @@ router.get("/search", (req, res) => {
     )
     .all(pattern, pattern, pattern, limit);
   res.json(rows);
+});
+
+router.post("/review/pending-guided", (req, res) => {
+  const { transaction_ids = [], month = null, account_id = null } = req.body || {};
+  if (!Array.isArray(transaction_ids) || transaction_ids.length === 0) {
+    return res.status(400).json({ error: "transaction_ids are required" });
+  }
+
+  const ids = transaction_ids
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value) && value > 0);
+  if (ids.length === 0) {
+    return res.status(400).json({ error: "transaction_ids are required" });
+  }
+
+  const placeholders = ids.map(() => "?").join(", ");
+  const params = [...ids];
+  let filters = `AND t.id IN (${placeholders})`;
+  if (month && isValidMonthString(month)) {
+    filters += " AND substr(t.fecha, 1, 7) = ?";
+    params.push(month);
+  }
+  if (account_id) {
+    filters += " AND t.account_id = ?";
+    params.push(account_id);
+  }
+
+  const transactions = db.prepare(
+    `SELECT t.id, t.fecha, t.desc_banco, t.monto, t.moneda, t.account_id, t.categorization_status
+     FROM transactions t
+     WHERE 1 = 1
+       ${filters}
+     ORDER BY t.fecha DESC, t.id DESC`
+  ).all(...params);
+  const settings = getSettingsObject();
+  const categories = db.prepare(
+    "SELECT id, name, slug, type, color, origin FROM categories ORDER BY sort_order ASC, id ASC"
+  ).all();
+
+  res.json(buildPendingGuidedReviewPayload(transactions, settings, categories));
 });
 
 router.get("/", (req, res) => {
@@ -308,6 +431,7 @@ router.put("/:id", (req, res) => {
   let ruleStatus = null;
   if (req.body.category_id && req.body.category_id !== current.category_id) {
     ruleStatus = ensureRuleForManualCategorization(db, current.desc_banco, req.body.category_id);
+    recordGlobalPatternLearning(db, "local-user", current.desc_banco, req.body.category_id, "confirm");
   }
 
   const updated = db
@@ -362,6 +486,10 @@ router.post("/confirm-category", (req, res) => {
         decision: "confirm",
         origin,
       });
+      const fullTx = db.prepare("SELECT desc_banco FROM transactions WHERE id = ?").get(Number(id));
+      if (fullTx?.desc_banco) {
+        recordGlobalPatternLearning(db, "local-user", fullTx.desc_banco, category_id, "confirm");
+      }
       confirmed += 1;
     }
   });

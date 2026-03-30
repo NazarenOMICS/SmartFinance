@@ -9,6 +9,10 @@ import GuidedCategorizationDeck from "../components/GuidedCategorizationDeck";
 import RuleReviewDeck from "../components/RuleReviewDeck";
 import TransactionReviewDeck from "../components/TransactionReviewDeck";
 import { SUPPORTED_CURRENCY_OPTIONS } from "../utils";
+import {
+  clearPendingGuidedReviewContext,
+  writePendingGuidedReviewContext,
+} from "../utils/pendingReviewSession";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.mjs",
@@ -227,6 +231,92 @@ async function extractPdfText(file) {
   return extractGenericPdfText(rows, false);
 }
 
+function computeClientFormatKey(rawHeaders = []) {
+  const normalized = rawHeaders.slice(0, 8).map((value) => normForDetect(value)).filter(Boolean).join("|");
+  let hash = 5381;
+  for (const ch of normalized) {
+    hash = ((hash << 5) + hash) ^ ch.charCodeAt(0);
+    hash = hash >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+function normalizeSheetCell(value) {
+  if (value == null) return "";
+  return String(value).trim();
+}
+
+function findSpreadsheetHeaderRow(rows) {
+  for (let i = 0; i < Math.min(rows.length, 40); i++) {
+    const normalized = (rows[i] || []).map((cell) => normForDetect(cell));
+    const hasFecha = normalized.some((value) => value === "fecha" || value === "date");
+    const hasAmount = normalized.some((value) =>
+      /dbito|debito|credito|crdito|monto|importe|amount|valor|caja de ahorro|cuenta corriente|saldo/.test(value)
+    );
+    if (hasFecha && hasAmount) return i;
+  }
+  return rows.findIndex((row) => row.some((cell) => String(cell || "").trim()));
+}
+
+function trimEmptySpreadsheetColumns(rows = []) {
+  if (!Array.isArray(rows) || rows.length === 0) return rows;
+  const maxColumns = rows.reduce((max, row) => Math.max(max, row.length), 0);
+  const keepIndexes = [];
+  for (let columnIndex = 0; columnIndex < maxColumns; columnIndex++) {
+    const hasContent = rows.some((row) => String(row[columnIndex] || "").trim());
+    if (hasContent) keepIndexes.push(columnIndex);
+  }
+  return rows.map((row) => keepIndexes.map((columnIndex) => row[columnIndex] ?? ""));
+}
+
+async function parseSpreadsheetFile(file) {
+  const XLSX = await import("xlsx");
+  const arrayBuffer = await file.arrayBuffer();
+  const workbook = XLSX.read(arrayBuffer, {
+    type: "array",
+    raw: false,
+    cellDates: false,
+  });
+
+  const sheetName = workbook.SheetNames.find((name) => {
+    const sheet = workbook.Sheets[name];
+    if (!sheet) return false;
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" });
+    return rows.some((row) => Array.isArray(row) && row.some((cell) => String(cell || "").trim()));
+  });
+
+  if (!sheetName) return null;
+
+  const sheet = workbook.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" })
+    .map((row) => (Array.isArray(row) ? row.map(normalizeSheetCell) : []))
+    .filter((row) => row.some((cell) => String(cell || "").trim()));
+  if (rows.length === 0) return null;
+
+  const headerIdx = findSpreadsheetHeaderRow(rows);
+  if (headerIdx < 0 || headerIdx >= rows.length) return null;
+
+  const preparedRows = trimEmptySpreadsheetColumns(rows.slice(headerIdx));
+  const headers = preparedRows[0] || [];
+  return {
+    sheetName,
+    rows: preparedRows,
+    sample: preparedRows.slice(0, 6),
+    headers,
+    formatKey: computeClientFormatKey(headers),
+  };
+}
+
+async function extractImageText(file) {
+  const Tesseract = await import("tesseract.js");
+  const result = await Tesseract.recognize(file, "spa+eng");
+  return String(result?.data?.text || "").trim();
+}
+
+function isImageImport(fileName = "") {
+  return /\.(png|jpe?g|webp)$/i.test(String(fileName || ""));
+}
+
 // ─── Saved bank formats panel ────────────────────────────────────────────────
 
 function SavedFormats({ onDeleted }) {
@@ -286,7 +376,15 @@ function SavedFormats({ onDeleted }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function Upload({ month, onDone, onNavigate }) {
+export default function Upload({
+  month,
+  userId,
+  resumeGuidedReview = null,
+  onConsumeResumeGuidedReview,
+  onInvalidResumeGuidedReview,
+  onDone,
+  onNavigate,
+}) {
   const { addToast } = useToast();
   const [accounts, setAccounts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -388,7 +486,14 @@ export default function Upload({ month, onDone, onNavigate }) {
   }
 
   function finishUploadFlow() {
+    if (userId) {
+      clearPendingGuidedReviewContext(userId);
+    }
     resetReviewFlowState();
+    onDone?.();
+  }
+
+  function closeUploadFlowWithPending() {
     onDone?.();
   }
 
@@ -399,7 +504,7 @@ export default function Upload({ month, onDone, onNavigate }) {
       setGuidedOnboardingRequired(false);
       setGuidedReviewGroups([]);
       if (displayedRuleReviewGroups.length === 0 && displayedTransactionReviewQueue.length === 0) {
-        onDone?.();
+        finishUploadFlow();
       }
     } catch (error) {
       addToast("error", error.message);
@@ -407,7 +512,7 @@ export default function Upload({ month, onDone, onNavigate }) {
   }
 
   function handleGuidedFollowLater() {
-    finishUploadFlow();
+    closeUploadFlowWithPending();
   }
 
   async function handleGuidedSkip() {
@@ -423,7 +528,7 @@ export default function Upload({ month, onDone, onNavigate }) {
   function handleRuleReviewDone() {
     setReviewGroups([]);
     if (displayedTransactionReviewQueue.length === 0) {
-      onDone?.();
+      finishUploadFlow();
     }
   }
 
@@ -457,8 +562,28 @@ export default function Upload({ month, onDone, onNavigate }) {
     const file = uploadForm.file;
     setParsing(true);
     try {
-      if (file.name.toLowerCase().endsWith(".pdf")) {
+      const lowerName = file.name.toLowerCase();
+      if (lowerName.endsWith(".xlsx") || lowerName.endsWith(".xls")) {
+        const spreadsheet = await parseSpreadsheetFile(file);
+        if (!spreadsheet || spreadsheet.rows.length < 2 || spreadsheet.headers.length < 2) {
+          addToast("error", "No pudimos leer una tabla valida en ese Excel.");
+          return;
+        }
+        setColumnMapper({
+          columns: spreadsheet.headers,
+          sample: spreadsheet.sample,
+          formatKey: spreadsheet.formatKey,
+        });
+        addToast("info", "Excel listo. Revisa el mapeo antes de importar.");
+        return;
+      }
+
+      if (lowerName.endsWith(".pdf")) {
         const text = await extractPdfText(file);
+        formData.append("extracted_text", text);
+        formData.append("file", file, file.name);
+      } else if (isImageImport(lowerName)) {
+        const text = await extractImageText(file);
         formData.append("extracted_text", text);
         formData.append("file", file, file.name);
       } else {
@@ -517,12 +642,94 @@ export default function Upload({ month, onDone, onNavigate }) {
   }
 
   const selectedAccountData = accounts.find((a) => a.id === selectedAccount);
+  const displayedGuidedReviewGroups = guidedReviewGroups.filter(
+    (group) => !resolvedGuidedGroupKeys.includes(group.key)
+  );
   const displayedTransactionReviewQueue = transactionReviewQueue.filter(
     (item) => !resolvedReviewTransactionIds.includes(item.transaction_id)
   );
   const displayedRuleReviewGroups = reviewGroups.filter(
     (group) => !resolvedGuidedGroupKeys.includes(group.key)
   );
+  const pendingGuidedTransactionIds = Array.from(
+    new Set([
+      ...displayedGuidedReviewGroups.flatMap((group) => group.transaction_ids || []),
+      ...displayedRuleReviewGroups.flatMap((group) => group.transaction_ids || []),
+      ...displayedTransactionReviewQueue.map((item) => item.transaction_id),
+    ].map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0))
+  );
+
+  useEffect(() => {
+    if (!userId) return;
+    if (pendingGuidedTransactionIds.length > 0) {
+      writePendingGuidedReviewContext(userId, {
+        source: "upload",
+        month: uploadForm.period || month,
+        accountId: selectedAccount || null,
+        transactionIds: pendingGuidedTransactionIds,
+      });
+      return;
+    }
+    clearPendingGuidedReviewContext(userId);
+  }, [userId, pendingGuidedTransactionIds, uploadForm.period, month, selectedAccount]);
+
+  useEffect(() => {
+    if (!resumeGuidedReview || !userId) return;
+
+    let cancelled = false;
+    const accountId = resumeGuidedReview.accountId || null;
+
+    async function resumeGuidedQueue() {
+      setParsing(true);
+      try {
+        if (accountId) {
+          setSelectedAccount(accountId);
+        }
+        const result = await api.resumePendingGuidedReview({
+          transaction_ids: resumeGuidedReview.transactionIds,
+          month: resumeGuidedReview.month || month,
+          account_id: accountId,
+        });
+        if (cancelled) return;
+
+        if (!result.remaining_transaction_ids || result.remaining_transaction_ids.length === 0) {
+          clearPendingGuidedReviewContext(userId);
+          addToast("info", "Esa revision ya no tiene movimientos pendientes.");
+          onConsumeResumeGuidedReview?.();
+          return;
+        }
+
+        applyImportReviewState(result);
+        writePendingGuidedReviewContext(userId, {
+          source: resumeGuidedReview.source || "upload",
+          month: resumeGuidedReview.month || month,
+          accountId,
+          transactionIds: result.remaining_transaction_ids,
+        });
+        onConsumeResumeGuidedReview?.();
+      } catch (error) {
+        if (cancelled) return;
+        addToast("error", error.message);
+        onInvalidResumeGuidedReview?.();
+      } finally {
+        if (!cancelled) {
+          setParsing(false);
+        }
+      }
+    }
+
+    resumeGuidedQueue();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    resumeGuidedReview,
+    userId,
+    month,
+    addToast,
+    onConsumeResumeGuidedReview,
+    onInvalidResumeGuidedReview,
+  ]);
 
   return (
     <div className="space-y-6">
@@ -576,6 +783,7 @@ export default function Upload({ month, onDone, onNavigate }) {
         <RuleReviewDeck
           groups={displayedRuleReviewGroups}
           onAcceptedGroup={handleAcceptedRuleReviewGroup}
+          onClose={closeUploadFlowWithPending}
           onDone={() => {
             load();
             handleRuleReviewDone();
@@ -587,6 +795,7 @@ export default function Upload({ month, onDone, onNavigate }) {
           items={displayedTransactionReviewQueue}
           categories={categories}
           onCategoryCreated={load}
+          onClose={closeUploadFlowWithPending}
           onDone={() => {
             finishUploadFlow();
           }}
@@ -715,7 +924,7 @@ export default function Upload({ month, onDone, onNavigate }) {
             )}
             <input
               type="file"
-              accept=".pdf,.txt,.csv"
+              accept=".pdf,.txt,.csv,.xlsx,.xls,.png,.jpg,.jpeg,.webp"
               onChange={(e) => setUploadForm((prev) => ({ ...prev, file: e.target.files?.[0] || null }))}
               className="mt-3 text-sm"
             />
@@ -736,6 +945,9 @@ export default function Upload({ month, onDone, onNavigate }) {
           )}
           {uploadForm.file?.name.toLowerCase().endsWith(".csv") && (
             <p className="mt-3 text-xs text-finance-teal">CSV detectado — se parsea automáticamente. Soporta formato BROU con columnas Débito/Crédito.</p>
+          )}
+          {isImageImport(uploadForm.file?.name || "") && (
+            <p className="mt-3 text-xs text-finance-teal">Imagen detectada — extraemos texto con OCR en tu navegador y, si hace falta, usamos Ollama para estructurar el movimiento.</p>
           )}
 
           <div className="mt-4 flex items-center gap-3">
