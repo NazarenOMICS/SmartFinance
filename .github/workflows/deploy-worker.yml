@@ -12,6 +12,8 @@ permissions:
 env:
   CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CLOUDFARE_WORKERS }}
   CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFARE_ACCOUNT_ID }}
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CLOUDFARE_WORKERS }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFARE_ACCOUNT_ID }}
 
 jobs:
   deploy-worker:
@@ -40,20 +42,10 @@ jobs:
         run: cd worker && npm ci
 
       - name: Apply D1 migrations
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ env.CF_API_TOKEN }}
-          accountId: ${{ env.CF_ACCOUNT_ID }}
-          wranglerVersion: "4.78.0"
-          command: d1 migrations apply smartfinance --remote
+        run: npx --prefix worker wrangler d1 migrations apply smartfinance --remote --config wrangler.toml
 
       - name: Deploy Worker
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ env.CF_API_TOKEN }}
-          accountId: ${{ env.CF_ACCOUNT_ID }}
-          wranglerVersion: "4.78.0"
-          command: deploy
+        run: npx --prefix worker wrangler deploy --config wrangler.toml
 
   deploy-pages:
     runs-on: ubuntu-latest
@@ -88,11 +80,8 @@ jobs:
         env:
           VITE_CLERK_PUBLISHABLE_KEY: pk_test_aW50ZXJuYWwtc2FsbW9uLTExLmNsZXJrLmFjY291bnRzLmRldiQ
 
+      - name: Install worker dependencies
+        run: cd worker && npm ci
+
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ env.CF_API_TOKEN }}
-          accountId: ${{ env.CF_ACCOUNT_ID }}
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
-          wranglerVersion: "4.78.0"
-          command: pages deploy client/dist --project-name=smartfinance-app
+        run: npx --prefix worker wrangler pages deploy client/dist --project-name=smartfinance-app
