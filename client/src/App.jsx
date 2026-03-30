@@ -26,6 +26,7 @@ const Accounts = lazy(() => import("./pages/Accounts"));
 const Installments = lazy(() => import("./pages/Installments"));
 const Recurring = lazy(() => import("./pages/Recurring"));
 const Rules = lazy(() => import("./pages/Rules"));
+const BOOT_TIMEOUT_MS = 12000;
 
 const TABS = [
   { id: "dashboard", label: "Dashboard" },
@@ -233,6 +234,7 @@ function AppInner() {
   const [claimingLegacy, setClaimingLegacy] = useState(false);
   const [apiDown, setApiDown] = useState(false);
   const [schemaStatus, setSchemaStatus] = useState(null);
+  const [bootSlow, setBootSlow] = useState(false);
   const settingsRequestIdRef = useRef(0);
   const pendingRequestIdRef = useRef(0);
   const displayName = user?.firstName || user?.fullName?.split(" ")[0] || "Naza";
@@ -318,12 +320,31 @@ function AppInner() {
     }
   }
 
+  async function withBootTimeout(promise, label) {
+    let timerId = null;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise((_, reject) => {
+          timerId = window.setTimeout(() => {
+            reject(new Error(`bootstrap_timeout:${label}`));
+          }, BOOT_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (timerId != null) {
+        window.clearTimeout(timerId);
+      }
+    }
+  }
+
   async function initApp(attempt = 0) {
     const maxRetries = 3;
     const cachedDone = userId && localStorage.getItem(`sf_onboard_${userId}`) === "done";
+    setBootSlow(false);
 
     try {
-      const schema = await api.getSchemaStatus();
+      const schema = await withBootTimeout(api.getSchemaStatus(), "schema");
       setSchemaStatus(schema);
     } catch (error) {
       if (error.code === "SCHEMA_MISMATCH") {
@@ -336,10 +357,10 @@ function AppInner() {
     if (cachedDone) {
       setOnboardStatus("done");
       try {
-        await api.onboard();
+        await withBootTimeout(api.onboard(), "onboard");
         const [accounts] = await Promise.all([
-          api.getAccounts(),
-          refreshSettings(),
+          withBootTimeout(api.getAccounts(), "accounts"),
+          withBootTimeout(refreshSettings(), "settings"),
           refreshPendingCount(month),
         ]);
         setApiDown(false);
@@ -368,20 +389,20 @@ function AppInner() {
     }
 
     try {
-      const onboardResult = await api.onboard();
+      const onboardResult = await withBootTimeout(api.onboard(), "onboard");
 
       if (onboardResult.status === "created") {
         try {
-          await api.claimLegacy();
+          await withBootTimeout(api.claimLegacy(), "claim-legacy");
           setLegacyAvailable(false);
         } catch {
           // No legacy data to claim.
         }
       }
 
-      await refreshSettings();
+      await withBootTimeout(refreshSettings(), "settings");
 
-      const accounts = await api.getAccounts();
+      const accounts = await withBootTimeout(api.getAccounts(), "accounts");
       setApiDown(false);
       if (accounts.length > 0) {
         markDone();
@@ -418,6 +439,19 @@ function AppInner() {
   }, [isLoaded, isSignedIn, userId]);
 
   useEffect(() => {
+    if (!isLoaded || !isSignedIn || onboardStatus !== null) {
+      setBootSlow(false);
+      return undefined;
+    }
+
+    const timerId = window.setTimeout(() => {
+      setBootSlow(true);
+    }, 6000);
+
+    return () => window.clearTimeout(timerId);
+  }, [isLoaded, isSignedIn, onboardStatus]);
+
+  useEffect(() => {
     if (onboardStatus === "done") {
       refreshPendingCount();
     }
@@ -434,9 +468,23 @@ function AppInner() {
         <div className="flex flex-col items-center gap-4 rounded-[32px] border border-white/70 bg-white/85 px-8 py-7 shadow-panel dark:border-white/10 dark:bg-neutral-900/85">
           <BrandMark size="md" className="animate-pulse" />
           <div className="text-center">
-            <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">Preparando tu espacio</p>
-            <p className="mt-1 text-sm text-neutral-400">Conectando con tus datos...</p>
+            <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">
+              {bootSlow ? "La entrada esta tardando mas de lo normal" : "Preparando tu espacio"}
+            </p>
+            <p className="mt-1 text-sm text-neutral-400">
+              {bootSlow
+                ? "Estamos esperando respuestas iniciales de la API. Si esto se clavo, podes reintentar."
+                : "Conectando con tus datos..."}
+            </p>
           </div>
+          {bootSlow && (
+            <button
+              onClick={() => initApp()}
+              className="rounded-full bg-finance-purple px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
+            >
+              Reintentar
+            </button>
+          )}
         </div>
       </div>
     );
