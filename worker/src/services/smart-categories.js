@@ -23,9 +23,14 @@ export async function ensureSmartCategoriesForTransactions(db, userId, transacti
     "SELECT id, name, slug FROM categories WHERE user_id = ?"
   ).all(userId);
   const bySlug = Object.fromEntries(existingCategories.map((row) => [row.slug || normalizeText(row.name).replace(/\s+/g, "_"), row]));
+  const byName = Object.fromEntries(existingCategories.map((row) => [normalizeText(row.name), row]));
 
   for (const category of CANONICAL_CATEGORIES.filter((item) => REVIEWABLE_SLUGS.has(item.slug))) {
     if (bySlug[category.slug]) continue;
+    if (byName[normalizeText(category.name)]) {
+      bySlug[category.slug] = { ...byName[normalizeText(category.name)], slug: category.slug };
+      continue;
+    }
     const result = await db.prepare(
       `INSERT INTO categories (name, budget, type, color, sort_order, user_id, slug, origin)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'seed')`

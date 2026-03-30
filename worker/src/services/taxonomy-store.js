@@ -164,6 +164,15 @@ export async function createOrUpdateManualCategory(db, userId, category) {
     ).run(category.name, category.budget, category.type, category.color, existing.id, userId);
     return { ...existing, ...category, id: existing.id, slug, origin: "manual" };
   }
+  const existingByName = await db.prepare(
+    "SELECT * FROM categories WHERE user_id = ? AND name = ? COLLATE NOCASE LIMIT 1"
+  ).get(userId, category.name);
+  if (existingByName) {
+    await db.prepare(
+      "UPDATE categories SET slug = ?, budget = ?, type = ?, color = ?, origin = 'manual' WHERE id = ? AND user_id = ?"
+    ).run(slug, category.budget, category.type, category.color, existingByName.id, userId);
+    return { ...existingByName, ...category, id: existingByName.id, slug, origin: "manual" };
+  }
   const result = await db.prepare(
     "INSERT INTO categories (name, budget, type, color, user_id, slug, origin) VALUES (?, ?, ?, ?, ?, ?, 'manual')"
   ).run(category.name, category.budget, category.type, category.color, userId, slug);

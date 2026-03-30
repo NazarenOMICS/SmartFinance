@@ -19,7 +19,8 @@ router.post("/", (req, res) => {
 
   const slug = slugifyCategoryName(normalizedName);
   const duplicate = db.prepare("SELECT id FROM categories WHERE slug = ? LIMIT 1").get(slug);
-  if (duplicate || getCanonicalCategoryByName(normalizedName)) {
+  const duplicateByName = db.prepare("SELECT id FROM categories WHERE name = ? COLLATE NOCASE LIMIT 1").get(normalizedName);
+  if (duplicate || duplicateByName || getCanonicalCategoryByName(normalizedName)) {
     return res.status(409).json({ error: `Ya existe una categoria con el nombre "${normalizedName}"` });
   }
 
