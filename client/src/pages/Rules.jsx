@@ -33,7 +33,14 @@ function formatRuleSource(source) {
   return source || "manual";
 }
 
-export default function Rules({ userId, resumePendingReview = null, onConsumeResumePendingReview, onInvalidResumePendingReview }) {
+export default function Rules({
+  userId,
+  resumePendingReview = null,
+  onConsumeResumePendingReview,
+  onInvalidResumePendingReview,
+  pendingCount = 0,
+  onOpenPendingReminder,
+}) {
   const { addToast } = useToast();
   const [state, setState] = useState({ loading: true, error: "", categories: [], rules: [], settings: {}, accounts: [] });
   const [localBudgets, setLocalBudgets] = useState({});
@@ -432,13 +439,13 @@ export default function Rules({ userId, resumePendingReview = null, onConsumeRes
               Si una categoría predefinida no te sirve, también la podés borrar desde acá.
             </p>
           </div>
-          {storedPendingReview && (
+          {(storedPendingReview || pendingCount > 0) && (
             <button
               type="button"
-              onClick={openStoredPendingReview}
+              onClick={storedPendingReview ? openStoredPendingReview : onOpenPendingReminder}
               className="shrink-0 rounded-full bg-finance-purple px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
             >
-              Retomar categorizacion pendiente
+              {storedPendingReview ? "Retomar categorizacion pendiente" : "Resolver pendientes de categorizacion"}
             </button>
           )}
         </div>

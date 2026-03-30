@@ -27,6 +27,10 @@ export default function Dashboard({
   resumePendingReview = null,
   onConsumeResumePendingReview,
   onInvalidResumePendingReview,
+  forcedQuickFilter = null,
+  onConsumeForcedQuickFilter,
+  onOpenPendingReminder,
+  hasPendingReminder = false,
 }) {
   const { addToast } = useToast();
   const [state, setState] = useState({
@@ -45,6 +49,7 @@ export default function Dashboard({
   const [showCatManager, setShowCatManager] = useState(false);
   const [categoryCandidates, setCategoryCandidates] = useState(null); // { pattern, category_id, category_name }
   const loadRequestIdRef = useRef(0);
+  const transactionsSectionRef = useRef(null);
 
   async function load(options = {}) {
     const { silent = false } = options;
@@ -119,6 +124,11 @@ export default function Dashboard({
     });
     onConsumeResumePendingReview?.();
   }, [state.loading, state.categories, resumePendingReview, userId, onConsumeResumePendingReview, onInvalidResumePendingReview]);
+
+  useEffect(() => {
+    if (!forcedQuickFilter || state.loading) return;
+    transactionsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [forcedQuickFilter, state.loading]);
 
   function rememberPendingReview(review) {
     if (!userId) return;
@@ -514,25 +524,49 @@ export default function Dashboard({
         </div>
       )}
 
-      <TransactionTable
-        key={month}
-        transactions={
-          drilldownFilter === "income"
-            ? state.transactions.filter((item) => item.monto > 0 && item.category_type !== "transferencia")
-            : drilldownFilter === "expenses"
-              ? state.transactions.filter((item) => item.monto < 0 && item.category_type !== "transferencia")
-              : state.transactions
-        }
-        categories={state.categories}
-        onCategorize={handleCategorize}
-        onBulkCategorize={handleBulkCategorize}
-        onDelete={handleDeleteTransaction}
-        onUpdateDesc={handleUpdateDesc}
-        onUpdateFull={handleUpdateFull}
-        externalCatFilter={clickedCategory}
-        onClearExternalFilter={() => setClickedCategory(null)}
-        onCategoryCreated={() => load({ silent: true })}
-      />
+      <div ref={transactionsSectionRef} className="space-y-3">
+        {hasPendingReminder && (
+          <div className="flex items-center justify-between gap-3 rounded-2xl bg-finance-purpleSoft/70 px-5 py-3 dark:bg-purple-900/20">
+            <div>
+              <p className="text-sm font-semibold text-finance-purple dark:text-purple-300">
+                Segui categorizando lo que quedo pendiente
+              </p>
+              <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-300">
+                Si cerraste el popup o dejaste cosas sin categoria, lo podes retomar desde aca.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onOpenPendingReminder}
+              className="shrink-0 rounded-full bg-finance-purple px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+            >
+              Revisar pendientes
+            </button>
+          </div>
+        )}
+
+        <TransactionTable
+          key={month}
+          transactions={
+            drilldownFilter === "income"
+              ? state.transactions.filter((item) => item.monto > 0 && item.category_type !== "transferencia")
+              : drilldownFilter === "expenses"
+                ? state.transactions.filter((item) => item.monto < 0 && item.category_type !== "transferencia")
+                : state.transactions
+          }
+          categories={state.categories}
+          onCategorize={handleCategorize}
+          onBulkCategorize={handleBulkCategorize}
+          onDelete={handleDeleteTransaction}
+          onUpdateDesc={handleUpdateDesc}
+          onUpdateFull={handleUpdateFull}
+          externalCatFilter={clickedCategory}
+          onClearExternalFilter={() => setClickedCategory(null)}
+          onCategoryCreated={() => load({ silent: true })}
+          forcedQuickFilter={forcedQuickFilter}
+          onConsumeForcedQuickFilter={onConsumeForcedQuickFilter}
+        />
+      </div>
 
       <CategoryManager
         open={showCatManager}

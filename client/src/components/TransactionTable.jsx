@@ -7,6 +7,7 @@ export default function TransactionTable({
   transactions, categories,
   onCategorize, onBulkCategorize, onDelete, onUpdateDesc, onUpdateFull,
   externalCatFilter, onClearExternalFilter, onCategoryCreated,
+  forcedQuickFilter = null, onConsumeForcedQuickFilter,
 }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [editingCategory, setEditingCategory] = useState(null);
@@ -27,6 +28,15 @@ export default function TransactionTable({
       setActiveFilter("all");
     }
   }, [externalCatFilter]);
+
+  useEffect(() => {
+    if (!forcedQuickFilter) return;
+    setSearch("");
+    setFilterCat("");
+    setActiveFilter(forcedQuickFilter);
+    onClearExternalFilter?.();
+    onConsumeForcedQuickFilter?.();
+  }, [forcedQuickFilter, onConsumeForcedQuickFilter, onClearExternalFilter]);
 
   // Keyboard shortcut: / focuses the search input
   useEffect(() => {

@@ -241,6 +241,7 @@ function AppInner() {
   const [resumePendingReview, setResumePendingReview] = useState(null);
   const [pendingReminder, setPendingReminder] = useState(null);
   const [dismissedPendingReminder, setDismissedPendingReminder] = useState(false);
+  const [dashboardQuickFilter, setDashboardQuickFilter] = useState(null);
   const settingsRequestIdRef = useRef(0);
   const pendingRequestIdRef = useRef(0);
   const displayName = user?.firstName || user?.fullName?.split(" ")[0] || "Naza";
@@ -336,6 +337,17 @@ function AppInner() {
       setPendingReminder({ type: "general", pendingCount });
       setDismissedPendingReminder(false);
     }
+  }
+
+  function buildPendingReminderState() {
+    const exactSession = readPendingReviewSession(userId);
+    if (exactSession) {
+      return { type: "exact", session: exactSession };
+    }
+    if (pendingCount > 0) {
+      return { type: "general", pendingCount };
+    }
+    return null;
   }
 
   async function initApp(attempt = 0) {
@@ -467,20 +479,22 @@ function AppInner() {
   useEffect(() => {
     if (onboardStatus !== "done" || !userId || dismissedPendingReminder || pendingReminder) return;
 
-    const exactSession = readPendingReviewSession(userId);
-    if (exactSession) {
-      setPendingReminder({ type: "exact", session: exactSession });
-      return;
-    }
-
-    if (pendingCount > 0) {
-      setPendingReminder({ type: "general", pendingCount });
+    const nextReminder = buildPendingReminderState();
+    if (nextReminder) {
+      setPendingReminder(nextReminder);
     }
   }, [onboardStatus, userId, pendingCount, dismissedPendingReminder, pendingReminder]);
 
   function handleNavigateToMonth(targetMonth) {
     setMonth(targetMonth);
     setTab("dashboard");
+  }
+
+  function showPendingReminder() {
+    const nextReminder = buildPendingReminderState();
+    if (!nextReminder) return;
+    setDismissedPendingReminder(false);
+    setPendingReminder(nextReminder);
   }
 
   function dismissPendingReminder() {
@@ -501,6 +515,7 @@ function AppInner() {
     setPendingReminder(null);
     setDismissedPendingReminder(true);
     setTab("dashboard");
+    setDashboardQuickFilter("pending");
   }
 
   if (!isLoaded) {
@@ -627,8 +642,8 @@ function AppInner() {
       {showSearch && <SearchModal onClose={() => setShowSearch(false)} onNavigateToMonth={handleNavigateToMonth} />}
       {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
       {pendingReminder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-[30px] border border-white/70 bg-white/92 p-6 shadow-2xl dark:border-white/10 dark:bg-neutral-900/92">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(22,25,51,0.38)] px-4 backdrop-blur-md">
+          <div className="w-full max-w-md rounded-[30px] border border-white/85 bg-[rgba(255,253,249,0.98)] p-6 shadow-[0_32px_90px_rgba(22,25,51,0.28)] dark:border-white/12 dark:bg-[rgba(23,23,36,0.97)]">
             <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">
               {pendingReminder.type === "exact" ? "Revision pendiente" : "Pendientes por revisar"}
             </p>
@@ -643,7 +658,7 @@ function AppInner() {
                 : `Hay ${pendingReminder.pendingCount} transaccion${pendingReminder.pendingCount === 1 ? "" : "es"} pendiente${pendingReminder.pendingCount === 1 ? "" : "s"} y conviene resolverlas antes de que queden escondidas en el dashboard.`}
             </p>
             {pendingReminder.type === "exact" && pendingReminder.session ? (
-              <div className="mt-4 rounded-2xl bg-finance-cream/80 px-4 py-3 text-sm text-neutral-500 dark:bg-neutral-800/80 dark:text-neutral-300">
+              <div className="mt-4 rounded-2xl border border-neutral-200/80 bg-finance-cream px-4 py-3 text-sm text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
                 <p className="font-semibold text-finance-ink dark:text-neutral-100">
                   {pendingReminder.session.pattern} {"->"} {pendingReminder.session.categoryName}
                 </p>
@@ -763,6 +778,10 @@ function AppInner() {
             resumePendingReview={resumePendingReview}
             onConsumeResumePendingReview={consumeResumePendingReview}
             onInvalidResumePendingReview={handleInvalidResumePendingReview}
+            forcedQuickFilter={dashboardQuickFilter}
+            onConsumeForcedQuickFilter={() => setDashboardQuickFilter(null)}
+            onOpenPendingReminder={showPendingReminder}
+            hasPendingReminder={Boolean(readPendingReviewSession(userId) || pendingCount > 0)}
           />
         )}
         {tab === "upload" && (
@@ -784,6 +803,8 @@ function AppInner() {
             resumePendingReview={resumePendingReview}
             onConsumeResumePendingReview={consumeResumePendingReview}
             onInvalidResumePendingReview={handleInvalidResumePendingReview}
+            pendingCount={pendingCount}
+            onOpenPendingReminder={showPendingReminder}
           />
         )}
         {tab === "accounts" && (
