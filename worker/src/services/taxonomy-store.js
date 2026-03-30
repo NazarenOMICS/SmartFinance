@@ -6,6 +6,12 @@ async function getCategoryBySlug(db, userId, slug) {
   ).get(userId, slug);
 }
 
+async function getCategoryByName(db, userId, name) {
+  return db.prepare(
+    "SELECT * FROM categories WHERE user_id = ? AND name = ? COLLATE NOCASE LIMIT 1"
+  ).get(userId, name);
+}
+
 export async function ensureCanonicalCategories(db, userId) {
   const bySlug = new Map();
   for (const category of CANONICAL_CATEGORIES) {
@@ -29,9 +35,7 @@ export async function ensureCanonicalCategories(db, userId) {
       continue;
     }
 
-    const byName = await db.prepare(
-      "SELECT * FROM categories WHERE user_id = ? AND name = ? COLLATE NOCASE LIMIT 1"
-    ).get(userId, category.name);
+    const byName = await getCategoryByName(db, userId, category.name);
 
     if (byName) {
       await db.prepare(
@@ -52,8 +56,8 @@ export async function ensureCanonicalCategories(db, userId) {
       continue;
     }
 
-    const result = await db.prepare(
-      `INSERT INTO categories (name, budget, type, color, sort_order, user_id, slug, origin)
+    await db.prepare(
+      `INSERT OR IGNORE INTO categories (name, budget, type, color, sort_order, user_id, slug, origin)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'seed')`
     ).run(
       category.name,
@@ -64,7 +68,10 @@ export async function ensureCanonicalCategories(db, userId) {
       userId,
       category.slug
     );
-    bySlug.set(category.slug, { ...category, id: result.lastInsertRowid });
+    const inserted = await getCategoryBySlug(db, userId, category.slug) || await getCategoryByName(db, userId, category.name);
+    if (inserted) {
+      bySlug.set(category.slug, { ...inserted, ...category, id: inserted.id });
+    }
   }
 
   return bySlug;
@@ -72,13 +79,39 @@ export async function ensureCanonicalCategories(db, userId) {
 
 export async function ensureSeedRules(db, userId) {
   const categoriesBySlug = await ensureCanonicalCategories(db, userId);
-  await db.prepare("DELETE FROM rules WHERE user_id = ? AND source = 'seed'").run(userId);
 
   for (const rule of buildSeedRules()) {
     const category = categoriesBySlug.get(rule.slug);
     if (!category) continue;
+    const existing = await db.prepare(
+      `SELECT id
+       FROM rules
+       WHERE user_id = ?
+         AND normalized_pattern = ?
+         AND COALESCE(account_id, '') = ''
+         AND COALESCE(currency, '') = ''
+         AND direction = ?`
+    ).get(userId, rule.normalized_pattern, rule.direction);
+
+    if (existing) {
+      await db.prepare(
+        `UPDATE rules
+         SET pattern = ?, category_id = ?, mode = ?, confidence = ?, source = 'seed', merchant_key = ?, last_matched_at = NULL
+         WHERE id = ? AND user_id = ?`
+      ).run(
+        rule.pattern,
+        category.id,
+        rule.mode,
+        rule.confidence,
+        rule.merchant_key,
+        existing.id,
+        userId
+      );
+      continue;
+    }
+
     await db.prepare(
-      `INSERT INTO rules (
+      `INSERT OR IGNORE INTO rules (
         pattern, normalized_pattern, category_id, match_count, user_id, mode, confidence, source,
         account_id, currency, direction, merchant_key, last_matched_at
       ) VALUES (?, ?, ?, 0, ?, ?, ?, 'seed', NULL, NULL, ?, ?, NULL)`
@@ -173,8 +206,11 @@ export async function createOrUpdateManualCategory(db, userId, category) {
     ).run(slug, category.budget, category.type, category.color, existingByName.id, userId);
     return { ...existingByName, ...category, id: existingByName.id, slug, origin: "manual" };
   }
-  const result = await db.prepare(
-    "INSERT INTO categories (name, budget, type, color, user_id, slug, origin) VALUES (?, ?, ?, ?, ?, ?, 'manual')"
+  await db.prepare(
+    "INSERT OR IGNORE INTO categories (name, budget, type, color, user_id, slug, origin) VALUES (?, ?, ?, ?, ?, ?, 'manual')"
   ).run(category.name, category.budget, category.type, category.color, userId, slug);
-  return { ...category, id: result.lastInsertRowid, slug, origin: "manual" };
+  const inserted = await db.prepare(
+    "SELECT * FROM categories WHERE user_id = ? AND slug = ? LIMIT 1"
+  ).get(userId, slug) || await getCategoryByName(db, userId, category.name);
+  return { ...inserted, ...category, id: inserted.id, slug, origin: "manual" };
 }

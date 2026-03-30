@@ -31,11 +31,16 @@ export async function ensureSmartCategoriesForTransactions(db, userId, transacti
       bySlug[category.slug] = { ...byName[normalizeText(category.name)], slug: category.slug };
       continue;
     }
-    const result = await db.prepare(
-      `INSERT INTO categories (name, budget, type, color, sort_order, user_id, slug, origin)
+    await db.prepare(
+      `INSERT OR IGNORE INTO categories (name, budget, type, color, sort_order, user_id, slug, origin)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'seed')`
     ).run(category.name, category.budget, category.type, category.color, category.sort_order, userId, category.slug);
-    bySlug[category.slug] = { id: result.lastInsertRowid, name: category.name, slug: category.slug };
+    const inserted = await db.prepare(
+      "SELECT id, name, slug FROM categories WHERE user_id = ? AND (slug = ? OR name = ? COLLATE NOCASE) ORDER BY id ASC LIMIT 1"
+    ).get(userId, category.slug, category.name);
+    if (inserted) {
+      bySlug[category.slug] = { id: inserted.id, name: inserted.name, slug: inserted.slug || category.slug };
+    }
   }
 
   return bySlug;
