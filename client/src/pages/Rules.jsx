@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../contexts/ToastContext";
 import CandidateReview from "../components/CandidateReview";
+import {
+  clearPendingReviewSession,
+  readPendingReviewSession,
+  writePendingReviewSession,
+} from "../utils/pendingReviewSession";
 
 const PRESET_COLORS = ["#534AB7", "#1D9E75", "#D85A30", "#378ADD", "#BA7517", "#639922", "#E24B4A", "#888780", "#9B59B6", "#2ECC71"];
 
@@ -28,7 +33,7 @@ function formatRuleSource(source) {
   return source || "manual";
 }
 
-export default function Rules() {
+export default function Rules({ userId, resumePendingReview = null, onConsumeResumePendingReview, onInvalidResumePendingReview }) {
   const { addToast } = useToast();
   const [state, setState] = useState({ loading: true, error: "", categories: [], rules: [], settings: {}, accounts: [] });
   const [localBudgets, setLocalBudgets] = useState({});
@@ -37,13 +42,17 @@ export default function Rules() {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [confirmResetRules, setConfirmResetRules] = useState(false);
   const [pendingReview, setPendingReview] = useState(null);
+  const [storedPendingReview, setStoredPendingReview] = useState(() => readPendingReviewSession(userId));
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
   const loadRequestIdRef = useRef(0);
 
-  async function load() {
+  async function load(options = {}) {
+    const { silent = false } = options;
     const requestId = ++loadRequestIdRef.current;
-    setState((prev) => ({ ...prev, loading: true, error: "" }));
+    if (!silent || state.categories.length === 0) {
+      setState((prev) => ({ ...prev, loading: true, error: "" }));
+    }
     try {
       const [categories, rules, settings, accounts] = await Promise.all([
         api.getCategories(),
@@ -52,7 +61,7 @@ export default function Rules() {
         api.getAccounts(),
       ]);
       if (loadRequestIdRef.current !== requestId) return;
-      setState({ loading: false, error: "", categories, rules, settings, accounts });
+      setState((prev) => ({ ...prev, loading: false, error: "", categories, rules, settings, accounts }));
       const budgetMap = {};
       categories.forEach((category) => {
         budgetMap[category.id] = String(category.budget);
@@ -69,24 +78,96 @@ export default function Rules() {
   }, []);
 
   useEffect(() => {
+    setStoredPendingReview(readPendingReviewSession(userId));
+  }, [userId]);
+
+  useEffect(() => {
+    if (state.loading || !resumePendingReview) return;
+    if (!["rules", "category_manager"].includes(resumePendingReview.source)) return;
+
+    const categoryId = Number(resumePendingReview.categoryId);
+    const category = state.categories.find((item) => item.id === categoryId);
+
+    if (!category) {
+      clearPendingReviewSession(userId);
+      setStoredPendingReview(null);
+      onInvalidResumePendingReview?.();
+      return;
+    }
+
+    setPendingReview({
+      pattern: resumePendingReview.pattern,
+      categoryId,
+      categoryName: resumePendingReview.categoryName || category.name,
+      ruleId: resumePendingReview.ruleId || null,
+    });
+    onConsumeResumePendingReview?.();
+  }, [state.loading, state.categories, resumePendingReview, userId, onConsumeResumePendingReview, onInvalidResumePendingReview]);
+
+  useEffect(() => {
     if (!confirmResetRules) return;
     const timeoutId = setTimeout(() => setConfirmResetRules(false), 6000);
     return () => clearTimeout(timeoutId);
   }, [confirmResetRules]);
 
+  function rememberPendingReview(review, source = "rules") {
+    if (!userId) return;
+    const session = {
+      source,
+      pattern: review.pattern,
+      categoryId: review.categoryId,
+      categoryName: review.categoryName,
+      ruleId: review.ruleId || null,
+      createdAt: new Date().toISOString(),
+    };
+    writePendingReviewSession(userId, session);
+    setStoredPendingReview(session);
+  }
+
+  function clearRememberedPendingReview() {
+    clearPendingReviewSession(userId);
+    setStoredPendingReview(null);
+  }
+
+  function openStoredPendingReview() {
+    if (!storedPendingReview) return;
+    const category = state.categories.find((item) => item.id === Number(storedPendingReview.categoryId));
+    if (!category) {
+      clearRememberedPendingReview();
+      onInvalidResumePendingReview?.();
+      return;
+    }
+    setPendingReview({
+      pattern: storedPendingReview.pattern,
+      categoryId: Number(storedPendingReview.categoryId),
+      categoryName: storedPendingReview.categoryName || category.name,
+      ruleId: storedPendingReview.ruleId || null,
+    });
+  }
+
   async function updateCategory(category, changes) {
     try {
       const nextType = changes.type ?? category.type;
       const payload = { ...category, ...changes, budget: nextType === "fijo" ? 0 : (changes.budget ?? category.budget) };
-      await api.updateCategory(category.id, payload);
+      const updated = await api.updateCategory(category.id, payload);
+      setState((prev) => ({
+        ...prev,
+        categories: prev.categories.map((item) => (item.id === category.id ? { ...item, ...updated } : item)),
+        rules: prev.rules.map((rule) => (
+          rule.category_id === category.id
+            ? { ...rule, category_name: updated.name, category_color: updated.color }
+            : rule
+        )),
+      }));
       if (nextType === "fijo") {
         setLocalBudgets((prev) => ({ ...prev, [category.id]: "" }));
+      } else if (changes.budget !== undefined) {
+        setLocalBudgets((prev) => ({ ...prev, [category.id]: String(changes.budget) }));
       }
-      await load();
       return true;
     } catch (error) {
       addToast("error", error.message);
-      await load();
+      await load({ silent: true });
       return false;
     }
   }
@@ -96,10 +177,14 @@ export default function Rules() {
     if (saving) return;
     setSaving(true);
     try {
-      await api.createCategory({ ...catForm, budget: catForm.type === "fijo" ? 0 : Number(catForm.budget || 0) });
+      const created = await api.createCategory({ ...catForm, budget: catForm.type === "fijo" ? 0 : Number(catForm.budget || 0) });
+      setState((prev) => ({
+        ...prev,
+        categories: [...prev.categories, { ...created, usage_count: 0 }],
+      }));
+      setLocalBudgets((prev) => ({ ...prev, [created.id]: String(created.budget || 0) }));
       addToast("success", `Categoria "${catForm.name}" creada.`);
       setCatForm({ name: "", budget: "", type: "variable", color: PRESET_COLORS[0] });
-      await load();
     } catch (error) {
       addToast("error", error.message);
     } finally {
@@ -117,8 +202,17 @@ export default function Rules() {
     const category = state.categories.find((item) => item.id === id);
     try {
       await api.deleteCategory(id);
+      setState((prev) => ({
+        ...prev,
+        categories: prev.categories.filter((item) => item.id !== id),
+        rules: prev.rules.filter((rule) => rule.category_id !== id),
+      }));
+      setLocalBudgets((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       addToast("info", `Categoria "${category?.name}" eliminada.`);
-      await load();
     } catch (error) {
       addToast("error", error.message);
     }
@@ -141,18 +235,32 @@ export default function Rules() {
       if (result?.duplicate) {
         addToast("info", "Esta regla ya existe.");
       } else if (result?.candidates_count > 0) {
-        setPendingReview({
+        const nextRule = {
+          ...result,
+          category_name: categoryName,
+          category_color: state.categories.find((category) => category.id === categoryId)?.color || null,
+        };
+        setState((prev) => ({ ...prev, rules: [nextRule, ...prev.rules] }));
+        const review = {
           pattern: result.pattern,
           categoryId,
           categoryName,
           ruleId: result.id || null,
-        });
+        };
+        setPendingReview(review);
+        rememberPendingReview(review);
         addToast("info", `Regla creada: "${result.pattern}" -> ${categoryName || "categoria"}. Hay ${result.candidates_count} transacciones para revisar.`);
       } else {
+        setState((prev) => ({
+          ...prev,
+          rules: [{
+            ...result,
+            category_name: categoryName,
+            category_color: state.categories.find((category) => category.id === categoryId)?.color || null,
+          }, ...prev.rules],
+        }));
         addToast("success", "Regla creada correctamente.");
       }
-
-      await load();
     } catch (error) {
       addToast("error", error.message);
     } finally {
@@ -170,8 +278,11 @@ export default function Rules() {
     const rule = state.rules.find((item) => item.id === id);
     try {
       await api.deleteRule(id);
+      setState((prev) => ({
+        ...prev,
+        rules: prev.rules.filter((item) => item.id !== id),
+      }));
       addToast("info", `Regla "${rule?.pattern}" eliminada.`);
-      await load();
     } catch (error) {
       addToast("error", error.message);
     }
@@ -189,7 +300,7 @@ export default function Rules() {
     try {
       const result = await api.resetRules();
       addToast("info", `Se resetearon ${result.deleted_count} reglas. Ahora quedaron ${result.rules_count}.`);
-      await load();
+      await load({ silent: true });
     } catch (error) {
       addToast("error", error.message);
     } finally {
@@ -199,8 +310,11 @@ export default function Rules() {
 
   async function updateRule(rule, changes) {
     try {
-      await api.updateRule(rule.id, { ...changes });
-      await load();
+      const updated = await api.updateRule(rule.id, { ...changes });
+      setState((prev) => ({
+        ...prev,
+        rules: prev.rules.map((item) => (item.id === rule.id ? { ...item, ...updated } : item)),
+      }));
     } catch (error) {
       addToast("error", error.message);
     }
@@ -218,7 +332,7 @@ export default function Rules() {
       }
     } catch (error) {
       addToast("error", error.message);
-      await load();
+      await load({ silent: true });
     }
   }
 
@@ -318,6 +432,15 @@ export default function Rules() {
               Si una categoría predefinida no te sirve, también la podés borrar desde acá.
             </p>
           </div>
+          {storedPendingReview && (
+            <button
+              type="button"
+              onClick={openStoredPendingReview}
+              className="shrink-0 rounded-full bg-finance-purple px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+            >
+              Retomar categorizacion pendiente
+            </button>
+          )}
         </div>
 
         <div className="mt-5 space-y-3">
@@ -713,11 +836,15 @@ export default function Rules() {
           ruleId={pendingReview.ruleId}
           onDone={() => {
             setPendingReview(null);
-            load();
+            clearRememberedPendingReview();
+            onConsumeResumePendingReview?.();
+            load({ silent: true });
+          }}
+          onClose={() => {
+            setPendingReview(null);
           }}
         />
       )}
     </div>
   );
 }
-

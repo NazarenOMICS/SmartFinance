@@ -3,7 +3,7 @@ import { Area, Bar, BarChart, ComposedChart, Line, ResponsiveContainer, Tooltip,
 import { api } from "../api";
 import { useToast } from "../contexts/ToastContext";
 import MetricCard from "../components/MetricCard";
-import { fmtMoney } from "../utils";
+import { fmtMoney, SUPPORTED_CURRENCY_OPTIONS } from "../utils";
 
 export default function Savings({ month, settings, refreshSettings }) {
   const { addToast } = useToast();
@@ -94,9 +94,11 @@ export default function Savings({ month, settings, refreshSettings }) {
               value={form.savings_currency}
               onChange={(e) => setForm((prev) => ({ ...prev, savings_currency: e.target.value }))}
             >
-              <option value="UYU">UYU</option>
-              <option value="USD">USD</option>
-              <option value="ARS">ARS</option>
+              {SUPPORTED_CURRENCY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.value}
+                </option>
+              ))}
             </select>
           </label>
         </div>

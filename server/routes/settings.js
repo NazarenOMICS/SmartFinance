@@ -29,6 +29,7 @@ router.post("/refresh-rates", async (req, res) => {
     res.json({
       source: result.source,
       exchange_rate_usd_uyu: result.usd_uyu,
+      exchange_rate_eur_uyu: result.eur_uyu,
       exchange_rate_ars_uyu: result.ars_uyu,
       updated: new Date().toISOString(),
     });

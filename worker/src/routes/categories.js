@@ -22,7 +22,13 @@ router.get("/", async (c) => {
   const userId = c.get("userId");
   const db = getDb(c.env);
   return c.json(await db.prepare(
-    "SELECT * FROM categories WHERE user_id = ? ORDER BY sort_order ASC, id ASC"
+    `SELECT c.*,
+            COUNT(t.id) AS usage_count
+     FROM categories c
+     LEFT JOIN transactions t ON t.category_id = c.id AND t.user_id = c.user_id
+     WHERE c.user_id = ?
+     GROUP BY c.id
+     ORDER BY c.sort_order ASC, c.id ASC`
   ).all(userId));
 });
 

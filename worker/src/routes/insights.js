@@ -1,25 +1,7 @@
 import { Hono } from "hono";
-import { getDb, getSettingsObject, isValidMonthString } from "../db.js";
+import { convertAmount, getDb, getExchangeRateMap, getSettingsObject, isValidMonthString } from "../db.js";
 
 const router = new Hono();
-
-function convertAmount(amount, currency, targetCurrency, usdRate, arsRate) {
-  const value = Number(amount || 0);
-  const sourceCurrency = currency || targetCurrency || "UYU";
-  const safeUsdRate = usdRate > 0 ? usdRate : 42.5;
-  const safeArsRate = arsRate > 0 ? arsRate : 0.045;
-
-  if (!targetCurrency || sourceCurrency === targetCurrency) return value;
-
-  let inUYU = value;
-  if (sourceCurrency === "USD") inUYU = value * safeUsdRate;
-  else if (sourceCurrency === "ARS") inUYU = value * safeArsRate;
-
-  if (targetCurrency === "UYU") return inUYU;
-  if (targetCurrency === "USD") return inUYU / safeUsdRate;
-  if (targetCurrency === "ARS") return inUYU / safeArsRate;
-  return inUYU;
-}
 
 function normalizeDesc(desc) {
   return String(desc || "")
@@ -113,9 +95,8 @@ router.get("/category-trend", async (c) => {
   }
   const db = getDb(c.env);
   const settings = await getSettingsObject(c.env, userId);
-  const usdRate = Number(settings.exchange_rate_usd_uyu || 42.5);
-  const arsRate = Number(settings.exchange_rate_ars_uyu || 0.045);
   const displayCurrency = settings.display_currency || "UYU";
+  const exchangeRates = getExchangeRateMap(settings);
 
   const months = [];
   let [year, monthNumber] = end.split("-").map(Number);
@@ -142,7 +123,7 @@ router.get("/category-trend", async (c) => {
 
   const byMonth = Object.fromEntries(months.map((monthKey) => [monthKey, {}]));
   rows.forEach((row) => {
-    const converted = convertAmount(row.spent, row.moneda, displayCurrency, usdRate, arsRate);
+    const converted = convertAmount(row.spent, row.moneda, displayCurrency, exchangeRates);
     byMonth[row.month][row.cat_name] = (byMonth[row.month][row.cat_name] || 0) + converted;
   });
 

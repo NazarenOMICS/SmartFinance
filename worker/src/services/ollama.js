@@ -10,6 +10,20 @@ function safeJsonParse(raw) {
   }
 }
 
+function cleanDescriptor(descBanco) {
+  return String(descBanco || "")
+    .replace(/COMPRA CON TARJETA DEBITO/gi, "")
+    .replace(/COMPRA CON VISA DEBITO/gi, "")
+    .replace(/COMISION COMPRA INTERNACIONAL/gi, "")
+    .replace(/DEBITO OPERACION EN SUPERNET O SMS/gi, "")
+    .replace(/CREDITO POR OPERACION EN SUPERNET/gi, "")
+    .replace(/EXT\./gi, "")
+    .replace(/TARJ:\s*[#\d.\-]+/gi, "")
+    .replace(/FECHA\s*:\s*\d{8}/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export async function suggestCategoryWithOllama(settings, payload) {
   const enabled = String(settings.categorizer_ollama_enabled || "0") === "1";
   const baseUrl = String(settings.categorizer_ollama_url || "").trim();
@@ -22,18 +36,34 @@ export async function suggestCategoryWithOllama(settings, payload) {
   const categoryNames = payload.categories
     .map((category) => `${category.name} (${category.slug || category.type || "general"})`)
     .join(", ");
+  const cleanDesc = cleanDescriptor(payload.desc_banco);
 
   const prompt = [
     "Eres un clasificador de gastos personales.",
     "Prioriza siempre categorias existentes. Solo propone una categoria nueva si ninguna encaja razonablemente.",
     "Nunca mezcles dominios incompatibles: salud no es transporte, transporte no es supermercado, software no es supermercado.",
     "Si la descripcion es ambigua, no auto-categorices.",
+    "Toma como contexto que estos descriptores vienen de BROU/Uruguay y suelen incluir mucho ruido bancario.",
     "Responde SOLO JSON con las claves: category_name, proposed_category_name, proposed_category_type, confidence, should_auto, reason.",
     `Categorias disponibles: ${categoryNames}`,
     `Descripcion bancaria: ${payload.desc_banco}`,
+    `Descripcion limpia sugerida: ${cleanDesc || payload.desc_banco}`,
     `Monto: ${payload.monto}`,
     `Moneda: ${payload.moneda}`,
     `Cuenta: ${payload.account_name || "sin cuenta"}`,
+    "Ejemplos reales utiles:",
+    "- 'COMPRA CON TARJETA DEBITO EXT. CLAUDE.AI SUBSCRIPTI' => Suscripciones",
+    "- 'COMISION COMPRA INTERNACIONAL CLAUDE.AI SUBSCRIPTIO' => Suscripciones",
+    "- 'DEBITO OPERACION EN SUPERNET O SMS ORT EDUCUNIVERSIDA' => Educacion",
+    "- 'CREDITO POR OPERACION EN SUPERNET P--/NOMBRE' => Ingreso",
+    "- 'TRANSFERENCIA ENVIADA ... TRF. PLAZA- NOMBRE' => Transferencia",
+    "- 'CREDITO POR OPERACION EN SUPERNET T--/NOMBRE' => Transferencia",
+    "- 'DLO.UBER.RIDES' => Transporte",
+    "- 'FROG' o 'SUPERMERCADOS EL DOR' => Supermercado",
+    "- 'FARMACITY' => Salud",
+    "Si una descripcion contiene un nombre de persona o parece transferencia entre personas, prioriza Transferencia.",
+    "Si es un credito por operacion en supernet tipo P--/, prioriza Ingreso.",
+    "Si es ORT o educacion universitaria, prioriza Educacion.",
     "Si propones categoria nueva, proposed_category_type debe ser 'variable' o 'fijo'.",
     "Si la descripcion es ambigua, confidence debe ser baja y category_name debe ser null.",
   ].join("\n");

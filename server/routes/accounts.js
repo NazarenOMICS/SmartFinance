@@ -1,29 +1,20 @@
 const express = require("express");
-const { db, getSettingsObject } = require("../db");
+const { convertAmount, db, getExchangeRateMap, getSettingsObject, SUPPORTED_CURRENCY_LIST } = require("../db");
 
 const router = express.Router();
-const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
+const SUPPORTED_CURRENCIES = new Set(SUPPORTED_CURRENCY_LIST);
 
 router.get("/consolidated", (req, res) => {
   const settings = getSettingsObject();
-  const usdRate = Number(settings.exchange_rate_usd_uyu || 42.5);
-  const arsRate = Number(settings.exchange_rate_ars_uyu || 0.045);
   const displayCurrency = settings.display_currency || "UYU";
+  const exchangeRates = getExchangeRateMap(settings);
   const rows = db.prepare("SELECT * FROM accounts ORDER BY created_at ASC").all();
 
-  const total = rows.reduce((sum, account) => {
-    if (displayCurrency === account.currency) return sum + account.balance;
-    // Normalize to UYU first, then convert to display currency
-    let inUYU = account.balance;
-    if (account.currency === "USD") inUYU = account.balance * usdRate;
-    else if (account.currency === "ARS") inUYU = account.balance * arsRate;
-    if (displayCurrency === "UYU") return sum + inUYU;
-    if (displayCurrency === "USD") return sum + inUYU / usdRate;
-    if (displayCurrency === "ARS") return sum + inUYU / arsRate;
-    return sum + inUYU;
-  }, 0);
+  const total = rows.reduce((sum, account) => (
+    sum + convertAmount(account.balance, account.currency, displayCurrency, exchangeRates)
+  ), 0);
 
-  res.json({ total, currency: displayCurrency, exchange_rate: usdRate });
+  res.json({ total, currency: displayCurrency, exchange_rate: exchangeRates[displayCurrency] || 1 });
 });
 
 router.get("/", (req, res) => {
@@ -60,7 +51,7 @@ router.post("/", (req, res) => {
     }
   }
   if (!SUPPORTED_CURRENCIES.has(currency)) {
-    return res.status(400).json({ error: "currency must be UYU, USD or ARS" });
+    return res.status(400).json({ error: `currency must be one of ${SUPPORTED_CURRENCY_LIST.join(", ")}` });
   }
   if (!Number.isFinite(balance)) {
     return res.status(400).json({ error: "balance must be a finite number" });

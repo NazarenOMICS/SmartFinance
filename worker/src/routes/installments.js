@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getDb, getSettingsObject, isValidMonthString } from "../db.js";
+import { getDb, getExchangeRateMap, getSettingsObject, isValidMonthString } from "../db.js";
 import { computeFutureCommitments } from "../services/metrics.js";
 
 const router = new Hono();
@@ -18,8 +18,7 @@ router.get("/commitments", async (c) => {
   const settings = await getSettingsObject(c.env, userId);
   return c.json(await computeFutureCommitments(getDb(c.env), start, months, userId, {
     currency: settings.display_currency || "UYU",
-    exchangeRateUsd: Number(settings.exchange_rate_usd_uyu || 42.5),
-    exchangeRateArs: Number(settings.exchange_rate_ars_uyu || 0.045)
+    exchangeRates: getExchangeRateMap(settings),
   }));
 });
 

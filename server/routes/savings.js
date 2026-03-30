@@ -1,5 +1,5 @@
 const express = require("express");
-const { db, getSettingsObject, isValidMonthString, monthWindow } = require("../db");
+const { convertAmount, db, getExchangeRateMap, getSettingsObject, isValidMonthString, monthWindow } = require("../db");
 const { computeFutureCommitments, previousMonth } = require("../services/metrics");
 
 const router = express.Router();
@@ -21,25 +21,7 @@ function getMonthSeries(months, endMonth) {
   });
 }
 
-function convertAmount(amount, currency, targetCurrency, usdRate, arsRate) {
-  const value = Number(amount || 0);
-  const sourceCurrency = currency || targetCurrency || "UYU";
-  const safeUsdRate = usdRate > 0 ? usdRate : 42.5;
-  const safeArsRate = arsRate > 0 ? arsRate : 0.045;
-
-  if (!targetCurrency || sourceCurrency === targetCurrency) return value;
-
-  let inUYU = value;
-  if (sourceCurrency === "USD") inUYU = value * safeUsdRate;
-  else if (sourceCurrency === "ARS") inUYU = value * safeArsRate;
-
-  if (targetCurrency === "UYU") return inUYU;
-  if (targetCurrency === "USD") return inUYU / safeUsdRate;
-  if (targetCurrency === "ARS") return inUYU / safeArsRate;
-  return inUYU;
-}
-
-function monthNet(month, targetCurrency, usdRate, arsRate) {
+function monthNet(month, targetCurrency, exchangeRates) {
   const { start, end } = monthWindow(month);
   const rows = db
     .prepare(
@@ -50,7 +32,7 @@ function monthNet(month, targetCurrency, usdRate, arsRate) {
     )
     .all(start, end);
   return rows.reduce(
-    (sum, row) => sum + convertAmount(row.monto, row.moneda, targetCurrency, usdRate, arsRate),
+    (sum, row) => sum + convertAmount(row.monto, row.moneda, targetCurrency, exchangeRates),
     0
   );
 }
@@ -73,22 +55,20 @@ router.get("/projection", (req, res) => {
     return res.status(400).json({ error: "end must be in YYYY-MM format" });
   }
   const savingsCurrency = settings.savings_currency || "UYU";
-  const usdRate = Number(settings.exchange_rate_usd_uyu || 42.5);
-  const arsRate = Number(settings.exchange_rate_ars_uyu || 0.045);
+  const exchangeRates = getExchangeRateMap(settings);
   const historicalMonths = getMonthSeries(6, baseMonth);
   const avgSavings =
-    historicalMonths.reduce((sum, month) => sum + monthNet(month, savingsCurrency, usdRate, arsRate), 0) / Math.max(1, historicalMonths.length);
+    historicalMonths.reduce((sum, month) => sum + monthNet(month, savingsCurrency, exchangeRates), 0) / Math.max(1, historicalMonths.length);
   const commitments = computeFutureCommitments(db, nextMonth(baseMonth), months, {
     currency: savingsCurrency,
-    exchangeRateUsd: usdRate,
-    exchangeRateArs: arsRate
+    exchangeRates
   });
   const initial = Number(settings.savings_initial || 0);
   const goal = Number(settings.savings_goal || 0);
   let accumulated = initial;
 
   const historical = historicalMonths.map((month) => {
-    accumulated += monthNet(month, savingsCurrency, usdRate, arsRate);
+    accumulated += monthNet(month, savingsCurrency, exchangeRates);
     return { month, real: Math.max(0, accumulated), projected: null, goal };
   });
 
@@ -115,8 +95,7 @@ router.get("/insights", (req, res) => {
 
   const settings = getSettingsObject();
   const savingsCurrency = settings.savings_currency || "UYU";
-  const usdRate = Number(settings.exchange_rate_usd_uyu || 42.5);
-  const arsRate = Number(settings.exchange_rate_ars_uyu || 0.045);
+  const exchangeRates = getExchangeRateMap(settings);
   const prevMonth = previousMonth(month);
   const { start, end } = monthWindow(month);
   const prevWindow = monthWindow(prevMonth);
@@ -148,7 +127,7 @@ router.get("/insights", (req, res) => {
   const byCategory = (rows) =>
     rows.filter((tx) => tx.monto < 0 && tx.category_name).reduce((acc, tx) => {
       acc[tx.category_name] = (acc[tx.category_name] || 0) + Math.abs(
-        convertAmount(tx.monto, tx.moneda, savingsCurrency, usdRate, arsRate)
+        convertAmount(tx.monto, tx.moneda, savingsCurrency, exchangeRates)
       );
       return acc;
     }, {});
@@ -169,9 +148,9 @@ router.get("/insights", (req, res) => {
 
   const totalExpenses = current
     .filter((tx) => tx.monto < 0 && tx.category_name !== "Transferencia")
-    .reduce((sum, tx) => sum + Math.abs(convertAmount(tx.monto, tx.moneda, savingsCurrency, usdRate, arsRate)), 0);
+    .reduce((sum, tx) => sum + Math.abs(convertAmount(tx.monto, tx.moneda, savingsCurrency, exchangeRates)), 0);
   const totalBudgetUyu = db.prepare("SELECT COALESCE(SUM(budget), 0) AS total FROM categories WHERE type != 'fijo'").get().total;
-  const totalBudget = convertAmount(totalBudgetUyu, "UYU", savingsCurrency, usdRate, arsRate);
+  const totalBudget = convertAmount(totalBudgetUyu, "UYU", savingsCurrency, exchangeRates);
   const today = new Date();
   const [year, monthNum] = month.split("-").map(Number);
   const daysInMonth = new Date(year, monthNum, 0).getDate();
@@ -182,10 +161,9 @@ router.get("/insights", (req, res) => {
 
   const commitments = computeFutureCommitments(db, month, 6, {
     currency: savingsCurrency,
-    exchangeRateUsd: usdRate,
-    exchangeRateArs: arsRate
+    exchangeRates
   });
-  const historicalNets = getMonthSeries(6, month).map((m) => monthNet(m, savingsCurrency, usdRate, arsRate));
+  const historicalNets = getMonthSeries(6, month).map((m) => monthNet(m, savingsCurrency, exchangeRates));
   const totalHistoricalNet = historicalNets.reduce((s, n) => s + n, 0);
   const avgSavings = totalHistoricalNet / 6;
   const currentSaved = Number(settings.savings_initial || 0) + totalHistoricalNet;

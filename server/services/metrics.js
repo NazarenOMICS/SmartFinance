@@ -1,4 +1,4 @@
-const { getSettingsObject, monthWindow } = require("../db");
+const { convertAmount, getExchangeRateMap, getSettingsObject, monthWindow } = require("../db");
 const { isLikelyTransfer } = require("./categorizer");
 
 function previousMonth(month) {
@@ -36,42 +36,18 @@ function pctDelta(current, previous) {
   return ((current - previous) / previous) * 100;
 }
 
-function convertAmount(amount, currency, targetCurrency, usdRate, arsRate) {
-  const value = Number(amount || 0);
-  const sourceCurrency = currency || targetCurrency || "UYU";
-  const safeUsdRate = usdRate > 0 ? usdRate : 42.5;
-  const safeArsRate = arsRate > 0 ? arsRate : 0.045;
-
-  if (!targetCurrency || sourceCurrency === targetCurrency) return value;
-
-  let inUYU = value;
-  if (sourceCurrency === "USD") inUYU = value * safeUsdRate;
-  else if (sourceCurrency === "ARS") inUYU = value * safeArsRate;
-
-  if (targetCurrency === "UYU") return inUYU;
-  if (targetCurrency === "USD") return inUYU / safeUsdRate;
-  if (targetCurrency === "ARS") return inUYU / safeArsRate;
-  return inUYU;
-}
-
 function computeSummary(db, month) {
   const current = getTransactionsForMonth(db, month);
   const previous = getTransactionsForMonth(db, previousMonth(month));
   const categories = db.prepare("SELECT * FROM categories ORDER BY sort_order, id").all();
   const settings = getSettingsObject();
-  const exchangeRate = Number(settings.exchange_rate_usd_uyu || 42.5);
-  const arsRate = Number(settings.exchange_rate_ars_uyu || 0.045);
   const displayCurrency = settings.display_currency || "UYU";
+  const exchangeRates = getExchangeRateMap(settings);
 
-  // Exclude inter-account transfers / currency exchanges from all financial totals.
-  // These have category_type = 'transferencia' and represent money moving between
-  // the user's own accounts, not real income or expenses.
   const isTransfer = (tx) => tx.category_type === "transferencia";
-
-  const financialCurrent  = current.filter((tx) => !isTransfer(tx));
+  const financialCurrent = current.filter((tx) => !isTransfer(tx));
   const financialPrevious = previous.filter((tx) => !isTransfer(tx));
-  const toDisplayAmount = (tx) =>
-    convertAmount(tx.monto, tx.moneda, displayCurrency, exchangeRate, arsRate);
+  const toDisplayAmount = (tx) => convertAmount(tx.monto, tx.moneda, displayCurrency, exchangeRates);
 
   const currentIncome = financialCurrent
     .filter((tx) => tx.monto > 0)
@@ -81,10 +57,10 @@ function computeSummary(db, month) {
     .reduce((sum, tx) => sum + Math.abs(toDisplayAmount(tx)), 0);
   const previousIncome = financialPrevious
     .filter((tx) => tx.monto > 0)
-    .reduce((sum, tx) => sum + convertAmount(tx.monto, tx.moneda, displayCurrency, exchangeRate, arsRate), 0);
+    .reduce((sum, tx) => sum + convertAmount(tx.monto, tx.moneda, displayCurrency, exchangeRates), 0);
   const previousExpenses = financialPrevious
     .filter((tx) => tx.monto < 0)
-    .reduce((sum, tx) => sum + Math.abs(convertAmount(tx.monto, tx.moneda, displayCurrency, exchangeRate, arsRate)), 0);
+    .reduce((sum, tx) => sum + Math.abs(convertAmount(tx.monto, tx.moneda, displayCurrency, exchangeRates)), 0);
 
   const byCategoryMap = financialCurrent
     .filter((tx) => tx.monto < 0 && tx.category_name)
@@ -110,14 +86,14 @@ function computeSummary(db, month) {
     type: category.type,
     budget: category.type === "fijo"
       ? (byCategoryMap[category.name] || 0)
-      : convertAmount(category.budget, "UYU", displayCurrency, exchangeRate, arsRate),
+      : convertAmount(category.budget, "UYU", displayCurrency, exchangeRates),
     color: category.color,
-    spent: byCategoryMap[category.name] || 0
+    spent: byCategoryMap[category.name] || 0,
   }));
 
   const accounts = db.prepare("SELECT * FROM accounts").all();
   const consolidated = accounts.reduce((sum, account) => {
-    return sum + convertAmount(account.balance, account.currency, displayCurrency, exchangeRate, arsRate);
+    return sum + convertAmount(account.balance, account.currency, displayCurrency, exchangeRates);
   }, 0);
 
   const installmentsMonth = current
@@ -131,26 +107,24 @@ function computeSummary(db, month) {
       income: currentIncome,
       expenses: currentExpenses,
       margin: currentIncome - currentExpenses,
-      installments: installmentsMonth
+      installments: installmentsMonth,
     },
     deltas: {
       income: pctDelta(currentIncome, previousIncome),
-      expenses: pctDelta(currentExpenses, previousExpenses)
+      expenses: pctDelta(currentExpenses, previousExpenses),
     },
     byCategory: budgets.filter((item) => item.spent > 0),
     byType,
     budgets,
-    // Transfers are auto-categorized system entries — don't count as pending review
     pending_count: current.filter((tx) => tx.categorization_status !== "categorized" && !isLikelyTransfer(tx.desc_banco)).length,
-    currency: displayCurrency
+    currency: displayCurrency,
   };
 }
 
 function computeMonthlyEvolution(db, endMonth, months) {
   const settings = getSettingsObject();
-  const exchangeRate = Number(settings.exchange_rate_usd_uyu || 42.5);
-  const arsRate = Number(settings.exchange_rate_ars_uyu || 0.045);
   const displayCurrency = settings.display_currency || "UYU";
+  const exchangeRates = getExchangeRateMap(settings);
   const [endYear, endMonthNum] = endMonth.split("-").map(Number);
   const series = [];
 
@@ -166,10 +140,10 @@ function computeMonthlyEvolution(db, endMonth, months) {
       month,
       ingresos: financial
         .filter((item) => item.monto > 0)
-        .reduce((sum, item) => sum + convertAmount(item.monto, item.moneda, displayCurrency, exchangeRate, arsRate), 0),
+        .reduce((sum, item) => sum + convertAmount(item.monto, item.moneda, displayCurrency, exchangeRates), 0),
       gastos: financial
         .filter((item) => item.monto < 0)
-        .reduce((sum, item) => sum + Math.abs(convertAmount(item.monto, item.moneda, displayCurrency, exchangeRate, arsRate)), 0)
+        .reduce((sum, item) => sum + Math.abs(convertAmount(item.monto, item.moneda, displayCurrency, exchangeRates)), 0),
     });
   }
 
@@ -183,8 +157,12 @@ function computeFutureCommitments(db, startMonth, months, options = {}) {
      LEFT JOIN accounts a ON a.id = i.account_id`
   ).all();
   const targetCurrency = options.currency || null;
-  const exchangeRate = Number(options.exchangeRateUsd || 42.5);
-  const arsRate = Number(options.exchangeRateArs || 0.045);
+  const exchangeRates = options.exchangeRates || {
+    UYU: 1,
+    USD: Number(options.exchangeRateUsd || 42.5),
+    EUR: Number(options.exchangeRateEur || 46.5),
+    ARS: Number(options.exchangeRateArs || 0.045),
+  };
   const [startYear, startMonthNum] = startMonth.split("-").map(Number);
   const fallbackInstallmentStart = [startYear, startMonthNum];
   const result = [];
@@ -207,13 +185,7 @@ function computeFutureCommitments(db, startMonth, months, options = {}) {
       }
 
       const installmentAmount = targetCurrency
-        ? convertAmount(
-            installment.monto_cuota,
-            installment.account_currency || targetCurrency,
-            targetCurrency,
-            exchangeRate,
-            arsRate
-          )
+        ? convertAmount(installment.monto_cuota, installment.account_currency || targetCurrency, targetCurrency, exchangeRates)
         : installment.monto_cuota;
 
       return sum + installmentAmount;
@@ -230,6 +202,5 @@ module.exports = {
   computeMonthlyEvolution,
   computeSummary,
   getTransactionsForMonth,
-  previousMonth
+  previousMonth,
 };
-

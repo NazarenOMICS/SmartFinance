@@ -15,6 +15,7 @@ import settingsRouter from "./src/routes/settings.js";
 import systemRouter from "./src/routes/system.js";
 import transactionsRouter from "./src/routes/transactions.js";
 import uploadRouter from "./src/routes/upload.js";
+import { refreshExchangeRates } from "./src/services/exchange-rates.js";
 
 const app = new Hono();
 
@@ -60,4 +61,9 @@ app.onError((err, c) => {
   return c.json({ error: err.message || "Unexpected server error" }, status);
 });
 
-export default app;
+export default {
+  fetch: app.fetch,
+  scheduled: async (_event, env, ctx) => {
+    ctx.waitUntil(refreshExchangeRates(env));
+  },
+};

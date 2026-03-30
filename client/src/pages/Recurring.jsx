@@ -4,8 +4,12 @@ import { useToast } from "../contexts/ToastContext";
 import CategorySelect from "../components/CategorySelect";
 import CandidateReview from "../components/CandidateReview";
 import { fmtMoney } from "../utils";
+import {
+  clearPendingReviewSession,
+  writePendingReviewSession,
+} from "../utils/pendingReviewSession";
 
-export default function Recurring({ month }) {
+export default function Recurring({ month, userId, resumePendingReview = null, onConsumeResumePendingReview, onInvalidResumePendingReview }) {
   const { addToast } = useToast();
   const [state, setState] = useState({ loading: true, error: "", data: [] });
   const [categories, setCategories] = useState([]);
@@ -35,12 +39,14 @@ export default function Recurring({ month }) {
       if (result?.duplicate) {
         addToast("info", `Regla para "${item.desc_banco}" ya existe.`);
       } else if (result?.candidates_count > 0) {
-        setPendingReview({
+        const review = {
           pattern: result.pattern,
           categoryId: normalizedCategoryId,
           categoryName,
           ruleId: result.id || null,
-        });
+        };
+        setPendingReview(review);
+        rememberPendingReview(review);
         addToast("info", `Regla creada: "${result.pattern}" → ${categoryName || "categoría"}. Hay ${result.candidates_count} transacciones similares para revisar.`);
       } else {
         addToast("success", `Aprendido: las próximas transacciones con "${result.pattern}" se categorizarán automáticamente.`);
@@ -72,6 +78,44 @@ export default function Recurring({ month }) {
     load();
     loadCategories();
   }, [month]);
+
+  useEffect(() => {
+    if (!resumePendingReview || categories.length === 0) return;
+    if (resumePendingReview.source !== "recurring") return;
+
+    const categoryId = Number(resumePendingReview.categoryId);
+    const category = categories.find((item) => item.id === categoryId);
+
+    if (!category) {
+      clearPendingReviewSession(userId);
+      onInvalidResumePendingReview?.();
+      return;
+    }
+
+    setPendingReview({
+      pattern: resumePendingReview.pattern,
+      categoryId,
+      categoryName: resumePendingReview.categoryName || category.name,
+      ruleId: resumePendingReview.ruleId || null,
+    });
+    onConsumeResumePendingReview?.();
+  }, [resumePendingReview, categories, userId, onConsumeResumePendingReview, onInvalidResumePendingReview]);
+
+  function rememberPendingReview(review) {
+    if (!userId) return;
+    writePendingReviewSession(userId, {
+      source: "recurring",
+      pattern: review.pattern,
+      categoryId: review.categoryId,
+      categoryName: review.categoryName,
+      ruleId: review.ruleId || null,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  function clearRememberedPendingReview() {
+    clearPendingReviewSession(userId);
+  }
 
   if (state.loading) return <div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel dark:bg-neutral-900/80">Analizando patrones...</div>;
   if (state.error) return <div className="rounded-[28px] bg-finance-redSoft p-6 text-finance-red shadow-panel dark:bg-red-900/30">{state.error}</div>;
@@ -190,7 +234,12 @@ export default function Recurring({ month }) {
           ruleId={pendingReview.ruleId}
           onDone={() => {
             setPendingReview(null);
+            clearRememberedPendingReview();
+            onConsumeResumePendingReview?.();
             load();
+          }}
+          onClose={() => {
+            setPendingReview(null);
           }}
         />
       )}

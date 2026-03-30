@@ -17,6 +17,7 @@ const REVIEWABLE_SLUGS = new Set([
   "suscripciones",
   "gimnasio",
   "mascotas",
+  "educacion",
 ]);
 
 const GUIDED_REVIEWABLE_SLUGS = new Set([
@@ -28,6 +29,7 @@ const GUIDED_REVIEWABLE_SLUGS = new Set([
   "telefonia",
   "salud",
   "suscripciones",
+  "educacion",
 ]);
 
 const GENERIC_GUIDED_KEYWORDS = new Set([
@@ -61,6 +63,7 @@ const GUIDED_REASON_BY_SLUG = {
   telefonia: "Proveedor claro de telefonia o conectividad",
   salud: "Merchant claro de salud o farmacia",
   suscripciones: "Suscripcion digital muy reconocible",
+  educacion: "Institucion o gasto claro de educacion",
 };
 
 const OBVIOUS_AUTO_KEYWORDS = new Set([
@@ -104,6 +107,8 @@ const OBVIOUS_AUTO_KEYWORDS = new Set([
   "google one",
   "ute",
   "ose",
+  "educuniversida",
+  "ort",
 ]);
 
 export function matchSmartCategoryTemplate(descBanco) {

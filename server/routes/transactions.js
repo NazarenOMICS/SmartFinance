@@ -1,5 +1,5 @@
 const express = require("express");
-const { db, getSettingsObject, isValidMonthString } = require("../db");
+const { db, getSettingsObject, isValidMonthString, SUPPORTED_CURRENCY_LIST } = require("../db");
 const { buildDedupHash } = require("../services/dedup");
 const { ensureRuleForManualCategorization, getCandidatesForPattern } = require("../services/categorizer");
 const { computeMonthlyEvolution, computeSummary, getTransactionsForMonth } = require("../services/metrics");
@@ -23,7 +23,7 @@ const {
 } = require("../services/transaction-categorization");
 
 const router = express.Router();
-const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
+const SUPPORTED_CURRENCIES = new Set(SUPPORTED_CURRENCY_LIST);
 
 function requireMonth(req, res) {
   const { month } = req.query;
@@ -149,7 +149,7 @@ router.post("/", (req, res) => {
     return res.status(400).json({ error: "monto must be a finite number" });
   }
   if (!SUPPORTED_CURRENCIES.has(moneda)) {
-    return res.status(400).json({ error: "moneda must be UYU, USD or ARS" });
+    return res.status(400).json({ error: `moneda must be one of ${SUPPORTED_CURRENCY_LIST.join(", ")}` });
   }
   if (account_id) {
     const account = db.prepare("SELECT id FROM accounts WHERE id = ?").get(account_id);

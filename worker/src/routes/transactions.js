@@ -25,9 +25,10 @@ import {
 } from "../services/smart-categories.js";
 import { suggestSync } from "../services/suggester.js";
 import { normalizePatternValue } from "../services/taxonomy.js";
+import { SUPPORTED_CURRENCY_LIST } from "../db.js";
 
 const router = new Hono();
-const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
+const SUPPORTED_CURRENCIES = new Set(SUPPORTED_CURRENCY_LIST);
 
 function getMonth(c) {
   const month = c.req.query("month");
@@ -292,7 +293,7 @@ router.post("/", async (c) => {
   }
   if (!isValidISODate(fecha)) return c.json({ error: "fecha must be in YYYY-MM-DD format" }, 400);
   if (!Number.isFinite(Number(monto))) return c.json({ error: "monto must be a finite number" }, 400);
-  if (!SUPPORTED_CURRENCIES.has(moneda)) return c.json({ error: "moneda must be UYU, USD or ARS" }, 400);
+  if (!SUPPORTED_CURRENCIES.has(moneda)) return c.json({ error: `moneda must be one of ${SUPPORTED_CURRENCY_LIST.join(", ")}` }, 400);
 
   const db = getDb(c.env);
   if (account_id) {

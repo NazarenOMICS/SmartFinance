@@ -1,7 +1,10 @@
 const {
   bumpRule,
   findMatchingRule,
+  isLikelyEducation,
+  isLikelyPersonTransfer,
   isLikelyReintegro,
+  isLikelySupernetIncome,
   isLikelyTransfer,
 } = require("./categorizer");
 const {
@@ -32,12 +35,41 @@ function pickSuggestedColor(categories = []) {
   return CATEGORY_PROPOSAL_COLORS.find((color) => !used.has(color)) || CATEGORY_PROPOSAL_COLORS[0];
 }
 
+function inferGenericCategoryName(descBanco = "") {
+  const desc = ` ${normalizeText(descBanco)} `;
+  if ([" ferreteria ", " buloneria ", " tornillo ", " herramientas ", " semar "].some((item) => desc.includes(item))) {
+    return "Ferreteria";
+  }
+  if ([" hogar ", " bazar ", " menaje ", " decoracion "].some((item) => desc.includes(item))) {
+    return "Hogar";
+  }
+  if ([" educuniversida ", " universidad ", " facultad ", " ort ", " curso ", " libreria ", " papeleria "].some((item) => desc.includes(item))) {
+    return "Educacion";
+  }
+  if ([" farmacia ", " farmashop ", " farmacity ", " san roque ", " medico ", " clinica ", " laboratorio "].some((item) => desc.includes(item))) {
+    return "Salud";
+  }
+  if ([" claude ", " anthropic ", " chatgpt ", " openai ", " software ", " saas ", " subscription ", " suscriptio "].some((item) => desc.includes(item))) {
+    return "Suscripciones";
+  }
+  if ([" cafe ", " cafeteria ", " restaurant ", " restaurante ", " bar ", " mcdonald ", " burger ", " mostaza ", " la pasiva "].some((item) => desc.includes(item))) {
+    return "Comer afuera";
+  }
+  if ([" delivery ", " pedidosya ", " rappi ", " uber eats "].some((item) => desc.includes(item))) {
+    return "Delivery";
+  }
+  if ([" uber ", " cabify ", " bolt ", " didi ", " taxi ", " peaje ", " parking "].some((item) => desc.includes(item))) {
+    return "Transporte";
+  }
+  if ([" disco ", " devoto ", " tienda inglesa ", " frog ", " dorado ", " supermercado "].some((item) => desc.includes(item))) {
+    return "Supermercado";
+  }
+  return "Otros";
+}
+
 function buildFallbackCategoryProposal(tx, categories = []) {
-  const normalized = normalizeText(tx.desc_banco || "");
-  const tokens = normalized.split(" ").filter((token) => token.length >= 4);
-  const merchantToken = tokens[0] || "Otros";
   return {
-    name: titleCase(merchantToken),
+    name: inferGenericCategoryName(tx.desc_banco),
     type: "variable",
     color: pickSuggestedColor(categories),
   };
@@ -141,6 +173,30 @@ function resolveTransactionClassification(db, descBanco, monto, moneda, explicit
     });
   }
 
+  if (isLikelyPersonTransfer(descBanco)) {
+    const transferCat = db.prepare("SELECT id FROM categories WHERE name = 'Transferencia'").get();
+    if (transferCat) {
+      return buildCategorizationRecord({
+        categoryId: transferCat.id,
+        status: "categorized",
+        source: "transfer",
+        confidence: 0.96,
+      });
+    }
+  }
+
+  if (isLikelySupernetIncome(descBanco, monto)) {
+    const incomeCat = db.prepare("SELECT id FROM categories WHERE name = 'Ingreso'").get();
+    if (incomeCat) {
+      return buildCategorizationRecord({
+        categoryId: incomeCat.id,
+        status: "categorized",
+        source: "income_operation",
+        confidence: 0.95,
+      });
+    }
+  }
+
   if (isLikelyTransfer(descBanco)) {
     const transferCat = db.prepare("SELECT id FROM categories WHERE name = 'Transferencia'").get();
     if (transferCat) {
@@ -149,6 +205,18 @@ function resolveTransactionClassification(db, descBanco, monto, moneda, explicit
         status: "categorized",
         source: "transfer",
         confidence: 0.97,
+      });
+    }
+  }
+
+  if (isLikelyEducation(descBanco)) {
+    const educationCat = db.prepare("SELECT id FROM categories WHERE name = 'Educacion'").get();
+    if (educationCat) {
+      return buildCategorizationRecord({
+        categoryId: educationCat.id,
+        status: "categorized",
+        source: "education",
+        confidence: 0.94,
       });
     }
   }
@@ -218,6 +286,23 @@ function buildTransactionReviewSuggestion(db, tx, options = {}) {
   }
 
   const proposedCategory = buildFallbackCategoryProposal(tx, categories);
+  const existingCategory = categories.find(
+    (item) => normalizeText(item.name) === normalizeText(proposedCategory.name)
+  );
+  if (existingCategory) {
+    return {
+      transaction_id: tx.id,
+      desc_banco: tx.desc_banco,
+      fecha: tx.fecha,
+      monto: tx.monto,
+      moneda: tx.moneda,
+      suggested_category_id: existingCategory.id,
+      suggested_category_name: existingCategory.name,
+      suggestion_source: "heuristica",
+      suggestion_reason: `Sugerencia general hacia ${existingCategory.name}`,
+      proposed_new_category: null,
+    };
+  }
   return {
     transaction_id: tx.id,
     desc_banco: tx.desc_banco,

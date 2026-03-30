@@ -29,9 +29,12 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
     return PRESET_COLORS.find((c) => !usedColors.has(c)) || PRESET_COLORS[0];
   }
 
-  async function load() {
+  async function load(options = {}) {
+    const { silent = false } = options;
     const id = ++loadRef.current;
-    setLoading(true);
+    if (!silent || categories.length === 0) {
+      setLoading(true);
+    }
     try {
       const [cats, rls, summary] = await Promise.all([
         api.getCategories(),
@@ -86,19 +89,26 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
   async function updateCategory(category, changes) {
     try {
       const nextType = changes.type ?? category.type;
-      await api.updateCategory(category.id, {
+      const updated = await api.updateCategory(category.id, {
         ...category,
         ...changes,
         budget: nextType === "fijo" ? 0 : (changes.budget ?? category.budget),
       });
+      setCategories((prev) => prev.map((item) => (item.id === category.id ? { ...item, ...updated } : item)));
+      setRules((prev) => prev.map((rule) => (
+        rule.category_id === category.id
+          ? { ...rule, category_name: updated.name, category_color: updated.color }
+          : rule
+      )));
       if (nextType === "fijo") {
         setLocalBudgets((prev) => ({ ...prev, [category.id]: "" }));
+      } else if (changes.budget !== undefined) {
+        setLocalBudgets((prev) => ({ ...prev, [category.id]: String(changes.budget) }));
       }
-      await load();
       onDataChanged?.();
     } catch (e) {
       addToast("error", e.message);
-      await load();
+      await load({ silent: true });
     }
   }
 
@@ -107,10 +117,11 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
     if (saving) return;
     setSaving(true);
     try {
-      await api.createCategory({ ...catForm, budget: catForm.type === "fijo" ? 0 : Number(catForm.budget || 0) });
+      const created = await api.createCategory({ ...catForm, budget: catForm.type === "fijo" ? 0 : Number(catForm.budget || 0) });
+      setCategories((prev) => [...prev, { ...created, usage_count: 0 }]);
+      setLocalBudgets((prev) => ({ ...prev, [created.id]: String(created.budget || 0) }));
       addToast("success", `Categoría "${catForm.name}" creada.`);
       setCatForm({ name: "", budget: "", type: "variable", color: nextUnusedColor() });
-      await load();
       onDataChanged?.();
     } catch (e) {
       addToast("error", e.message);
@@ -129,8 +140,14 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
     const cat = categories.find((c) => c.id === id);
     try {
       await api.deleteCategory(id);
+      setCategories((prev) => prev.filter((item) => item.id !== id));
+      setRules((prev) => prev.filter((rule) => rule.category_id !== id));
+      setLocalBudgets((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       addToast("info", `Categoría "${cat?.name}" eliminada.`);
-      await load();
       onDataChanged?.();
     } catch (e) {
       addToast("error", e.message);
@@ -150,6 +167,11 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
       if (result?.duplicate) {
         addToast("info", "Esta regla ya existe.");
       } else if (result?.candidates_count > 0) {
+        setRules((prev) => [{
+          ...result,
+          category_name: categoryName,
+          category_color: categories.find((item) => item.id === categoryId)?.color || null,
+        }, ...prev]);
         setPendingReview({
           pattern: result.pattern,
           categoryId,
@@ -158,10 +180,14 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
         });
         addToast("info", `Regla creada: "${result.pattern}" → ${categoryName || "categoría"}. Hay ${result.candidates_count} transacciones similares para revisar.`);
       } else {
+        setRules((prev) => [{
+          ...result,
+          category_name: categoryName,
+          category_color: categories.find((item) => item.id === categoryId)?.color || null,
+        }, ...prev]);
         addToast("success", "Regla creada.");
       }
 
-      await load();
       onDataChanged?.();
     } catch (e) {
       addToast("error", e.message);
@@ -180,8 +206,8 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
     const rule = rules.find((r) => r.id === id);
     try {
       await api.deleteRule(id);
+      setRules((prev) => prev.filter((item) => item.id !== id));
       addToast("info", `Regla "${rule?.pattern}" eliminada.`);
-      await load();
       onDataChanged?.();
     } catch (e) {
       addToast("error", e.message);
@@ -200,7 +226,7 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
     try {
       const result = await api.resetRules();
       addToast("info", `Se resetearon ${result.deleted_count} reglas. Quedaron ${result.rules_count} reglas activas.`);
-      await load();
+      await load({ silent: true });
       onDataChanged?.();
     } catch (e) {
       addToast("error", e.message);
@@ -558,8 +584,11 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
           ruleId={pendingReview.ruleId}
           onDone={() => {
             setPendingReview(null);
-            load();
+            load({ silent: true });
             onDataChanged?.();
+          }}
+          onClose={() => {
+            setPendingReview(null);
           }}
         />
       )}

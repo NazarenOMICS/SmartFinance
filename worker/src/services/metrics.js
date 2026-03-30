@@ -1,4 +1,4 @@
-import { monthWindow, getSettingsObject } from "../db.js";
+import { convertAmount, getExchangeRateMap, getSettingsObject, monthWindow } from "../db.js";
 import { isLikelyTransfer } from "./categorizer.js";
 
 export function previousMonth(month) {
@@ -26,41 +26,21 @@ function pctDelta(current, previous) {
   return ((current - previous) / previous) * 100;
 }
 
-function convertAmount(amount, currency, targetCurrency, usdRate, arsRate) {
-  const value = Number(amount || 0);
-  const sourceCurrency = currency || targetCurrency || "UYU";
-  const safeUsdRate = usdRate > 0 ? usdRate : 42.5;
-  const safeArsRate = arsRate > 0 ? arsRate : 0.045;
-
-  if (!targetCurrency || sourceCurrency === targetCurrency) return value;
-
-  let inUYU = value;
-  if (sourceCurrency === "USD") inUYU = value * safeUsdRate;
-  else if (sourceCurrency === "ARS") inUYU = value * safeArsRate;
-
-  if (targetCurrency === "UYU") return inUYU;
-  if (targetCurrency === "USD") return inUYU / safeUsdRate;
-  if (targetCurrency === "ARS") return inUYU / safeArsRate;
-  return inUYU;
-}
-
 export async function computeSummary(db, env, month, userId) {
   const [current, previous, categories] = await Promise.all([
     getTransactionsForMonth(db, month, userId),
     getTransactionsForMonth(db, previousMonth(month), userId),
-    db.prepare("SELECT * FROM categories WHERE user_id = ? ORDER BY sort_order, id").all(userId)
+    db.prepare("SELECT * FROM categories WHERE user_id = ? ORDER BY sort_order, id").all(userId),
   ]);
 
   const settings = await getSettingsObject(env, userId);
-  const exchangeRate = Number(settings.exchange_rate_usd_uyu || 42.5);
-  const exchangeRateArs = Number(settings.exchange_rate_ars_uyu || 0.045);
   const displayCurrency = settings.display_currency || "UYU";
+  const exchangeRates = getExchangeRateMap(settings);
   const isTransfer = (tx) => tx.category_type === "transferencia";
 
   const financialCurrent = current.filter((tx) => !isTransfer(tx));
   const financialPrevious = previous.filter((tx) => !isTransfer(tx));
-  const toDisplayAmount = (tx) =>
-    convertAmount(tx.monto, tx.moneda, displayCurrency, exchangeRate, exchangeRateArs);
+  const toDisplayAmount = (tx) => convertAmount(tx.monto, tx.moneda, displayCurrency, exchangeRates);
 
   const currentIncome = financialCurrent
     .filter((tx) => tx.monto > 0)
@@ -70,10 +50,10 @@ export async function computeSummary(db, env, month, userId) {
     .reduce((sum, tx) => sum + Math.abs(toDisplayAmount(tx)), 0);
   const previousIncome = financialPrevious
     .filter((tx) => tx.monto > 0)
-    .reduce((sum, tx) => sum + convertAmount(tx.monto, tx.moneda, displayCurrency, exchangeRate, exchangeRateArs), 0);
+    .reduce((sum, tx) => sum + convertAmount(tx.monto, tx.moneda, displayCurrency, exchangeRates), 0);
   const previousExpenses = financialPrevious
     .filter((tx) => tx.monto < 0)
-    .reduce((sum, tx) => sum + Math.abs(convertAmount(tx.monto, tx.moneda, displayCurrency, exchangeRate, exchangeRateArs)), 0);
+    .reduce((sum, tx) => sum + Math.abs(convertAmount(tx.monto, tx.moneda, displayCurrency, exchangeRates)), 0);
 
   const byCategoryMap = financialCurrent
     .filter((tx) => tx.monto < 0 && tx.category_name)
@@ -96,14 +76,14 @@ export async function computeSummary(db, env, month, userId) {
     type: cat.type,
     budget: cat.type === "fijo"
       ? (byCategoryMap[cat.name] || 0)
-      : convertAmount(cat.budget, "UYU", displayCurrency, exchangeRate, exchangeRateArs),
+      : convertAmount(cat.budget, "UYU", displayCurrency, exchangeRates),
     color: cat.color,
-    spent: byCategoryMap[cat.name] || 0
+    spent: byCategoryMap[cat.name] || 0,
   }));
 
   const accounts = await db.prepare("SELECT * FROM accounts WHERE user_id = ?").all(userId);
   const consolidated = accounts.reduce(
-    (sum, account) => sum + convertAmount(account.balance, account.currency, displayCurrency, exchangeRate, exchangeRateArs),
+    (sum, account) => sum + convertAmount(account.balance, account.currency, displayCurrency, exchangeRates),
     0
   );
 
@@ -118,25 +98,24 @@ export async function computeSummary(db, env, month, userId) {
       income: currentIncome,
       expenses: currentExpenses,
       margin: currentIncome - currentExpenses,
-      installments: installmentsMonth
+      installments: installmentsMonth,
     },
     deltas: {
       income: pctDelta(currentIncome, previousIncome),
-      expenses: pctDelta(currentExpenses, previousExpenses)
+      expenses: pctDelta(currentExpenses, previousExpenses),
     },
     byCategory: budgets.filter((item) => item.spent > 0),
     byType,
     budgets,
     pending_count: current.filter((tx) => tx.categorization_status !== "categorized" && !isLikelyTransfer(tx.desc_banco)).length,
-    currency: displayCurrency
+    currency: displayCurrency,
   };
 }
 
 export async function computeMonthlyEvolution(db, env, endMonth, months, userId) {
   const settings = await getSettingsObject(env, userId);
-  const exchangeRate = Number(settings.exchange_rate_usd_uyu || 42.5);
-  const exchangeRateArs = Number(settings.exchange_rate_ars_uyu || 0.045);
   const displayCurrency = settings.display_currency || "UYU";
+  const exchangeRates = getExchangeRateMap(settings);
   const [endYear, endMonthNum] = endMonth.split("-").map(Number);
   const series = [];
   for (let offset = months - 1; offset >= 0; offset -= 1) {
@@ -150,10 +129,10 @@ export async function computeMonthlyEvolution(db, env, endMonth, months, userId)
       month,
       ingresos: financial
         .filter((item) => item.monto > 0)
-        .reduce((sum, item) => sum + convertAmount(item.monto, item.moneda, displayCurrency, exchangeRate, exchangeRateArs), 0),
+        .reduce((sum, item) => sum + convertAmount(item.monto, item.moneda, displayCurrency, exchangeRates), 0),
       gastos: financial
         .filter((item) => item.monto < 0)
-        .reduce((sum, item) => sum + Math.abs(convertAmount(item.monto, item.moneda, displayCurrency, exchangeRate, exchangeRateArs)), 0)
+        .reduce((sum, item) => sum + Math.abs(convertAmount(item.monto, item.moneda, displayCurrency, exchangeRates)), 0),
     });
   }
   return series;
@@ -167,8 +146,12 @@ export async function computeFutureCommitments(db, startMonth, months, userId, o
      WHERE i.user_id = ?`
   ).all(userId);
   const targetCurrency = options.currency || null;
-  const exchangeRate = Number(options.exchangeRateUsd || 42.5);
-  const exchangeRateArs = Number(options.exchangeRateArs || 0.045);
+  const exchangeRates = options.exchangeRates || {
+    UYU: 1,
+    USD: Number(options.exchangeRateUsd || 42.5),
+    EUR: Number(options.exchangeRateEur || 46.5),
+    ARS: Number(options.exchangeRateArs || 0.045),
+  };
   const [startYear, startMonthNum] = startMonth.split("-").map(Number);
   const fallbackInstallmentStart = [startYear, startMonthNum];
   const result = [];
@@ -184,13 +167,7 @@ export async function computeFutureCommitments(db, startMonth, months, userId, o
       const instNum = absMonth - startAbs + 1;
       if (instNum < inst.cuota_actual || instNum > inst.cantidad_cuotas) return sum;
       const installmentAmount = targetCurrency
-        ? convertAmount(
-            inst.monto_cuota,
-            inst.account_currency || targetCurrency,
-            targetCurrency,
-            exchangeRate,
-            exchangeRateArs
-          )
+        ? convertAmount(inst.monto_cuota, inst.account_currency || targetCurrency, targetCurrency, exchangeRates)
         : inst.monto_cuota;
       return sum + installmentAmount;
     }, 0);

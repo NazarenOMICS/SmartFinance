@@ -18,6 +18,10 @@ import SearchModal from "./components/SearchModal";
 import ShortcutsModal from "./components/ShortcutsModal";
 import { SkeletonDashboard } from "./components/SkeletonLoader";
 import { isoMonth } from "./utils";
+import {
+  getPendingReviewTab,
+  readPendingReviewSession,
+} from "./utils/pendingReviewSession";
 
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Upload = lazy(() => import("./pages/Upload"));
@@ -234,6 +238,9 @@ function AppInner() {
   const [apiDown, setApiDown] = useState(false);
   const [schemaStatus, setSchemaStatus] = useState(null);
   const [bootError, setBootError] = useState(null);
+  const [resumePendingReview, setResumePendingReview] = useState(null);
+  const [pendingReminder, setPendingReminder] = useState(null);
+  const [dismissedPendingReminder, setDismissedPendingReminder] = useState(false);
   const settingsRequestIdRef = useRef(0);
   const pendingRequestIdRef = useRef(0);
   const displayName = user?.firstName || user?.fullName?.split(" ")[0] || "Naza";
@@ -316,6 +323,18 @@ function AppInner() {
       setPendingCount(summary.pending_count || 0);
     } catch {
       // Keep last known badge state.
+    }
+  }
+
+  function consumeResumePendingReview() {
+    setResumePendingReview(null);
+  }
+
+  function handleInvalidResumePendingReview() {
+    setResumePendingReview(null);
+    if (pendingCount > 0) {
+      setPendingReminder({ type: "general", pendingCount });
+      setDismissedPendingReminder(false);
     }
   }
 
@@ -439,8 +458,48 @@ function AppInner() {
     }
   }, [month, tab, onboardStatus]);
 
+  useEffect(() => {
+    setResumePendingReview(null);
+    setPendingReminder(null);
+    setDismissedPendingReminder(false);
+  }, [userId]);
+
+  useEffect(() => {
+    if (onboardStatus !== "done" || !userId || dismissedPendingReminder || pendingReminder) return;
+
+    const exactSession = readPendingReviewSession(userId);
+    if (exactSession) {
+      setPendingReminder({ type: "exact", session: exactSession });
+      return;
+    }
+
+    if (pendingCount > 0) {
+      setPendingReminder({ type: "general", pendingCount });
+    }
+  }, [onboardStatus, userId, pendingCount, dismissedPendingReminder, pendingReminder]);
+
   function handleNavigateToMonth(targetMonth) {
     setMonth(targetMonth);
+    setTab("dashboard");
+  }
+
+  function dismissPendingReminder() {
+    setPendingReminder(null);
+    setDismissedPendingReminder(true);
+  }
+
+  function handleResumePendingReminder() {
+    if (!pendingReminder?.session) return;
+    const session = pendingReminder.session;
+    setPendingReminder(null);
+    setDismissedPendingReminder(true);
+    setResumePendingReview(session);
+    setTab(getPendingReviewTab(session.source));
+  }
+
+  function handleOpenPendingDashboard() {
+    setPendingReminder(null);
+    setDismissedPendingReminder(true);
     setTab("dashboard");
   }
 
@@ -567,6 +626,48 @@ function AppInner() {
       {showTutorial && <Tutorial onClose={() => setShowTutorial(false)} />}
       {showSearch && <SearchModal onClose={() => setShowSearch(false)} onNavigateToMonth={handleNavigateToMonth} />}
       {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
+      {pendingReminder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-[30px] border border-white/70 bg-white/92 p-6 shadow-2xl dark:border-white/10 dark:bg-neutral-900/92">
+            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">
+              {pendingReminder.type === "exact" ? "Revision pendiente" : "Pendientes por revisar"}
+            </p>
+            <h2 className="mt-2 font-display text-3xl text-finance-ink dark:text-neutral-100">
+              {pendingReminder.type === "exact"
+                ? "Quedo una revision de categorizacion pendiente"
+                : "Tenes transacciones sin categorizar"}
+            </h2>
+            <p className="mt-3 text-sm leading-7 text-neutral-500 dark:text-neutral-300">
+              {pendingReminder.type === "exact"
+                ? "Si cerraste el popup por error, podes retomarlo ahora mismo exactamente donde lo dejaste."
+                : `Hay ${pendingReminder.pendingCount} transaccion${pendingReminder.pendingCount === 1 ? "" : "es"} pendiente${pendingReminder.pendingCount === 1 ? "" : "s"} y conviene resolverlas antes de que queden escondidas en el dashboard.`}
+            </p>
+            {pendingReminder.type === "exact" && pendingReminder.session ? (
+              <div className="mt-4 rounded-2xl bg-finance-cream/80 px-4 py-3 text-sm text-neutral-500 dark:bg-neutral-800/80 dark:text-neutral-300">
+                <p className="font-semibold text-finance-ink dark:text-neutral-100">
+                  {pendingReminder.session.pattern} {"->"} {pendingReminder.session.categoryName}
+                </p>
+              </div>
+            ) : null}
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={dismissPendingReminder}
+                className="rounded-full border border-neutral-200 px-4 py-2.5 text-sm font-semibold text-neutral-500 transition hover:border-neutral-300 hover:text-neutral-700 dark:border-neutral-700 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:text-neutral-100"
+              >
+                Cerrar
+              </button>
+              <button
+                type="button"
+                onClick={pendingReminder.type === "exact" ? handleResumePendingReminder : handleOpenPendingDashboard}
+                className="rounded-full bg-finance-purple px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
+              >
+                {pendingReminder.type === "exact" ? "Retomar ahora" : "Resolver ahora"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <header className="mb-8 overflow-hidden rounded-[38px] border border-white/70 bg-white/82 p-5 shadow-panel backdrop-blur dark:border-white/10 dark:bg-neutral-900/82 md:p-6">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
@@ -658,6 +759,10 @@ function AppInner() {
             refreshSettings={refreshSettings}
             onNavigate={setTab}
             onPendingChange={setPendingCount}
+            userId={userId}
+            resumePendingReview={resumePendingReview}
+            onConsumeResumePendingReview={consumeResumePendingReview}
+            onInvalidResumePendingReview={handleInvalidResumePendingReview}
           />
         )}
         {tab === "upload" && (
@@ -673,7 +778,14 @@ function AppInner() {
         {tab === "savings" && (
           <Savings month={month} settings={settings} refreshSettings={refreshSettings} />
         )}
-        {tab === "rules" && <Rules />}
+        {tab === "rules" && (
+          <Rules
+            userId={userId}
+            resumePendingReview={resumePendingReview}
+            onConsumeResumePendingReview={consumeResumePendingReview}
+            onInvalidResumePendingReview={handleInvalidResumePendingReview}
+          />
+        )}
         {tab === "accounts" && (
           <Accounts
             settings={settings}
@@ -691,7 +803,15 @@ function AppInner() {
           />
         )}
         {tab === "installments" && <Installments month={month} />}
-        {tab === "recurring" && <Recurring month={month} />}
+        {tab === "recurring" && (
+          <Recurring
+            month={month}
+            userId={userId}
+            resumePendingReview={resumePendingReview}
+            onConsumeResumePendingReview={consumeResumePendingReview}
+            onInvalidResumePendingReview={handleInvalidResumePendingReview}
+          />
+        )}
       </Suspense>
 
       <button

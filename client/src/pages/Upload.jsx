@@ -8,6 +8,7 @@ import BrandMark from "../components/BrandMark";
 import GuidedCategorizationDeck from "../components/GuidedCategorizationDeck";
 import RuleReviewDeck from "../components/RuleReviewDeck";
 import TransactionReviewDeck from "../components/TransactionReviewDeck";
+import { SUPPORTED_CURRENCY_OPTIONS } from "../utils";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.mjs",
@@ -306,7 +307,7 @@ export default function Upload({ month, onDone, onNavigate }) {
   const [guidedReviewGroups, setGuidedReviewGroups] = useState([]);
   const [guidedOnboardingRequired, setGuidedOnboardingRequired] = useState(false);
   const [transactionReviewQueue, setTransactionReviewQueue] = useState([]);
-  const [acceptedReviewGroupKeys, setAcceptedReviewGroupKeys] = useState([]);
+  const [resolvedGuidedGroupKeys, setResolvedGuidedGroupKeys] = useState([]);
   const [resolvedReviewTransactionIds, setResolvedReviewTransactionIds] = useState([]);
 
   function resetReviewFlowState() {
@@ -314,7 +315,7 @@ export default function Upload({ month, onDone, onNavigate }) {
     setGuidedReviewGroups([]);
     setGuidedOnboardingRequired(false);
     setTransactionReviewQueue([]);
-    setAcceptedReviewGroupKeys([]);
+    setResolvedGuidedGroupKeys([]);
     setResolvedReviewTransactionIds([]);
   }
 
@@ -426,13 +427,21 @@ export default function Upload({ month, onDone, onNavigate }) {
     }
   }
 
-  function handleAcceptedReviewGroup(group) {
-    setAcceptedReviewGroupKeys((prev) => (prev.includes(group.key) ? prev : [...prev, group.key]));
+  function markResolvedTransactions(group) {
     setResolvedReviewTransactionIds((prev) => {
       const next = new Set(prev);
       (group.transaction_ids || []).forEach((id) => next.add(id));
       return [...next];
     });
+  }
+
+  function handleAcceptedGuidedGroup(group) {
+    setResolvedGuidedGroupKeys((prev) => (prev.includes(group.key) ? prev : [...prev, group.key]));
+    markResolvedTransactions(group);
+  }
+
+  function handleAcceptedRuleReviewGroup(group) {
+    markResolvedTransactions(group);
   }
 
   async function handleUpload(event) {
@@ -512,7 +521,7 @@ export default function Upload({ month, onDone, onNavigate }) {
     (item) => !resolvedReviewTransactionIds.includes(item.transaction_id)
   );
   const displayedRuleReviewGroups = reviewGroups.filter(
-    (group) => !acceptedReviewGroupKeys.includes(group.key)
+    (group) => !resolvedGuidedGroupKeys.includes(group.key)
   );
 
   return (
@@ -557,7 +566,7 @@ export default function Upload({ month, onDone, onNavigate }) {
       {guidedOnboardingRequired && guidedReviewGroups.length > 0 && (
         <GuidedCategorizationDeck
           groups={guidedReviewGroups}
-          onAcceptedGroup={handleAcceptedReviewGroup}
+          onAcceptedGroup={handleAcceptedGuidedGroup}
           onComplete={handleGuidedComplete}
           onFollowLater={handleGuidedFollowLater}
           onSkip={handleGuidedSkip}
@@ -566,7 +575,7 @@ export default function Upload({ month, onDone, onNavigate }) {
       {!guidedOnboardingRequired && displayedRuleReviewGroups.length > 0 && (
         <RuleReviewDeck
           groups={displayedRuleReviewGroups}
-          onAcceptedGroup={handleAcceptedReviewGroup}
+          onAcceptedGroup={handleAcceptedRuleReviewGroup}
           onDone={() => {
             load();
             handleRuleReviewDone();
@@ -678,11 +687,11 @@ export default function Upload({ month, onDone, onNavigate }) {
         >
           {/* Loading overlay — shown while extracting PDF + uploading */}
           {parsing && (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 rounded-[30px] bg-white/92 backdrop-blur-[2px] dark:bg-neutral-900/92">
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 rounded-[30px] bg-white/97 backdrop-blur-md dark:bg-neutral-950/97">
               <div className="h-10 w-10 animate-spin rounded-full border-4 border-finance-purple/20 border-t-finance-purple" />
               <div className="text-center">
-                <p className="font-semibold text-finance-ink dark:text-neutral-100">Procesando archivo…</p>
-                <p className="mt-1 text-xs text-neutral-400">Esto puede tardar unos segundos</p>
+                <p className="font-semibold text-finance-ink dark:text-white">Procesando archivo…</p>
+                <p className="mt-1 text-xs text-neutral-600 dark:text-neutral-300">Esto puede tardar unos segundos</p>
               </div>
             </div>
           )}
@@ -805,9 +814,11 @@ export default function Upload({ month, onDone, onNavigate }) {
                 onChange={(e) => setManualForm((p) => ({ ...p, moneda: e.target.value }))}
                 className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
               >
-                <option value="UYU">UYU</option>
-                <option value="USD">USD</option>
-                <option value="ARS">ARS</option>
+                {SUPPORTED_CURRENCY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.value}
+                  </option>
+                ))}
               </select>
             </div>
             <button className="rounded-full bg-finance-ink px-5 py-3 font-semibold text-white transition hover:opacity-90 dark:bg-white dark:text-finance-ink">

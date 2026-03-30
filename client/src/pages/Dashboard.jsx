@@ -9,11 +9,25 @@ import TransactionTable from "../components/TransactionTable";
 import CategoryManager from "../components/CategoryManager";
 import CandidateReview from "../components/CandidateReview";
 import { SkeletonDashboard } from "../components/SkeletonLoader";
-import { fmtMoney } from "../utils";
+import { fmtMoney, getExchangeRateMap, SUPPORTED_CURRENCY_OPTIONS } from "../utils";
+import {
+  clearPendingReviewSession,
+  writePendingReviewSession,
+} from "../utils/pendingReviewSession";
 
 const chartColors = ["#534AB7", "#1D9E75", "#D85A30", "#378ADD", "#BA7517", "#639922", "#E24B4A", "#888780"];
 
-export default function Dashboard({ month, settings, refreshSettings, onNavigate, onPendingChange }) {
+export default function Dashboard({
+  month,
+  settings,
+  refreshSettings,
+  onNavigate,
+  onPendingChange,
+  userId,
+  resumePendingReview = null,
+  onConsumeResumePendingReview,
+  onInvalidResumePendingReview,
+}) {
   const { addToast } = useToast();
   const [state, setState] = useState({
     loading: true,
@@ -84,6 +98,44 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
     load();
   }, [month]);
 
+  useEffect(() => {
+    if (state.loading || !resumePendingReview) return;
+    if (resumePendingReview.source !== "dashboard") return;
+
+    const categoryId = Number(resumePendingReview.categoryId);
+    const category = state.categories.find((item) => item.id === categoryId);
+
+    if (!category) {
+      clearPendingReviewSession(userId);
+      onInvalidResumePendingReview?.();
+      return;
+    }
+
+    setCategoryCandidates({
+      pattern: resumePendingReview.pattern,
+      category_id: categoryId,
+      category_name: resumePendingReview.categoryName || category.name,
+      rule_id: resumePendingReview.ruleId || null,
+    });
+    onConsumeResumePendingReview?.();
+  }, [state.loading, state.categories, resumePendingReview, userId, onConsumeResumePendingReview, onInvalidResumePendingReview]);
+
+  function rememberPendingReview(review) {
+    if (!userId) return;
+    writePendingReviewSession(userId, {
+      source: "dashboard",
+      pattern: review.pattern,
+      categoryId: review.category_id,
+      categoryName: review.category_name,
+      ruleId: review.rule_id || null,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  function clearRememberedPendingReview() {
+    clearPendingReviewSession(userId);
+  }
+
   async function handleCategorize(id, categoryId) {
     try {
       const result = await api.updateTransaction(id, { category_id: Number(categoryId) });
@@ -114,12 +166,14 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
         addToast("warning", `Ya existe una regla "${result.rule.rule?.pattern}" para otra categoría. Se categorizó sin modificar la regla.`);
       } else if (result?.rule?.created && result.rule.candidates_count > 0) {
         // Show candidates for Tinder-style confirmation
-        setCategoryCandidates({
+        const review = {
           pattern: result.rule.rule?.pattern,
           category_id: Number(categoryId),
           category_name: catName,
           rule_id: result.rule.rule?.id || null,
-        });
+        };
+        setCategoryCandidates(review);
+        rememberPendingReview(review);
         addToast("info", `Regla creada: "${result.rule.rule?.pattern}" → ${catName}. Hay ${result.rule.candidates_count} transacciones similares para revisar.`);
       } else if (result?.rule?.created) {
         addToast("success", `Aprendido: las próximas transacciones con "${result.rule.rule?.pattern}" se categorizarán como ${catName || "esta categoría"}.`);
@@ -210,7 +264,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
     try {
       await api.updateSetting("display_currency", value);
       await refreshSettings();
-      await load();
+      await load({ silent: true });
     } catch (error) {
       addToast("error", error.message);
     }
@@ -224,9 +278,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
   const { summary } = state;
   const money = (value) => fmtMoney(value, summary.currency);
   const displayCurrency = settings.display_currency || "UYU";
-  const exchangeRateValue = displayCurrency === "ARS"
-    ? Number(settings.exchange_rate_ars_uyu || 0.045)
-    : Number(settings.exchange_rate_usd_uyu || 42.5);
+  const exchangeRateValue = Number(getExchangeRateMap(settings)[displayCurrency] || 1);
   const exchangeRateDecimals = exchangeRateValue < 1 ? 3 : 1;
 
   if (state.transactions.length === 0) {
@@ -328,9 +380,11 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
                 value={settings.display_currency || "UYU"}
                 onChange={(e) => handleDisplayCurrencyChange(e.target.value)}
               >
-                <option value="UYU">UYU</option>
-                <option value="USD">USD</option>
-                <option value="ARS">ARS</option>
+                {SUPPORTED_CURRENCY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.value}
+                  </option>
+                ))}
               </select>
               {displayCurrency !== "UYU" && (
                 <span className="rounded-full bg-finance-cream px-3 py-2 text-xs text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400" title="Tipo de cambio actualizado automáticamente">
@@ -493,7 +547,15 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
           categoryId={categoryCandidates.category_id}
           categoryName={categoryCandidates.category_name}
           ruleId={categoryCandidates.rule_id}
-          onDone={() => { setCategoryCandidates(null); load({ silent: true }); }}
+          onDone={() => {
+            setCategoryCandidates(null);
+            clearRememberedPendingReview();
+            onConsumeResumePendingReview?.();
+            load({ silent: true });
+          }}
+          onClose={() => {
+            setCategoryCandidates(null);
+          }}
         />
       )}
     </div>

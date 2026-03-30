@@ -30,12 +30,36 @@ const TRANSFER_KEYWORDS = [
   "debito transferencia interna",
 ];
 
+const PERSON_TRANSFER_KEYWORDS = [
+  "transferencia enviada",
+  "trf plaza",
+  "trf. plaza",
+  "t--/",
+  "tregalo",
+  "tesitore fernandez",
+];
+
+const SUPERNET_INCOME_KEYWORDS = [
+  "credito por operacion en supernet p--/",
+  "credito por operacion en supernet p ",
+  "credito por operacion en supernet p-/",
+];
+
+const EDUCATION_HINTS = [
+  "educuniversida",
+  "educacion universitaria",
+  "cuota ort",
+  "ort centro",
+  " universidad ",
+  " facultad ",
+];
+
 const GENERIC_PATTERN_TOKENS = new Set([
   "con", "tarjeta", "compra", "debito", "deb", "credito", "visa", "master", "mastercard",
   "pago", "cuota", "cuotas", "consumo", "local", "comercio", "pos", "web", "online",
   "internacional", "internac", "nacional", "uy", "uru", "cta", "caja", "ahorro",
   "movimiento", "compraweb", "punto", "venta", "servicio", "tc", "titular",
-  "mercado", "trip", "one", "viaje"
+  "mercado", "trip", "one", "viaje", "operacion", "supernet", "sms", "comision"
 ]);
 
 function extractMeaningfulPatternTokens(descBanco) {
@@ -106,6 +130,23 @@ function isLikelyReintegro(db, descBanco, monto, moneda) {
 function isLikelyTransfer(descBanco) {
   const normalized = normalizePatternValue(descBanco);
   return TRANSFER_KEYWORDS.some((kw) => normalized.includes(kw));
+}
+
+function isLikelyPersonTransfer(descBanco) {
+  const normalized = normalizePatternValue(descBanco);
+  return PERSON_TRANSFER_KEYWORDS.some((kw) => normalized.includes(normalizePatternValue(kw)));
+}
+
+function isLikelySupernetIncome(descBanco, monto) {
+  if (Number(monto) <= 0) return false;
+  const normalized = normalizePatternValue(descBanco);
+  if (!normalized.includes("credito por operacion en supernet")) return false;
+  return SUPERNET_INCOME_KEYWORDS.some((kw) => normalized.includes(normalizePatternValue(kw)));
+}
+
+function isLikelyEducation(descBanco) {
+  const normalized = ` ${normalizePatternValue(descBanco)} `;
+  return EDUCATION_HINTS.some((kw) => normalized.includes(normalizePatternValue(kw)));
 }
 
 function bumpRule(db, ruleId) {
@@ -230,6 +271,9 @@ module.exports = {
   findCandidatesForRule,
   findMatchingRule,
   getCandidatesForPattern,
+  isLikelyEducation,
   isLikelyReintegro,
+  isLikelyPersonTransfer,
+  isLikelySupernetIncome,
   isLikelyTransfer,
 };

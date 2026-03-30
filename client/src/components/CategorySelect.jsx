@@ -73,7 +73,26 @@ export default function CategorySelect({ categories, value, onChange, onCategory
   }, [open, creating, search, categories.length]);
 
   const selected = categories.find((category) => String(category.id) === String(value));
-  const filtered = categories.filter((category) =>
+  const sortedCategories = [...categories].sort((left, right) => {
+    const leftSelected = String(left.id) === String(value) ? 1 : 0;
+    const rightSelected = String(right.id) === String(value) ? 1 : 0;
+    if (leftSelected !== rightSelected) return rightSelected - leftSelected;
+
+    const leftUsage = Number(left.usage_count || 0);
+    const rightUsage = Number(right.usage_count || 0);
+    if (leftUsage !== rightUsage) return rightUsage - leftUsage;
+
+    const leftIsOther = String(left.name || "").toLowerCase() === "otros" ? 1 : 0;
+    const rightIsOther = String(right.name || "").toLowerCase() === "otros" ? 1 : 0;
+    if (leftIsOther !== rightIsOther) return rightIsOther - leftIsOther;
+
+    const leftSort = Number(left.sort_order || 0);
+    const rightSort = Number(right.sort_order || 0);
+    if (leftSort !== rightSort) return leftSort - rightSort;
+
+    return String(left.name || "").localeCompare(String(right.name || ""));
+  });
+  const filtered = sortedCategories.filter((category) =>
     category.name.toLowerCase().includes(search.toLowerCase())
   );
 

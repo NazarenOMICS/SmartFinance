@@ -4,17 +4,24 @@ import { useToast } from "../contexts/ToastContext";
 import { fmtMoney, shortDate } from "../utils";
 
 /**
- * Tinder-style candidate review modal.
- * Shows uncategorized transactions matching a rule pattern one by one.
- * User confirms (tick) or rejects (cross) each one.
+ * Candidate review modal.
  *
  * Props:
- *  - pattern: string (rule pattern to match)
+ *  - pattern: string
  *  - categoryId: number
  *  - categoryName: string
- *  - onDone: () => void (called when review is finished or dismissed)
+ *  - ruleId?: number | null
+ *  - onDone?: () => void
+ *  - onClose?: () => void
  */
-export default function CandidateReview({ pattern, categoryId, categoryName, ruleId = null, onDone }) {
+export default function CandidateReview({
+  pattern,
+  categoryId,
+  categoryName,
+  ruleId = null,
+  onDone,
+  onClose,
+}) {
   const { addToast } = useToast();
   const [candidates, setCandidates] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -34,6 +41,7 @@ export default function CandidateReview({ pattern, categoryId, categoryName, rul
         setLoading(false);
       }
     }
+
     fetchCandidates();
   }, [pattern, categoryId, onDone]);
 
@@ -45,9 +53,16 @@ export default function CandidateReview({ pattern, categoryId, categoryName, rul
 
   function finish(totalConfirmed = confirmed) {
     if (totalConfirmed > 0) {
-      addToast("success", `${totalConfirmed} transacción${totalConfirmed !== 1 ? "es" : ""} categorizada${totalConfirmed !== 1 ? "s" : ""} como "${categoryName}".`);
+      addToast(
+        "success",
+        `${totalConfirmed} transaccion${totalConfirmed !== 1 ? "es" : ""} categorizada${totalConfirmed !== 1 ? "s" : ""} como "${categoryName}".`
+      );
     }
     onDone?.();
+  }
+
+  function closeReview() {
+    onClose?.();
   }
 
   function advance({ confirmedDelta = 0 } = {}) {
@@ -61,13 +76,14 @@ export default function CandidateReview({ pattern, categoryId, categoryName, rul
   async function handleConfirm() {
     const tx = candidates[currentIndex];
     if (!tx) return;
+
     try {
       await api.confirmCategory([tx.id], categoryId, { ruleId, origin: "review" });
       setConfirmed((prev) => prev + 1);
       setHistory((prev) => [...prev, { type: "confirm", transactionId: tx.id }]);
       advance({ confirmedDelta: 1 });
     } catch {
-      addToast("error", "No se pudo categorizar la transacción.");
+      addToast("error", "No se pudo categorizar la transaccion.");
       advance();
     }
   }
@@ -75,6 +91,7 @@ export default function CandidateReview({ pattern, categoryId, categoryName, rul
   async function handleSkip() {
     const tx = candidates[currentIndex];
     if (!tx) return;
+
     try {
       if (ruleId) {
         await api.rejectCategory(tx.id, ruleId, { origin: "review" });
@@ -88,15 +105,15 @@ export default function CandidateReview({ pattern, categoryId, categoryName, rul
   }
 
   function handleConfirmAll() {
-    const remaining = candidates.slice(currentIndex).map((tx) => tx.id);
-    if (remaining.length === 0) {
+    const remainingIds = candidates.slice(currentIndex).map((tx) => tx.id);
+    if (remainingIds.length === 0) {
       finish();
       return;
     }
 
-    api.confirmCategory(remaining, categoryId, { ruleId, origin: "review" })
+    api.confirmCategory(remainingIds, categoryId, { ruleId, origin: "review" })
       .then((result) => {
-        const added = result?.confirmed || remaining.length;
+        const added = result?.confirmed || remainingIds.length;
         setConfirmed((prev) => prev + added);
         finish(confirmed + added);
       })
@@ -108,6 +125,7 @@ export default function CandidateReview({ pattern, categoryId, categoryName, rul
 
   async function handleBack() {
     if (history.length === 0 || currentIndex === 0) return;
+
     const lastAction = history[history.length - 1];
     try {
       if (lastAction.type === "confirm") {
@@ -117,6 +135,7 @@ export default function CandidateReview({ pattern, categoryId, categoryName, rul
         await api.undoRejectCategory(lastAction.transactionId, ruleId, { origin: "review" });
         setSkipped((prev) => Math.max(prev - 1, 0));
       }
+
       setHistory((prev) => prev.slice(0, -1));
       setCurrentIndex((prev) => Math.max(prev - 1, 0));
     } catch {
@@ -142,17 +161,22 @@ export default function CandidateReview({ pattern, categoryId, categoryName, rul
   const progress = (currentIndex / candidates.length) * 100;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={(e) => { if (e.target === e.currentTarget) finish(); }}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) closeReview();
+      }}
+    >
       <div className="w-full max-w-md rounded-[28px] bg-white p-6 shadow-2xl dark:bg-neutral-900">
         <div className="mb-4 flex items-center justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Confirmar categorías</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Confirmar categorias</p>
             <h3 className="font-display text-xl text-finance-ink dark:text-neutral-100">
               Regla: "{pattern}" {"->"} {categoryName}
             </h3>
           </div>
           <button
-            onClick={() => finish()}
+            onClick={closeReview}
             className="flex h-8 w-8 items-center justify-center rounded-full text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800"
           >
             x
@@ -179,7 +203,8 @@ export default function CandidateReview({ pattern, categoryId, categoryName, rul
               </p>
             </div>
             <p className={`shrink-0 font-semibold ${current.monto > 0 ? "text-finance-teal" : "text-finance-ink dark:text-neutral-100"}`}>
-              {current.monto > 0 ? "+" : ""}{fmtMoney(current.monto, current.moneda)}
+              {current.monto > 0 ? "+" : ""}
+              {fmtMoney(current.monto, current.moneda)}
             </p>
           </div>
         </div>
@@ -216,7 +241,7 @@ export default function CandidateReview({ pattern, categoryId, categoryName, rul
             </button>
             <span className="text-neutral-300">|</span>
             <button
-              onClick={() => finish()}
+              onClick={closeReview}
               className="text-xs text-neutral-400 transition hover:text-neutral-600"
             >
               Terminar

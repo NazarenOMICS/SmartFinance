@@ -255,12 +255,33 @@
       ]
     },
     {
+      "slug": "educacion",
+      "name": "Educacion",
+      "budget": 6000,
+      "type": "fijo",
+      "color": "#2563EB",
+      "sort_order": 13,
+      "origin": "seed",
+      "keywords": ["ort", "educuniversida", "educacion universitaria", "universidad", "facultad", "cuota ort", "ort centro", "udelar", "curso"],
+      "seed_patterns": [
+        { "pattern": "ort", "tier": "clear_suggest" },
+        { "pattern": "educuniversida", "tier": "obvious_auto" },
+        { "pattern": "educacion universitaria", "tier": "obvious_auto" },
+        { "pattern": "universidad", "tier": "clear_suggest" },
+        { "pattern": "facultad", "tier": "clear_suggest" },
+        { "pattern": "cuota ort", "tier": "obvious_auto" },
+        { "pattern": "ort centro", "tier": "obvious_auto" },
+        { "pattern": "udelar", "tier": "clear_suggest" },
+        { "pattern": "curso", "tier": "clear_suggest" }
+      ]
+    },
+    {
       "slug": "otros",
       "name": "Otros",
       "budget": 5000,
       "type": "variable",
       "color": "#888780",
-      "sort_order": 13,
+      "sort_order": 14,
       "origin": "seed",
       "keywords": [],
       "seed_patterns": []

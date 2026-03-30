@@ -1,13 +1,72 @@
 export const MONTH_LABELS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+export const SUPPORTED_CURRENCIES = ["UYU", "USD", "EUR", "ARS"];
+export const SUPPORTED_CURRENCY_OPTIONS = [
+  { value: "UYU", label: "UYU" },
+  { value: "USD", label: "USD" },
+  { value: "EUR", label: "EUR" },
+  { value: "ARS", label: "ARS" },
+];
+export const CURRENCY_LABELS = {
+  UYU: "Pesos",
+  USD: "Dolares",
+  EUR: "Euros",
+  ARS: "Pesos AR",
+};
+export const EXCHANGE_RATE_CURRENCIES = ["USD", "EUR", "ARS"];
+const CURRENCY_META = {
+  UYU: { prefix: "$", decimals: 0 },
+  USD: { prefix: "US$", decimals: 2 },
+  EUR: { prefix: "EUR ", decimals: 2 },
+  ARS: { prefix: "AR$", decimals: 0 },
+};
+const DEFAULT_EXCHANGE_RATE_VALUES = {
+  USD: 42.5,
+  EUR: 46.5,
+  ARS: 0.045,
+};
+
+export function getExchangeRateSettingKey(currency) {
+  return `exchange_rate_${String(currency || "").toLowerCase()}_uyu`;
+}
+
+export function getExchangeRateMap(settings = {}) {
+  return EXCHANGE_RATE_CURRENCIES.reduce((acc, currency) => {
+    const key = getExchangeRateSettingKey(currency);
+    const parsed = Number(settings[`effective_${key}`] || settings[key] || DEFAULT_EXCHANGE_RATE_VALUES[currency]);
+    acc[currency] = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_EXCHANGE_RATE_VALUES[currency];
+    return acc;
+  }, { UYU: 1 });
+}
+
+export function convertCurrencyAmount(amount, sourceCurrency, targetCurrency, exchangeRates = {}) {
+  const value = Number(amount || 0);
+  const source = String(sourceCurrency || targetCurrency || "UYU").toUpperCase();
+  const target = String(targetCurrency || source || "UYU").toUpperCase();
+  const rates = { UYU: 1, ...exchangeRates };
+
+  if (!target || source === target) return value;
+
+  let inUyu = value;
+  if (source !== "UYU") {
+    const sourceRate = Number(rates[source]);
+    if (!Number.isFinite(sourceRate) || sourceRate <= 0) return value;
+    inUyu = value * sourceRate;
+  }
+
+  if (target === "UYU") return inUyu;
+
+  const targetRate = Number(rates[target]);
+  if (!Number.isFinite(targetRate) || targetRate <= 0) return inUyu;
+  return inUyu / targetRate;
+}
 
 export function fmtMoney(amount, currency = "UYU") {
-  const prefix = currency === "USD" ? "US$" : currency === "ARS" ? "AR$" : "$";
+  const meta = CURRENCY_META[currency] || { prefix: `${currency} `, decimals: 2 };
   const value = Number(amount || 0);
-  const rounded =
-    currency === "USD"
-      ? Math.abs(value).toLocaleString("es-UY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-      : Math.round(Math.abs(value)).toLocaleString("es-UY");
-  return `${value < 0 ? "-" : ""}${prefix}${rounded}`;
+  const rounded = meta.decimals > 0
+    ? Math.abs(value).toLocaleString("es-UY", { minimumFractionDigits: meta.decimals, maximumFractionDigits: meta.decimals })
+    : Math.round(Math.abs(value)).toLocaleString("es-UY");
+  return `${value < 0 ? "-" : ""}${meta.prefix}${rounded}`;
 }
 
 export function fmtPct(value) {

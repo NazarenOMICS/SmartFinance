@@ -1,5 +1,5 @@
 const express = require("express");
-const { db, getSettingsObject, isValidMonthString } = require("../db");
+const { db, getExchangeRateMap, getSettingsObject, isValidMonthString } = require("../db");
 const { computeFutureCommitments } = require("../services/metrics");
 
 const router = express.Router();
@@ -19,8 +19,7 @@ router.get("/commitments", (req, res) => {
   const settings = getSettingsObject();
   res.json(computeFutureCommitments(db, start, months, {
     currency: settings.display_currency || "UYU",
-    exchangeRateUsd: Number(settings.exchange_rate_usd_uyu || 42.5),
-    exchangeRateArs: Number(settings.exchange_rate_ars_uyu || 0.045)
+    exchangeRates: getExchangeRateMap(settings)
   }));
 });
 

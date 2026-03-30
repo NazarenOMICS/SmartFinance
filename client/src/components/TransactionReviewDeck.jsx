@@ -19,6 +19,10 @@ export default function TransactionReviewDeck({ items, categories, onDone, onCat
   const [history, setHistory] = useState([]);
   const [saving, setSaving] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
+  const otherCategory = useMemo(
+    () => categories.find((category) => String(category.name || "").toLowerCase() === "otros") || null,
+    [categories]
+  );
 
   const current = items[index] || null;
   const progress = useMemo(() => {
@@ -199,6 +203,18 @@ export default function TransactionReviewDeck({ items, categories, onDone, onCat
 
         <div className="mt-5 rounded-[26px] border border-neutral-200 bg-white/80 p-5 dark:border-neutral-700 dark:bg-neutral-950/60">
           <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Cambiar categoría</p>
+          {otherCategory ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => applyCategory(otherCategory.id)}
+                disabled={saving}
+                className="rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-600 transition hover:border-finance-purple hover:text-finance-purple dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+              >
+                Mandar a Otros
+              </button>
+            </div>
+          ) : null}
           <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="flex-1">
               <CategorySelect

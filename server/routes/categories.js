@@ -23,7 +23,16 @@ function saveHiddenSeedCategorySlugs(slugs) {
 }
 
 router.get("/", (req, res) => {
-  res.json(db.prepare("SELECT * FROM categories ORDER BY sort_order ASC, id ASC").all());
+  res.json(
+    db.prepare(
+      `SELECT c.*,
+              COUNT(t.id) AS usage_count
+       FROM categories c
+       LEFT JOIN transactions t ON t.category_id = c.id
+       GROUP BY c.id
+       ORDER BY c.sort_order ASC, c.id ASC`
+    ).all()
+  );
 });
 
 router.post("/", (req, res) => {

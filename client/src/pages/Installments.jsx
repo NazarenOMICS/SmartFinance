@@ -2,25 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../contexts/ToastContext";
 import MetricCard from "../components/MetricCard";
-import { fmtMoney } from "../utils";
-
-function convertAmount(amount, currency, targetCurrency, usdRate, arsRate) {
-  const value = Number(amount || 0);
-  const sourceCurrency = currency || targetCurrency || "UYU";
-  const safeUsdRate = usdRate > 0 ? usdRate : 42.5;
-  const safeArsRate = arsRate > 0 ? arsRate : 0.045;
-
-  if (!targetCurrency || sourceCurrency === targetCurrency) return value;
-
-  let inUyu = value;
-  if (sourceCurrency === "USD") inUyu = value * safeUsdRate;
-  else if (sourceCurrency === "ARS") inUyu = value * safeArsRate;
-
-  if (targetCurrency === "UYU") return inUyu;
-  if (targetCurrency === "USD") return inUyu / safeUsdRate;
-  if (targetCurrency === "ARS") return inUyu / safeArsRate;
-  return inUyu;
-}
+import { convertCurrencyAmount, fmtMoney, getExchangeRateMap } from "../utils";
 
 export default function Installments({ month }) {
   const { addToast } = useToast();
@@ -123,8 +105,7 @@ export default function Installments({ month }) {
   if (state.error) return <div className="rounded-[28px] bg-finance-redSoft p-6 text-finance-red shadow-panel dark:bg-red-900/30">{state.error}</div>;
 
   const displayCurrency = state.settings?.display_currency || "UYU";
-  const exchangeRateUsd = Number(state.settings?.exchange_rate_usd_uyu || 42.5);
-  const exchangeRateArs = Number(state.settings?.exchange_rate_ars_uyu || 0.045);
+  const exchangeRates = getExchangeRateMap(state.settings || {});
 
   // Find THIS month's commitment (not necessarily the first in the array)
   const thisMonthCommitment = state.commitments.find((c) => c.month === month);
@@ -133,12 +114,11 @@ export default function Installments({ month }) {
   // debt still includes that installment until the user advances it.
   const remainingDebt = state.installments.reduce((sum, item) => {
     const pendingInstallments = Math.max(0, item.cantidad_cuotas - item.cuota_actual + 1);
-    return sum + convertAmount(
+    return sum + convertCurrencyAmount(
       item.monto_cuota * pendingInstallments,
       item.account_currency || "UYU",
       displayCurrency,
-      exchangeRateUsd,
-      exchangeRateArs
+      exchangeRates
     );
   }, 0);
 

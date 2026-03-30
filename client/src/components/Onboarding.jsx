@@ -7,6 +7,7 @@ const PRESETS = [
   { label: "Tarjeta de crédito", hint: "Para ver compras y vencimientos", currency: "UYU", accent: "bg-finance-blueSoft text-finance-blue" },
   { label: "Efectivo", hint: "Gastos rápidos y movimientos manuales", currency: "UYU", accent: "bg-finance-amberSoft text-finance-amber" },
   { label: "Cuenta USD", hint: "Ahorro o caja en dólares", currency: "USD", accent: "bg-finance-greenSoft text-finance-green" },
+  { label: "Cuenta EUR", hint: "Ahorro o caja en euros", currency: "EUR", accent: "bg-finance-tealSoft text-finance-teal" },
 ];
 
 const HERO_POINTS = [
@@ -234,6 +235,7 @@ export default function Onboarding({ onComplete }) {
                     <option value="UYU">UYU - Pesos</option>
                     <option value="USD">USD - Dólares</option>
                     <option value="ARS">ARS - Pesos AR</option>
+                    <option value="EUR">EUR - Euros</option>
                   </select>
                   <input
                     className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-finance-ink dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"

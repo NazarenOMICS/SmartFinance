@@ -38,7 +38,7 @@ const GENERIC_PATTERN_TOKENS = new Set([
   "pago", "cuota", "cuotas", "consumo", "local", "comercio", "pos", "web", "online",
   "internacional", "internac", "nacional", "uy", "uru", "cta", "caja", "ahorro",
   "movimiento", "compraweb", "punto", "venta", "servicio", "pago", "tc", "titular",
-  "mercado", "trip", "one", "viaje"
+  "mercado", "trip", "one", "viaje", "operacion", "supernet", "sms", "comision"
 ]);
 
 function extractMeaningfulPatternTokens(descBanco) {
@@ -86,9 +86,40 @@ function normalizeProposedCategoryType(rawValue, descBanco = "") {
   return "variable";
 }
 
+function inferGenericCategoryName(descBanco = "") {
+  const desc = ` ${normalizeText(descBanco)} `;
+  if ([" ferreteria ", " buloneria ", " tornillo ", " herramientas ", " semar "].some((item) => desc.includes(item))) {
+    return "Ferreteria";
+  }
+  if ([" hogar ", " bazar ", " menaje ", " decoracion "].some((item) => desc.includes(item))) {
+    return "Hogar";
+  }
+  if ([" educuniversida ", " universidad ", " facultad ", " ort ", " curso ", " libreria ", " papeleria "].some((item) => desc.includes(item))) {
+    return "Educacion";
+  }
+  if ([" farmacia ", " farmashop ", " farmacity ", " san roque ", " medico ", " clinica ", " laboratorio "].some((item) => desc.includes(item))) {
+    return "Salud";
+  }
+  if ([" claude ", " anthropic ", " chatgpt ", " openai ", " software ", " saas ", " subscription ", " suscriptio "].some((item) => desc.includes(item))) {
+    return "Suscripciones";
+  }
+  if ([" cafe ", " cafeteria ", " restaurant ", " restaurante ", " bar ", " mcdonald ", " burger ", " mostaza ", " la pasiva "].some((item) => desc.includes(item))) {
+    return "Comer afuera";
+  }
+  if ([" delivery ", " pedidosya ", " rappi ", " uber eats "].some((item) => desc.includes(item))) {
+    return "Delivery";
+  }
+  if ([" uber ", " cabify ", " bolt ", " didi ", " taxi ", " peaje ", " parking "].some((item) => desc.includes(item))) {
+    return "Transporte";
+  }
+  if ([" disco ", " devoto ", " tienda inglesa ", " frog ", " dorado ", " supermercado "].some((item) => desc.includes(item))) {
+    return "Supermercado";
+  }
+  return "Otros";
+}
+
 function buildFallbackCategoryProposal(tx, categories) {
-  const merchantKey = buildMerchantKey(tx.desc_banco) || normalizeText(tx.desc_banco).split(" ").slice(0, 2).join(" ");
-  const proposalName = titleCase(merchantKey) || "Categoria sugerida";
+  const proposalName = inferGenericCategoryName(tx.desc_banco);
   return {
     name: proposalName,
     type: normalizeProposedCategoryType("", tx.desc_banco),
@@ -188,9 +219,50 @@ const TRANSFER_KEYWORDS = [
   "debito transferencia interna",
 ];
 
+const PERSON_TRANSFER_KEYWORDS = [
+  "transferencia enviada",
+  "trf plaza",
+  "trf. plaza",
+  "t--/",
+  "tregalo",
+  "tesitore fernandez",
+];
+
+const SUPERNET_INCOME_KEYWORDS = [
+  "credito por operacion en supernet p--/",
+  "credito por operacion en supernet p ",
+  "credito por operacion en supernet p-/",
+];
+
+const EDUCATION_HINTS = [
+  "educuniversida",
+  "educacion universitaria",
+  "cuota ort",
+  "ort centro",
+  " universidad ",
+  " facultad ",
+];
+
 export function isLikelyTransfer(descBanco) {
   const normalized = normalizeText(descBanco);
   return TRANSFER_KEYWORDS.some((item) => normalized.includes(normalizeText(item)));
+}
+
+export function isLikelyPersonTransfer(descBanco) {
+  const normalized = normalizeText(descBanco);
+  return PERSON_TRANSFER_KEYWORDS.some((item) => normalized.includes(normalizeText(item)));
+}
+
+export function isLikelySupernetIncome(descBanco, monto) {
+  if (Number(monto) <= 0) return false;
+  const normalized = normalizeText(descBanco);
+  if (!normalized.includes("credito por operacion en supernet")) return false;
+  return SUPERNET_INCOME_KEYWORDS.some((item) => normalized.includes(normalizeText(item)));
+}
+
+export function isLikelyEducation(descBanco) {
+  const normalized = ` ${normalizeText(descBanco)} `;
+  return EDUCATION_HINTS.some((item) => normalized.includes(normalizeText(item)));
 }
 
 export async function isLikelyReintegro(db, descBanco, monto, moneda, userId) {
@@ -400,6 +472,46 @@ export async function classifyTransaction(db, env, tx, userId, options = {}) {
     }
   }
 
+  if (isLikelyPersonTransfer(tx.desc_banco)) {
+    const transferCategory = await resolveCategoryByName(db, userId, "Transferencia");
+    if (transferCategory) {
+      return {
+        categoryId: transferCategory.id,
+        action: "auto",
+        confidence: 0.96,
+        source: "transfer",
+        rule: null,
+        suggestion: null,
+        categorization_status: "categorized",
+        category_source: "transfer",
+        category_confidence: 0.96,
+        category_rule_id: null,
+        reason: "Movimiento detectado como transferencia con nombre de persona",
+        category: transferCategory,
+      };
+    }
+  }
+
+  if (isLikelySupernetIncome(tx.desc_banco, tx.monto)) {
+    const incomeCategory = await resolveCategoryByName(db, userId, "Ingreso");
+    if (incomeCategory) {
+      return {
+        categoryId: incomeCategory.id,
+        action: "auto",
+        confidence: 0.95,
+        source: "income_operation",
+        rule: null,
+        suggestion: null,
+        categorization_status: "categorized",
+        category_source: "income_operation",
+        category_confidence: 0.95,
+        category_rule_id: null,
+        reason: "Credito por operacion detectado como ingreso o cambio a pesos",
+        category: incomeCategory,
+      };
+    }
+  }
+
   if (isLikelyTransfer(tx.desc_banco)) {
     const transferCategory = await resolveCategoryByName(db, userId, "Transferencia");
     if (transferCategory) {
@@ -416,6 +528,26 @@ export async function classifyTransaction(db, env, tx, userId, options = {}) {
         category_rule_id: null,
         reason: "Detectado como transferencia interna o cambio de divisa",
         category: transferCategory,
+      };
+    }
+  }
+
+  if (isLikelyEducation(tx.desc_banco)) {
+    const educationCategory = await resolveCategoryByName(db, userId, "Educacion");
+    if (educationCategory) {
+      return {
+        categoryId: educationCategory.id,
+        action: "auto",
+        confidence: 0.94,
+        source: "education",
+        rule: null,
+        suggestion: null,
+        categorization_status: "categorized",
+        category_source: "education",
+        category_confidence: 0.94,
+        category_rule_id: null,
+        reason: "Institucion o gasto universitario detectado",
+        category: educationCategory,
       };
     }
   }
@@ -614,6 +746,24 @@ export async function buildTransactionReviewSuggestion(db, env, tx, userId, opti
         color: pickSuggestedColor(categories),
       }
     : buildFallbackCategoryProposal(tx, categories);
+
+  const existingCategory = categories.find(
+    (item) => normalizeText(item.name) === normalizeText(proposedCategory.name)
+  );
+  if (existingCategory) {
+    return {
+      transaction_id: tx.id,
+      desc_banco: tx.desc_banco,
+      fecha: tx.fecha,
+      monto: tx.monto,
+      moneda: tx.moneda,
+      suggested_category_id: existingCategory.id,
+      suggested_category_name: existingCategory.name,
+      suggestion_source: proposedCategoryName ? "ollama" : "heuristica",
+      suggestion_reason: llmSuggestion?.reason || `Sugerencia general hacia ${existingCategory.name}`,
+      proposed_new_category: null,
+    };
+  }
 
   return {
     transaction_id: tx.id,

@@ -1,8 +1,8 @@
 import { Hono } from "hono";
-import { getDb, getSettingsObject } from "../db.js";
+import { convertAmount, getDb, getExchangeRateMap, getSettingsObject, SUPPORTED_CURRENCY_LIST } from "../db.js";
 
 const router = new Hono();
-const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
+const SUPPORTED_CURRENCIES = new Set(SUPPORTED_CURRENCY_LIST);
 
 function slugify(text) {
   return text
@@ -17,25 +17,15 @@ function slugify(text) {
 router.get("/consolidated", async (c) => {
   const userId  = c.get("userId");
   const settings = await getSettingsObject(c.env, userId);
-  const rateUsd  = Number(settings.exchange_rate_usd_uyu  || 42.5);
-  const rateArs  = Number(settings.exchange_rate_ars_uyu  || 0.045);
   const displayCurrency = settings.display_currency || "UYU";
+  const exchangeRates = getExchangeRateMap(settings);
   const db   = getDb(c.env);
   const rows = await db.prepare(
     "SELECT * FROM accounts WHERE user_id = ? ORDER BY created_at ASC"
   ).all(userId);
-  const toDisplay = (balance, currency) => {
-    if (currency === displayCurrency) return balance;
-    let inUyu = balance;
-    if (currency === "USD") inUyu = balance * rateUsd;
-    else if (currency === "ARS") inUyu = balance * rateArs;
-    if (displayCurrency === "UYU") return inUyu;
-    if (displayCurrency === "USD") return inUyu / rateUsd;
-    if (displayCurrency === "ARS") return inUyu / rateArs;
-    return inUyu;
-  };
+  const toDisplay = (balance, currency) => convertAmount(balance, currency, displayCurrency, exchangeRates);
   const total = rows.reduce((sum, acc) => sum + toDisplay(acc.balance, acc.currency), 0);
-  return c.json({ total, currency: displayCurrency, exchange_rate: rateUsd });
+  return c.json({ total, currency: displayCurrency, exchange_rate: exchangeRates[displayCurrency] || 1 });
 });
 
 router.get("/", async (c) => {
@@ -54,7 +44,7 @@ router.post("/", async (c) => {
   const balance = Number(body.balance ?? 0);
   if (!name || !currency) return c.json({ error: "name and currency are required" }, 400);
   if (!SUPPORTED_CURRENCIES.has(currency)) {
-    return c.json({ error: "currency must be UYU, USD or ARS" }, 400);
+    return c.json({ error: `currency must be one of ${SUPPORTED_CURRENCY_LIST.join(", ")}` }, 400);
   }
   if (!Number.isFinite(balance)) {
     return c.json({ error: "balance must be a finite number" }, 400);
