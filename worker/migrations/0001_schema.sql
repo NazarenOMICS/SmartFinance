@@ -81,6 +81,17 @@ CREATE TABLE IF NOT EXISTS rules (
   created_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY (category_id, user_id) REFERENCES categories(id, user_id)
 );
+
+DELETE FROM rules
+WHERE COALESCE(TRIM(pattern), '') = '';
+
+DELETE FROM rules
+WHERE id NOT IN (
+  SELECT MIN(id)
+  FROM rules
+  GROUP BY user_id, LOWER(TRIM(pattern))
+);
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_rules_user_pattern ON rules(user_id, pattern COLLATE NOCASE);
 
 CREATE TABLE IF NOT EXISTS settings (
