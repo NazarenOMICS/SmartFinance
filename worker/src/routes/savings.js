@@ -160,7 +160,7 @@ router.get("/insights", async (c) => {
     .filter((tx) => tx.monto < 0)
     .reduce((s, tx) => s + Math.abs(convertAmount(tx.monto, tx.moneda, savingsCurrency, usdRate, arsRate)), 0);
   const totalBudgetUyu = (await db.prepare(
-    "SELECT COALESCE(SUM(budget),0) AS total FROM categories WHERE user_id=?"
+    "SELECT COALESCE(SUM(budget),0) AS total FROM categories WHERE user_id=? AND type != 'fijo'"
   ).get(userId)).total;
   const totalBudget = convertAmount(totalBudgetUyu, "UYU", savingsCurrency, usdRate, arsRate);
 

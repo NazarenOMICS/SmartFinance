@@ -30,6 +30,27 @@ const TRANSFER_KEYWORDS = [
   "debito transferencia interna",
 ];
 
+const GENERIC_PATTERN_TOKENS = new Set([
+  "con", "tarjeta", "compra", "debito", "deb", "credito", "visa", "master", "mastercard",
+  "pago", "cuota", "cuotas", "consumo", "local", "comercio", "pos", "web", "online",
+  "internacional", "internac", "nacional", "uy", "uru", "cta", "caja", "ahorro",
+  "movimiento", "compraweb", "punto", "venta", "servicio", "tc", "titular",
+  "mercado", "trip", "one", "viaje"
+]);
+
+function extractMeaningfulPatternTokens(descBanco) {
+  const cleaned = normalizePatternValue(descBanco).replace(/\b\d{4,}\b/g, " ");
+  return cleaned
+    .split(" ")
+    .filter((item) => item.length >= 3 && !GENERIC_PATTERN_TOKENS.has(item));
+}
+
+function isGenericRulePattern(pattern) {
+  const tokens = normalizePatternValue(pattern).split(" ").filter(Boolean);
+  if (tokens.length === 0) return true;
+  return tokens.every((token) => token.length < 3 || GENERIC_PATTERN_TOKENS.has(token));
+}
+
 function getRules(db) {
   return db.prepare(
     `SELECT id, pattern, normalized_pattern, category_id, match_count, mode, confidence, source,
@@ -42,6 +63,7 @@ function getRules(db) {
 function matchesRule(descBanco, rule) {
   const normalizedDesc = normalizePatternValue(descBanco);
   const pattern = rule.normalized_pattern || normalizePatternValue(rule.pattern);
+  if (isGenericRulePattern(pattern)) return false;
   return Boolean(pattern) && normalizedDesc.includes(pattern);
 }
 
@@ -79,20 +101,8 @@ function bumpRule(db, ruleId) {
 }
 
 function buildPatternFromDescription(descBanco) {
-  const stopwords = new Set(["pos", "compra", "debito", "deb", "automatico", "transferencia", "recibida", "pago", "cuota", "trip"]);
-  const cleaned = String(descBanco || "")
-    .replace(/[*#]/g, " ")
-    .replace(/\b\d{4,}\b/g, " ")
-    .replace(/[^\p{L}\s]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  const tokens = cleaned
-    .split(" ")
-    .map((token) => normalizePatternValue(token))
-    .filter((token) => token.length >= 2 && !stopwords.has(token));
-
-  return normalizePatternValue(tokens.slice(0, 3).join(" ").trim() || cleaned.split(" ").slice(0, 3).join(" ").trim());
+  const tokens = extractMeaningfulPatternTokens(descBanco);
+  return normalizePatternValue(tokens.slice(0, 2).join(" ").trim());
 }
 
 function findCandidatesForRule(db, pattern) {
@@ -114,7 +124,7 @@ function getCandidatesForPattern(db, pattern) {
 
 function ensureRuleForManualCategorization(db, descBanco, categoryId) {
   const normalizedPattern = buildPatternFromDescription(descBanco);
-  if (!normalizedPattern) {
+  if (!normalizedPattern || isGenericRulePattern(normalizedPattern)) {
     return { created: false, conflict: false, rule: null };
   }
 

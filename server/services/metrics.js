@@ -108,7 +108,9 @@ function computeSummary(db, month) {
     id: category.id,
     name: category.name,
     type: category.type,
-    budget: convertAmount(category.budget, "UYU", displayCurrency, exchangeRate, arsRate),
+    budget: category.type === "fijo"
+      ? (byCategoryMap[category.name] || 0)
+      : convertAmount(category.budget, "UYU", displayCurrency, exchangeRate, arsRate),
     color: category.color,
     spent: byCategoryMap[category.name] || 0
   }));

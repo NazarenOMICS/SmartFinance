@@ -32,9 +32,12 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
   const [categoryCandidates, setCategoryCandidates] = useState(null); // { pattern, category_id, category_name }
   const loadRequestIdRef = useRef(0);
 
-  async function load() {
+  async function load(options = {}) {
+    const { silent = false } = options;
     const requestId = ++loadRequestIdRef.current;
-    setState((prev) => ({ ...prev, loading: true, error: "" }));
+    if (!silent) {
+      setState((prev) => ({ ...prev, loading: true, error: "" }));
+    }
     try {
       const [year, monthIndex] = month.split("-").map(Number);
       const prevMonthIndex = monthIndex === 1 ? 12 : monthIndex - 1;
@@ -123,7 +126,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
       }
 
       // Background refresh for summary/charts (non-blocking)
-      load();
+      load({ silent: true });
       return true;
     } catch (error) {
       addToast("error", error.message);
@@ -135,7 +138,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
     try {
       await Promise.all(ids.map((id) => api.updateTransaction(id, { category_id: Number(categoryId) })));
       addToast("success", `${ids.length} transacciones categorizadas.`);
-      await load();
+      await load({ silent: true });
       return true;
     } catch (error) {
       addToast("error", error.message);
@@ -147,7 +150,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
     try {
       const tx = state.transactions.find((item) => item.id === id);
       await api.deleteTransaction(id);
-      await load();
+      await load({ silent: true });
 
       if (tx) {
         addToast("info", `"${(tx.desc_usuario || tx.desc_banco).slice(0, 32)}" eliminada`, {
@@ -165,7 +168,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
                 ...(tx.es_cuota && { es_cuota: tx.es_cuota }),
                 ...(tx.installment_id && { installment_id: tx.installment_id }),
               });
-              await load();
+              await load({ silent: true });
               addToast("success", "Transaccion restaurada.");
             } catch (error) {
               addToast("error", error.message);
@@ -184,7 +187,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
   async function handleUpdateDesc(id, desc) {
     try {
       await api.updateTransaction(id, { desc_usuario: desc });
-      await load();
+      await load({ silent: true });
       return true;
     } catch (error) {
       addToast("error", error.message);
@@ -195,7 +198,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
   async function handleUpdateFull(id, changes) {
     try {
       await api.updateTransaction(id, changes);
-      await load();
+      await load({ silent: true });
       return true;
     } catch (error) {
       addToast("error", error.message);
@@ -474,13 +477,13 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
         onUpdateFull={handleUpdateFull}
         externalCatFilter={clickedCategory}
         onClearExternalFilter={() => setClickedCategory(null)}
-        onCategoryCreated={load}
+        onCategoryCreated={() => load({ silent: true })}
       />
 
       <CategoryManager
         open={showCatManager}
         onClose={() => setShowCatManager(false)}
-        onDataChanged={load}
+        onDataChanged={() => load({ silent: true })}
         month={month}
       />
 
@@ -490,7 +493,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
           categoryId={categoryCandidates.category_id}
           categoryName={categoryCandidates.category_name}
           ruleId={categoryCandidates.rule_id}
-          onDone={() => { setCategoryCandidates(null); load(); }}
+          onDone={() => { setCategoryCandidates(null); load({ silent: true }); }}
         />
       )}
     </div>

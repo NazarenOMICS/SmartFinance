@@ -12,7 +12,7 @@ router.get("/", (req, res) => {
 router.post("/", (req, res) => {
   const { name, budget = 0, type = "variable", color = null } = req.body;
   const normalizedName = String(name || "").trim();
-  const normalizedBudget = Number(budget);
+  const normalizedBudget = type === "fijo" ? 0 : Number(budget);
   if (!normalizedName) return res.status(400).json({ error: "name is required" });
   if (!Number.isFinite(normalizedBudget)) return res.status(400).json({ error: "budget must be a finite number" });
   if (!SUPPORTED_CATEGORY_TYPES.has(type)) return res.status(400).json({ error: "type must be fijo, variable or transferencia" });
@@ -37,7 +37,9 @@ router.put("/:id", (req, res) => {
 
   const next = {
     name: req.body.name !== undefined ? String(req.body.name).trim() : current.name,
-    budget: req.body.budget !== undefined ? Number(req.body.budget) : current.budget,
+    budget: (req.body.type ?? current.type) === "fijo"
+      ? 0
+      : (req.body.budget !== undefined ? Number(req.body.budget) : current.budget),
     type: req.body.type ?? current.type,
     color: req.body.color ?? current.color,
   };

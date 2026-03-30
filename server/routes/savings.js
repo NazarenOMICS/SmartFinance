@@ -170,7 +170,7 @@ router.get("/insights", (req, res) => {
   const totalExpenses = current
     .filter((tx) => tx.monto < 0 && tx.category_name !== "Transferencia")
     .reduce((sum, tx) => sum + Math.abs(convertAmount(tx.monto, tx.moneda, savingsCurrency, usdRate, arsRate)), 0);
-  const totalBudgetUyu = db.prepare("SELECT COALESCE(SUM(budget), 0) AS total FROM categories").get().total;
+  const totalBudgetUyu = db.prepare("SELECT COALESCE(SUM(budget), 0) AS total FROM categories WHERE type != 'fijo'").get().total;
   const totalBudget = convertAmount(totalBudgetUyu, "UYU", savingsCurrency, usdRate, arsRate);
   const today = new Date();
   const [year, monthNum] = month.split("-").map(Number);

@@ -94,7 +94,9 @@ export async function computeSummary(db, env, month, userId) {
     id: cat.id,
     name: cat.name,
     type: cat.type,
-    budget: convertAmount(cat.budget, "UYU", displayCurrency, exchangeRate, exchangeRateArs),
+    budget: cat.type === "fijo"
+      ? (byCategoryMap[cat.name] || 0)
+      : convertAmount(cat.budget, "UYU", displayCurrency, exchangeRate, exchangeRateArs),
     color: cat.color,
     spent: byCategoryMap[cat.name] || 0
   }));

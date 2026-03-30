@@ -14,6 +14,7 @@ export default function Rules() {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [confirmResetRules, setConfirmResetRules] = useState(false);
   const [pendingReview, setPendingReview] = useState(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
   const loadRequestIdRef = useRef(0);
 
@@ -52,7 +53,12 @@ export default function Rules() {
 
   async function updateCategory(category, changes) {
     try {
-      await api.updateCategory(category.id, { ...category, ...changes });
+      const nextType = changes.type ?? category.type;
+      const payload = { ...category, ...changes, budget: nextType === "fijo" ? 0 : (changes.budget ?? category.budget) };
+      await api.updateCategory(category.id, payload);
+      if (nextType === "fijo") {
+        setLocalBudgets((prev) => ({ ...prev, [category.id]: "" }));
+      }
       await load();
       return true;
     } catch (error) {
@@ -67,7 +73,7 @@ export default function Rules() {
     if (saving) return;
     setSaving(true);
     try {
-      await api.createCategory({ ...catForm, budget: Number(catForm.budget || 0) });
+      await api.createCategory({ ...catForm, budget: catForm.type === "fijo" ? 0 : Number(catForm.budget || 0) });
       addToast("success", `Categoria "${catForm.name}" creada.`);
       setCatForm({ name: "", budget: "", type: "variable", color: PRESET_COLORS[0] });
       await load();
@@ -235,14 +241,10 @@ export default function Rules() {
             <h2 className="mt-1 font-display text-3xl text-finance-ink dark:text-neutral-100">
               Reglas con confianza + fallback opcional a Ollama
             </h2>
-            <p className="mt-2 max-w-3xl text-sm leading-7 text-neutral-500 dark:text-neutral-300">
-              La idea ya no es categorizar todo a lo bruto. Las reglas pueden quedar en auto, sugerencia o desactivadas,
-              y Ollama solo entra cuando activas un endpoint compatible y las reglas no alcanzan.
+          <p className="mt-2 max-w-3xl text-sm leading-7 text-neutral-500 dark:text-neutral-300">
+              La idea ya no es categorizar todo a lo bruto. Las reglas pueden quedar en auto, sugerencia o desactivadas.
+              Los ajustes tecnicos mas finos quedan al fondo, en opciones avanzadas.
             </p>
-          </div>
-          <div className="rounded-2xl border border-sky-200 bg-sky-50/80 p-4 text-xs leading-6 text-sky-800 dark:border-sky-900/40 dark:bg-sky-900/10 dark:text-sky-100">
-            En la web publica, Ollama necesita un endpoint accesible desde el worker.
-            Si corres la app self-hosted, puedes usar tu instancia propia.
           </div>
         </div>
 
@@ -286,45 +288,6 @@ export default function Rules() {
           </label>
 
           <div className="rounded-[24px] border border-neutral-200 bg-finance-cream/60 p-4 dark:border-neutral-800 dark:bg-neutral-950/50">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Ollama</p>
-                <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-300">
-                  Fallback semantico solo para casos ambiguos.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => saveSetting("categorizer_ollama_enabled", state.settings.categorizer_ollama_enabled === "1" ? "0" : "1")}
-                className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                  state.settings.categorizer_ollama_enabled === "1"
-                    ? "bg-finance-purple text-white"
-                    : "bg-white text-finance-ink hover:bg-neutral-100 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800"
-                }`}
-              >
-                {state.settings.categorizer_ollama_enabled === "1" ? "Activo" : "Inactivo"}
-              </button>
-            </div>
-
-            <div className="mt-4 grid gap-3">
-              <input
-                className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
-                placeholder="URL Ollama (ej: http://127.0.0.1:11434)"
-                value={state.settings.categorizer_ollama_url || ""}
-                onChange={(e) => setState((prev) => ({ ...prev, settings: { ...prev.settings, categorizer_ollama_url: e.target.value } }))}
-                onBlur={(e) => saveSetting("categorizer_ollama_url", e.target.value)}
-              />
-              <input
-                className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
-                placeholder="Modelo (ej: qwen2.5:3b)"
-                value={state.settings.categorizer_ollama_model || ""}
-                onChange={(e) => setState((prev) => ({ ...prev, settings: { ...prev.settings, categorizer_ollama_model: e.target.value } }))}
-                onBlur={(e) => saveSetting("categorizer_ollama_model", e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="rounded-[24px] border border-neutral-200 bg-finance-cream/60 p-4 dark:border-neutral-800 dark:bg-neutral-950/50">
             <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Aprendido recientemente</p>
             <div className="mt-4 space-y-3">
               {recentLearnedRules.length > 0 ? recentLearnedRules.map((rule) => (
@@ -356,27 +319,8 @@ export default function Rules() {
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Categorias</p>
             <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-300">
-              Ajusta presupuesto, color y tipo sin depender del grafico.
+              Ajusta color y tipo sin depender del grafico. En categorias fijas, el monto del mes se toma como referencia automatica.
             </p>
-          </div>
-          <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 dark:border-amber-900/40 dark:bg-amber-900/10">
-            <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">Reset de reglas</p>
-            <p className="mt-1 max-w-sm text-xs leading-6 text-neutral-500 dark:text-neutral-300">
-              Si la app empezo a categorizar demasiado automatico por reglas mal aprendidas, aqui limpias
-              todo y vuelves a un estado sano.
-            </p>
-            <button
-              type="button"
-              onClick={handleResetRules}
-              disabled={saving}
-              className={`mt-3 rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                confirmResetRules
-                  ? "bg-finance-red text-white hover:opacity-90"
-                  : "bg-white text-finance-ink hover:bg-neutral-100 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800"
-              } disabled:opacity-50`}
-            >
-              {confirmResetRules ? "Confirmar reset de reglas" : "Resetear reglas"}
-            </button>
           </div>
         </div>
 
@@ -396,35 +340,41 @@ export default function Rules() {
                   <select
                     className="rounded-2xl border border-neutral-200 px-4 py-2.5 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
                     value={category.type}
-                    onChange={(e) => updateCategory(category, { type: e.target.value })}
+                    onChange={(e) => updateCategory(category, { type: e.target.value, ...(e.target.value === "fijo" ? { budget: 0 } : {}) })}
                   >
                     <option value="fijo">fijo</option>
                     <option value="variable">variable</option>
                   </select>
 
-                  <input
-                    className="rounded-2xl border border-neutral-200 px-4 py-2.5 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
-                    type="number"
-                    placeholder="Presupuesto"
-                    value={localBudgets[category.id] ?? category.budget}
-                    onChange={(e) => setLocalBudgets((prev) => ({ ...prev, [category.id]: e.target.value }))}
-                    onBlur={(e) => {
-                      const rawValue = String(e.target.value || "").trim();
-                      if (!rawValue) {
-                        setLocalBudgets((prev) => ({ ...prev, [category.id]: String(category.budget) }));
-                        addToast("warning", "El presupuesto no puede quedar vacio.");
-                        return;
-                      }
-                      const nextBudget = Number(rawValue);
-                      if (!Number.isFinite(nextBudget)) {
-                        setLocalBudgets((prev) => ({ ...prev, [category.id]: String(category.budget) }));
-                        addToast("warning", "Ingresa un presupuesto valido.");
-                        return;
-                      }
-                      if (nextBudget === Number(category.budget)) return;
-                      updateCategory(category, { budget: nextBudget });
-                    }}
-                  />
+                  {category.type === "fijo" ? (
+                    <div className="rounded-2xl border border-neutral-200 bg-finance-cream/70 px-4 py-2.5 text-sm text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+                      Presupuesto automatico
+                    </div>
+                  ) : (
+                    <input
+                      className="rounded-2xl border border-neutral-200 px-4 py-2.5 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                      type="number"
+                      placeholder="Presupuesto"
+                      value={localBudgets[category.id] ?? category.budget}
+                      onChange={(e) => setLocalBudgets((prev) => ({ ...prev, [category.id]: e.target.value }))}
+                      onBlur={(e) => {
+                        const rawValue = String(e.target.value || "").trim();
+                        if (!rawValue) {
+                          setLocalBudgets((prev) => ({ ...prev, [category.id]: String(category.budget) }));
+                          addToast("warning", "El presupuesto no puede quedar vacio.");
+                          return;
+                        }
+                        const nextBudget = Number(rawValue);
+                        if (!Number.isFinite(nextBudget)) {
+                          setLocalBudgets((prev) => ({ ...prev, [category.id]: String(category.budget) }));
+                          addToast("warning", "Ingresa un presupuesto valido.");
+                          return;
+                        }
+                        if (nextBudget === Number(category.budget)) return;
+                        updateCategory(category, { budget: nextBudget });
+                      }}
+                    />
+                  )}
 
                   <button
                     onClick={() => handleDeleteCategory(category.id)}
@@ -488,13 +438,19 @@ export default function Rules() {
             <option value="fijo">fijo</option>
             <option value="variable">variable</option>
           </select>
-          <input
-            className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
-            type="number"
-            placeholder="Presupuesto"
-            value={catForm.budget}
-            onChange={(e) => setCatForm((prev) => ({ ...prev, budget: e.target.value }))}
-          />
+          {catForm.type === "fijo" ? (
+            <div className="rounded-2xl border border-neutral-200 bg-finance-cream/70 px-4 py-3 text-sm text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+              Presupuesto automatico
+            </div>
+          ) : (
+            <input
+              className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+              type="number"
+              placeholder="Presupuesto"
+              value={catForm.budget}
+              onChange={(e) => setCatForm((prev) => ({ ...prev, budget: e.target.value }))}
+            />
+          )}
           <input
             type="color"
             className="h-12 w-12 cursor-pointer rounded-2xl border border-neutral-200 p-1 dark:border-neutral-700"
@@ -509,6 +465,90 @@ export default function Rules() {
           </button>
         </div>
       </form>
+
+      <section className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
+        <button
+          type="button"
+          onClick={() => setShowAdvanced((prev) => !prev)}
+          className="flex w-full items-center justify-between text-left"
+        >
+          <div>
+            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Opciones avanzadas</p>
+            <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-300">
+              Ollama, endpoint remoto y reset general de reglas.
+            </p>
+          </div>
+          <span className="text-sm font-semibold text-finance-purple">{showAdvanced ? "Ocultar" : "Mostrar"}</span>
+        </button>
+
+        {showAdvanced && (
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            <div className="rounded-[24px] border border-neutral-200 bg-finance-cream/60 p-4 dark:border-neutral-800 dark:bg-neutral-950/50">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Ollama</p>
+                  <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-300">
+                    Fallback semantico solo para casos ambiguos.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => saveSetting("categorizer_ollama_enabled", state.settings.categorizer_ollama_enabled === "1" ? "0" : "1")}
+                  className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                    state.settings.categorizer_ollama_enabled === "1"
+                      ? "bg-finance-purple text-white"
+                      : "bg-white text-finance-ink hover:bg-neutral-100 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800"
+                  }`}
+                >
+                  {state.settings.categorizer_ollama_enabled === "1" ? "Activo" : "Inactivo"}
+                </button>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50/80 p-4 text-xs leading-6 text-sky-800 dark:border-sky-900/40 dark:bg-sky-900/10 dark:text-sky-100">
+                En la web publica, Ollama necesita un endpoint accesible desde el worker.
+                Si corres la app self-hosted, puedes usar tu instancia propia.
+              </div>
+
+              <div className="mt-4 grid gap-3">
+                <input
+                  className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                  placeholder="URL Ollama (ej: http://127.0.0.1:11434)"
+                  value={state.settings.categorizer_ollama_url || ""}
+                  onChange={(e) => setState((prev) => ({ ...prev, settings: { ...prev.settings, categorizer_ollama_url: e.target.value } }))}
+                  onBlur={(e) => saveSetting("categorizer_ollama_url", e.target.value)}
+                />
+                <input
+                  className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                  placeholder="Modelo (ej: qwen2.5:3b)"
+                  value={state.settings.categorizer_ollama_model || ""}
+                  onChange={(e) => setState((prev) => ({ ...prev, settings: { ...prev.settings, categorizer_ollama_model: e.target.value } }))}
+                  onBlur={(e) => saveSetting("categorizer_ollama_model", e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 dark:border-amber-900/40 dark:bg-amber-900/10">
+              <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">Reset de reglas</p>
+              <p className="mt-1 max-w-sm text-xs leading-6 text-neutral-500 dark:text-neutral-300">
+                Si la app empezo a categorizar demasiado automatico por reglas mal aprendidas, aqui limpias
+                todo y vuelves a un estado sano.
+              </p>
+              <button
+                type="button"
+                onClick={handleResetRules}
+                disabled={saving}
+                className={`mt-3 rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                  confirmResetRules
+                    ? "bg-finance-red text-white hover:opacity-90"
+                    : "bg-white text-finance-ink hover:bg-neutral-100 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800"
+                } disabled:opacity-50`}
+              >
+                {confirmResetRules ? "Confirmar reset de reglas" : "Resetear reglas"}
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
 
       <form onSubmit={handleCreateRule} className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
         <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Nueva regla de categorizacion</p>

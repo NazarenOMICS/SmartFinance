@@ -31,13 +31,30 @@ function getThresholds(settings) {
   return { autoThreshold, suggestThreshold };
 }
 
-export function buildPatternFromDescription(descBanco) {
-  const stopwords = new Set(["pos", "compra", "debito", "deb", "automatico", "transferencia", "recibida", "pago", "cuota", "trip"]);
+const GENERIC_PATTERN_TOKENS = new Set([
+  "con", "tarjeta", "compra", "debito", "deb", "credito", "visa", "master", "mastercard",
+  "pago", "cuota", "cuotas", "consumo", "local", "comercio", "pos", "web", "online",
+  "internacional", "internac", "nacional", "uy", "uru", "cta", "caja", "ahorro",
+  "movimiento", "compraweb", "punto", "venta", "servicio", "pago", "tc", "titular",
+  "mercado", "trip", "one", "viaje"
+]);
+
+function extractMeaningfulPatternTokens(descBanco) {
   const cleaned = normalizeText(descBanco).replace(/\b\d{4,}\b/g, " ");
-  const tokens = cleaned
+  return cleaned
     .split(" ")
-    .filter((item) => item.length >= 2 && !stopwords.has(item));
-  return tokens.slice(0, 2).join(" ").trim() || cleaned.split(" ").slice(0, 2).join(" ").trim();
+    .filter((item) => item.length >= 3 && !GENERIC_PATTERN_TOKENS.has(item));
+}
+
+function isGenericRulePattern(pattern) {
+  const tokens = normalizeText(pattern).split(" ").filter(Boolean);
+  if (tokens.length === 0) return true;
+  return tokens.every((token) => token.length < 3 || GENERIC_PATTERN_TOKENS.has(token));
+}
+
+export function buildPatternFromDescription(descBanco) {
+  const tokens = extractMeaningfulPatternTokens(descBanco);
+  return tokens.slice(0, 2).join(" ").trim();
 }
 
 function buildMerchantKey(descBanco) {
@@ -47,7 +64,7 @@ function buildMerchantKey(descBanco) {
 function scoreRule(rule, tx) {
   const desc = normalizeText(tx.desc_banco);
   const pattern = rule.normalized_pattern || normalizePatternValue(rule.pattern);
-  if (!desc || !pattern || !desc.includes(pattern)) {
+  if (!desc || !pattern || isGenericRulePattern(pattern) || !desc.includes(pattern)) {
     return 0;
   }
 
@@ -213,7 +230,7 @@ export async function getCandidatesForPattern(db, pattern, categoryId, userId) {
 
 export async function ensureRuleForManualCategorization(db, transaction, categoryId, userId) {
   const pattern = buildPatternFromDescription(transaction.desc_banco);
-  if (!pattern) return { created: false, conflict: false, rule: null };
+  if (!pattern || isGenericRulePattern(pattern)) return { created: false, conflict: false, rule: null };
 
   const normalizedPattern = normalizePatternValue(pattern);
   const merchantKey = buildMerchantKey(transaction.desc_banco);

@@ -85,7 +85,15 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
 
   async function updateCategory(category, changes) {
     try {
-      await api.updateCategory(category.id, { ...category, ...changes });
+      const nextType = changes.type ?? category.type;
+      await api.updateCategory(category.id, {
+        ...category,
+        ...changes,
+        budget: nextType === "fijo" ? 0 : (changes.budget ?? category.budget),
+      });
+      if (nextType === "fijo") {
+        setLocalBudgets((prev) => ({ ...prev, [category.id]: "" }));
+      }
       await load();
       onDataChanged?.();
     } catch (e) {
@@ -99,7 +107,7 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
     if (saving) return;
     setSaving(true);
     try {
-      await api.createCategory({ ...catForm, budget: Number(catForm.budget || 0) });
+      await api.createCategory({ ...catForm, budget: catForm.type === "fijo" ? 0 : Number(catForm.budget || 0) });
       addToast("success", `Categoría "${catForm.name}" creada.`);
       setCatForm({ name: "", budget: "", type: "variable", color: nextUnusedColor() });
       await load();
@@ -313,13 +321,18 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
                           variable
                         </button>
                         <button
-                          onClick={() => updateCategory(category, { type: "fijo" })}
+                          onClick={() => updateCategory(category, { type: "fijo", budget: 0 })}
                           className={`rounded-r-xl px-3 py-1.5 transition ${category.type === "fijo" ? "bg-finance-purple text-white" : "text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}
                         >
                           fijo
                         </button>
                       </div>
-                      <div className="flex flex-1 items-center gap-1.5">
+                      {category.type === "fijo" ? (
+                        <div className="flex-1 rounded-xl border border-neutral-200 bg-finance-cream/70 px-3 py-1.5 text-sm text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+                          Presupuesto automatico
+                        </div>
+                      ) : (
+                        <div className="flex flex-1 items-center gap-1.5">
                         <span className="text-xs text-neutral-400">$</span>
                         <input
                           className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-1.5 text-sm text-finance-ink dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
@@ -344,7 +357,8 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
                             updateCategory(category, { budget: next });
                           }}
                         />
-                      </div>
+                        </div>
+                      )}
                     </div>
 
                     <div className="mt-3 flex items-center justify-between gap-3">
@@ -429,13 +443,19 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
                       fijo
                     </button>
                   </div>
-                  <input
-                    className="flex-1 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
-                    type="number"
-                    placeholder="Presupuesto mensual"
-                    value={catForm.budget}
-                    onChange={(e) => setCatForm((prev) => ({ ...prev, budget: e.target.value }))}
-                  />
+                  {catForm.type === "fijo" ? (
+                    <div className="flex-1 rounded-xl border border-neutral-200 bg-finance-cream/70 px-3 py-2 text-sm text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+                      Presupuesto automatico
+                    </div>
+                  ) : (
+                    <input
+                      className="flex-1 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                      type="number"
+                      placeholder="Presupuesto mensual"
+                      value={catForm.budget}
+                      onChange={(e) => setCatForm((prev) => ({ ...prev, budget: e.target.value }))}
+                    />
+                  )}
                 </div>
                 <button
                   type="submit"

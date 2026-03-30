@@ -18,7 +18,7 @@ router.post("/", async (c) => {
   const userId = c.get("userId");
   const { name, budget = 0, type = "variable", color = null } = await c.req.json();
   const normalizedName = String(name || "").trim();
-  const normalizedBudget = Number(budget);
+  const normalizedBudget = type === "fijo" ? 0 : Number(budget);
   if (!normalizedName) return c.json({ error: "name is required" }, 400);
   if (!Number.isFinite(normalizedBudget)) return c.json({ error: "budget must be a finite number" }, 400);
   if (!SUPPORTED_CATEGORY_TYPES.has(type)) {
@@ -58,7 +58,9 @@ router.put("/:id", async (c) => {
   const body = await c.req.json();
   const next = {
     name: body.name !== undefined ? String(body.name).trim() : current.name,
-    budget: body.budget !== undefined ? Number(body.budget) : current.budget,
+    budget: (body.type ?? current.type) === "fijo"
+      ? 0
+      : (body.budget !== undefined ? Number(body.budget) : current.budget),
     type: body.type ?? current.type,
     color: body.color ?? current.color
   };
