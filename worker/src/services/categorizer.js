@@ -255,13 +255,37 @@ const EDUCATION_HINTS = [
   " facultad ",
 ];
 
+const CARD_PURCHASE_HINTS = [
+  "compra con tarjeta",
+  "compra tarjeta",
+  "compra con debito",
+  "compra con credito",
+  "compra internacional",
+  "dlo.",
+];
+
+function hasCommercePurchaseContext(descBanco) {
+  const normalized = normalizeText(descBanco);
+  if (CARD_PURCHASE_HINTS.some((item) => normalized.includes(normalizeText(item)))) {
+    return true;
+  }
+  const canonicalMatch = matchCanonicalCategory(descBanco);
+  return Boolean(
+    canonicalMatch &&
+    !["transferencia", "ingreso", "reintegro", "otros"].includes(canonicalMatch.category.slug)
+  );
+}
+
 export function isLikelyTransfer(descBanco) {
   const normalized = normalizeText(descBanco);
+  if (hasCommercePurchaseContext(descBanco)) return false;
   return TRANSFER_KEYWORDS.some((item) => normalized.includes(normalizeText(item)));
 }
 
 export function isLikelyPersonTransfer(descBanco) {
   const normalized = normalizeText(descBanco);
+  if (hasCommercePurchaseContext(descBanco)) return false;
+  if (normalized.includes("credito por operacion en supernet")) return false;
   return PERSON_TRANSFER_KEYWORDS.some((item) => normalized.includes(normalizeText(item)));
 }
 
@@ -491,26 +515,6 @@ export async function classifyTransaction(db, env, tx, userId, options = {}) {
     }
   }
 
-  if (isLikelyPersonTransfer(tx.desc_banco)) {
-    const transferCategory = await resolveCategoryByName(db, userId, "Transferencia");
-    if (transferCategory) {
-      return {
-        categoryId: transferCategory.id,
-        action: "auto",
-        confidence: 0.96,
-        source: "transfer",
-        rule: null,
-        suggestion: null,
-        categorization_status: "categorized",
-        category_source: "transfer",
-        category_confidence: 0.96,
-        category_rule_id: null,
-        reason: "Movimiento detectado como transferencia con nombre de persona",
-        category: transferCategory,
-      };
-    }
-  }
-
   if (isLikelySupernetIncome(tx.desc_banco, tx.monto)) {
     const incomeCategory = await resolveCategoryByName(db, userId, "Ingreso");
     if (incomeCategory) {
@@ -527,6 +531,26 @@ export async function classifyTransaction(db, env, tx, userId, options = {}) {
         category_rule_id: null,
         reason: "Credito por operacion detectado como ingreso o cambio a pesos",
         category: incomeCategory,
+      };
+    }
+  }
+
+  if (isLikelyPersonTransfer(tx.desc_banco)) {
+    const transferCategory = await resolveCategoryByName(db, userId, "Transferencia");
+    if (transferCategory) {
+      return {
+        categoryId: transferCategory.id,
+        action: "auto",
+        confidence: 0.96,
+        source: "transfer",
+        rule: null,
+        suggestion: null,
+        categorization_status: "categorized",
+        category_source: "transfer",
+        category_confidence: 0.96,
+        category_rule_id: null,
+        reason: "Movimiento detectado como transferencia con nombre de persona",
+        category: transferCategory,
       };
     }
   }

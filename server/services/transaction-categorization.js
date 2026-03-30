@@ -177,18 +177,6 @@ function resolveTransactionClassification(db, descBanco, monto, moneda, explicit
     });
   }
 
-  if (isLikelyPersonTransfer(descBanco)) {
-    const transferCat = db.prepare("SELECT id FROM categories WHERE name = 'Transferencia'").get();
-    if (transferCat) {
-      return buildCategorizationRecord({
-        categoryId: transferCat.id,
-        status: "categorized",
-        source: "transfer",
-        confidence: 0.96,
-      });
-    }
-  }
-
   if (isLikelySupernetIncome(descBanco, monto)) {
     const incomeCat = db.prepare("SELECT id FROM categories WHERE name = 'Ingreso'").get();
     if (incomeCat) {
@@ -197,6 +185,18 @@ function resolveTransactionClassification(db, descBanco, monto, moneda, explicit
         status: "categorized",
         source: "income_operation",
         confidence: 0.95,
+      });
+    }
+  }
+
+  if (isLikelyPersonTransfer(descBanco)) {
+    const transferCat = db.prepare("SELECT id FROM categories WHERE name = 'Transferencia'").get();
+    if (transferCat) {
+      return buildCategorizationRecord({
+        categoryId: transferCat.id,
+        status: "categorized",
+        source: "transfer",
+        confidence: 0.96,
       });
     }
   }

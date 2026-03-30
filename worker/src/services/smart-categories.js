@@ -15,6 +15,7 @@ const REVIEWABLE_SLUGS = new Set([
   "telefonia",
   "salud",
   "suscripciones",
+  "ferreteria",
   "gimnasio",
   "mascotas",
   "educacion",
@@ -29,6 +30,7 @@ const GUIDED_REVIEWABLE_SLUGS = new Set([
   "telefonia",
   "salud",
   "suscripciones",
+  "ferreteria",
   "educacion",
 ]);
 
@@ -63,6 +65,7 @@ const GUIDED_REASON_BY_SLUG = {
   telefonia: "Proveedor claro de telefonia o conectividad",
   salud: "Merchant claro de salud o farmacia",
   suscripciones: "Suscripcion digital muy reconocible",
+  ferreteria: "Comercio claro de ferreteria u hogar",
   educacion: "Institucion o gasto claro de educacion",
 };
 

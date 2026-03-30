@@ -62,6 +62,27 @@ const EDUCATION_HINTS = [
   " facultad ",
 ];
 
+const CARD_PURCHASE_HINTS = [
+  "compra con tarjeta",
+  "compra tarjeta",
+  "compra con debito",
+  "compra con credito",
+  "compra internacional",
+  "dlo.",
+];
+
+function hasCommercePurchaseContext(descBanco) {
+  const normalized = normalizePatternValue(descBanco);
+  if (CARD_PURCHASE_HINTS.some((item) => normalized.includes(normalizePatternValue(item)))) {
+    return true;
+  }
+  const canonicalMatch = matchCanonicalCategory(descBanco);
+  return Boolean(
+    canonicalMatch &&
+    !["transferencia", "ingreso", "reintegro", "otros"].includes(canonicalMatch.category.slug)
+  );
+}
+
 const GENERIC_PATTERN_TOKENS = new Set([
   "con", "tarjeta", "compra", "debito", "deb", "credito", "visa", "master", "mastercard",
   "pago", "cuota", "cuotas", "consumo", "local", "comercio", "pos", "web", "online",
@@ -137,11 +158,14 @@ function isLikelyReintegro(db, descBanco, monto, moneda) {
 
 function isLikelyTransfer(descBanco) {
   const normalized = normalizePatternValue(descBanco);
+  if (hasCommercePurchaseContext(descBanco)) return false;
   return TRANSFER_KEYWORDS.some((kw) => normalized.includes(kw));
 }
 
 function isLikelyPersonTransfer(descBanco) {
   const normalized = normalizePatternValue(descBanco);
+  if (hasCommercePurchaseContext(descBanco)) return false;
+  if (normalized.includes("credito por operacion en supernet")) return false;
   return PERSON_TRANSFER_KEYWORDS.some((kw) => normalized.includes(normalizePatternValue(kw)));
 }
 

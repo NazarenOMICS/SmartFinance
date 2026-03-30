@@ -282,12 +282,29 @@
       ]
     },
     {
+      "slug": "ferreteria",
+      "name": "Ferreteria",
+      "budget": 3000,
+      "type": "variable",
+      "color": "#7C5A3A",
+      "sort_order": 14,
+      "origin": "seed",
+      "keywords": ["ferreteria", "buloneria", "herramientas", "tornillo", "semar"],
+      "seed_patterns": [
+        { "pattern": "ferreteria", "tier": "clear_suggest" },
+        { "pattern": "buloneria", "tier": "clear_suggest" },
+        { "pattern": "herramientas", "tier": "clear_suggest" },
+        { "pattern": "tornillo", "tier": "clear_suggest" },
+        { "pattern": "semar", "tier": "clear_suggest" }
+      ]
+    },
+    {
       "slug": "otros",
       "name": "Otros",
       "budget": 5000,
       "type": "variable",
       "color": "#888780",
-      "sort_order": 14,
+      "sort_order": 15,
       "origin": "seed",
       "keywords": [],
       "seed_patterns": []
