@@ -1,6 +1,6 @@
 import { suggest } from "./suggester.js";
 import { suggestCategoryWithOllama } from "./ollama.js";
-import { normalizePatternValue, normalizeText } from "./taxonomy.js";
+import { hasAmbiguousMerchantHint, matchCanonicalCategory, normalizePatternValue, normalizeText } from "./taxonomy.js";
 
 async function listRules(db, userId) {
   return db.prepare(
@@ -296,6 +296,8 @@ export async function classifyTransaction(db, env, tx, userId, options = {}) {
   const categories = options.categories || await listCategories(db, userId);
   const thresholds = getThresholds(settings);
   const bestRule = pickBestRule(rules, tx);
+  const explicitCanonicalMatch = matchCanonicalCategory(tx.desc_banco);
+  const ambiguousDescriptorOnly = hasAmbiguousMerchantHint(tx.desc_banco) && !explicitCanonicalMatch;
 
   if (bestRule) {
     const category = categories.find((item) => item.id === bestRule.category_id) || null;
@@ -422,10 +424,11 @@ export async function classifyTransaction(db, env, tx, userId, options = {}) {
     );
     if (category) {
       const shouldAuto = llmSuggestion.should_auto && llmSuggestion.confidence >= Math.max(thresholds.autoThreshold, 0.93);
+      const canAutoWithOllama = shouldAuto && !ambiguousDescriptorOnly;
       const canSuggest = llmSuggestion.confidence >= thresholds.suggestThreshold;
       return {
-        categoryId: shouldAuto ? category.id : null,
-        action: shouldAuto ? "auto" : (canSuggest ? "suggest" : "none"),
+        categoryId: canAutoWithOllama ? category.id : null,
+        action: canAutoWithOllama ? "auto" : (canSuggest ? "suggest" : "none"),
         confidence: llmSuggestion.confidence,
         source: "ollama",
         rule: null,
@@ -436,11 +439,13 @@ export async function classifyTransaction(db, env, tx, userId, options = {}) {
           confidence: llmSuggestion.confidence,
           reason: llmSuggestion.reason || "Sugerencia de Ollama",
         } : null,
-        categorization_status: shouldAuto ? "categorized" : (canSuggest ? "suggested" : "uncategorized"),
-        category_source: shouldAuto ? "ollama_auto" : (canSuggest ? "ollama_suggest" : null),
-        category_confidence: canSuggest || shouldAuto ? llmSuggestion.confidence : null,
+        categorization_status: canAutoWithOllama ? "categorized" : (canSuggest ? "suggested" : "uncategorized"),
+        category_source: canAutoWithOllama ? "ollama_auto" : (canSuggest ? "ollama_suggest" : null),
+        category_confidence: canSuggest || canAutoWithOllama ? llmSuggestion.confidence : null,
         category_rule_id: null,
-        reason: llmSuggestion.reason || "Clasificacion semantica por Ollama",
+        reason: ambiguousDescriptorOnly && canSuggest
+          ? "Descriptor financiero ambiguo; se deja como sugerencia"
+          : (llmSuggestion.reason || "Clasificacion semantica por Ollama"),
         category,
       };
     }

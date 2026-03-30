@@ -1,44 +1,11 @@
-const KEYWORD_MAP = [
-  {
-    keywords: ["disco", "devoto", "tienda inglesa", "geant", "ta-ta", "tata", "multiahorro", "el dorado", "macromercado", "supermercado", "hiper", "almacen", "feria"],
-    category: "Supermercado"
-  },
-  {
-    keywords: ["uber", "cabify", "cutcsa", "taxi", "peaje", "ancap", "nafta", "gasolina", "combustible", "bolt", "autobus", "omnibus", "stm "],
-    category: "Transporte"
-  },
-  {
-    keywords: ["pedidosya", "rappi", "mcdonald", "mcdonalds", "burguer", "burger", "sushi", "pizza", "parrilla", "restaurant", "restoran", "cafeteria", "bar ", "comida", "delivery"],
-    category: "Comer afuera"
-  },
-  {
-    keywords: ["netflix", "spotify", "amazon", "disney", "hbo", "openai", "chatgpt", "youtube", "apple.com", "google play", "playstation", "xbox", "steam", "suscripcion"],
-    category: "Suscripciones"
-  },
-  {
-    keywords: ["antel", " ute ", " ose ", "movistar", "claro", "fibra optica", "internet", "telefono", "movil", "celular"],
-    category: "Servicios"
-  },
-  {
-    keywords: ["farmacia", "mutualista", "casmu", "hospital", "clinica", "doctor", "medica", "medico", "dentista", "optica", "laboratorio"],
-    category: "Salud"
-  },
-  {
-    keywords: ["alquiler", "arrendamiento"],
-    category: "Alquiler"
-  },
-  {
-    keywords: ["sueldo", "salario", "haberes", "honorarios", "cobro", "transferencia recibida", "deposito"],
-    category: "Ingreso"
-  },
-];
+const { CANONICAL_CATEGORIES, normalizeText } = require("./taxonomy");
 
 function suggestFromKeywords(descBanco) {
-  const desc = String(descBanco || "").toLowerCase();
-  for (const entry of KEYWORD_MAP) {
-    for (const keyword of entry.keywords) {
-      if (desc.includes(keyword)) {
-        return { category_name: entry.category, source: "keyword" };
+  const desc = normalizeText(descBanco);
+  for (const category of CANONICAL_CATEGORIES) {
+    for (const keyword of category.keywords || []) {
+      if (desc.includes(normalizeText(keyword))) {
+        return { category_name: category.name, source: "keyword" };
       }
     }
   }
@@ -48,8 +15,13 @@ function suggestFromKeywords(descBanco) {
 function suggestSync(tx, rules, categories) {
   if (tx.categorization_status === "categorized") return tx;
 
-  const normalizedDesc = String(tx.desc_banco || "").toLowerCase();
-  const matchedRule = rules.find((rule) => normalizedDesc.includes(rule.pattern.toLowerCase()));
+  const normalizedDesc = normalizeText(tx.desc_banco);
+  const matchedRule = rules.find((rule) => {
+    if (rule.mode === "disabled") return false;
+    const pattern = normalizeText(rule.normalized_pattern || rule.pattern);
+    return pattern && normalizedDesc.includes(pattern);
+  });
+
   if (matchedRule) {
     const category = categories.find((item) => item.id === matchedRule.category_id);
     return {
@@ -57,7 +29,8 @@ function suggestSync(tx, rules, categories) {
       suggestion: {
         category_id: matchedRule.category_id,
         category_name: category?.name || null,
-        source: "regla"
+        source: "regla",
+        confidence: matchedRule.confidence ?? null,
       }
     };
   }
@@ -65,7 +38,7 @@ function suggestSync(tx, rules, categories) {
   const keywordMatch = suggestFromKeywords(tx.desc_banco);
   if (keywordMatch) {
     const category = categories.find(
-      (item) => item.name.toLowerCase() === keywordMatch.category_name.toLowerCase()
+      (item) => normalizeText(item.name) === normalizeText(keywordMatch.category_name)
     );
     if (category) {
       return {

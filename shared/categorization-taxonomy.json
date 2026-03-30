@@ -1,5 +1,17 @@
 {
-  "version": "2026-03-contract-v2",
+  "version": "2026-03-modern-uy-v1",
+  "ambiguous_merchants": [
+    "mercado pago",
+    "mercadopago",
+    "prex",
+    "redpagos",
+    "red pagos",
+    "abitab",
+    "brou",
+    "ebrou",
+    "itau",
+    "oca blue"
+  ],
   "categories": [
     {
       "slug": "ingreso",
@@ -31,8 +43,21 @@
       "color": "#534AB7",
       "sort_order": 2,
       "origin": "seed",
-      "keywords": ["disco", "devoto", "tienda inglesa", "geant", "ta-ta", "tata", "multiahorro", "el dorado", "macromercado", "supermercado", "hiper", "almacen", "feria"],
-      "seed_patterns": ["supermercado", "tienda inglesa", "disco", "devoto", "geant", "ta-ta", "multiahorro"]
+      "keywords": ["disco", "devoto", "tienda inglesa", "geant", "ta-ta", "tata", "multiahorro", "el dorado", "macromercado", "macro mercado", "frog", "supermercado", "hiper", "almacen", "feria"],
+      "seed_patterns": [
+        { "pattern": "supermercado", "tier": "clear_suggest" },
+        { "pattern": "tienda inglesa", "tier": "obvious_auto" },
+        { "pattern": "disco", "tier": "obvious_auto" },
+        { "pattern": "devoto", "tier": "obvious_auto" },
+        { "pattern": "geant", "tier": "obvious_auto" },
+        { "pattern": "ta-ta", "tier": "obvious_auto" },
+        { "pattern": "tata", "tier": "obvious_auto" },
+        { "pattern": "multiahorro", "tier": "clear_suggest" },
+        { "pattern": "el dorado", "tier": "obvious_auto" },
+        { "pattern": "frog", "tier": "obvious_auto" },
+        { "pattern": "macromercado", "tier": "obvious_auto" },
+        { "pattern": "macro mercado", "tier": "obvious_auto" }
+      ]
     },
     {
       "slug": "transporte",
@@ -42,8 +67,22 @@
       "color": "#1D9E75",
       "sort_order": 3,
       "origin": "seed",
-      "keywords": ["uber", "cabify", "cutcsa", "taxi", "peaje", "ancap", "nafta", "gasolina", "combustible", "bolt", "autobus", "omnibus", "stm "],
-      "seed_patterns": ["uber", "cabify", "cutcsa", "ancap", "combustible", "taxi", "peaje"]
+      "keywords": ["uber", "uber trip", "uber one", "cabify", "bolt", "didi", "cutcsa", "taxi", "peaje", "ancap", "nafta", "gasolina", "combustible", "autobus", "omnibus", "stm ", "stm", "moovit", "parking"],
+      "seed_patterns": [
+        { "pattern": "uber", "tier": "obvious_auto" },
+        { "pattern": "uber trip", "tier": "obvious_auto" },
+        { "pattern": "uber one", "tier": "clear_suggest" },
+        { "pattern": "cabify", "tier": "obvious_auto" },
+        { "pattern": "bolt", "tier": "obvious_auto" },
+        { "pattern": "didi", "tier": "obvious_auto" },
+        { "pattern": "cutcsa", "tier": "clear_suggest" },
+        { "pattern": "ancap", "tier": "clear_suggest" },
+        { "pattern": "combustible", "tier": "clear_suggest" },
+        { "pattern": "taxi", "tier": "clear_suggest" },
+        { "pattern": "peaje", "tier": "clear_suggest" },
+        { "pattern": "stm", "tier": "clear_suggest" },
+        { "pattern": "moovit", "tier": "clear_suggest" }
+      ]
     },
     {
       "slug": "suscripciones",
@@ -53,8 +92,19 @@
       "color": "#D85A30",
       "sort_order": 4,
       "origin": "seed",
-      "keywords": ["suscripcion", "chatgpt", "openai", "playstation", "xbox", "steam", "apple.com", "google play"],
-      "seed_patterns": ["suscripcion", "chatgpt", "openai", "steam", "playstation"]
+      "keywords": ["suscripcion", "chatgpt", "openai", "playstation", "xbox", "steam", "apple.com", "apple services", "google play", "google one"],
+      "seed_patterns": [
+        { "pattern": "suscripcion", "tier": "clear_suggest" },
+        { "pattern": "chatgpt", "tier": "obvious_auto" },
+        { "pattern": "openai", "tier": "obvious_auto" },
+        { "pattern": "steam", "tier": "obvious_auto" },
+        { "pattern": "playstation", "tier": "obvious_auto" },
+        { "pattern": "xbox", "tier": "obvious_auto" },
+        { "pattern": "apple.com", "tier": "clear_suggest" },
+        { "pattern": "apple services", "tier": "clear_suggest" },
+        { "pattern": "google play", "tier": "obvious_auto" },
+        { "pattern": "google one", "tier": "obvious_auto" }
+      ]
     },
     {
       "slug": "comer_afuera",
@@ -64,8 +114,24 @@
       "color": "#378ADD",
       "sort_order": 5,
       "origin": "seed",
-      "keywords": ["restaurant", "restaurante", "cafeteria", "cafe", "bar ", "bistro", "mcdonald", "mcdonalds", "burger", "mostaza", "subway", "starbucks", "la pasiva", "parrilla", "comida"],
-      "seed_patterns": ["restaurant", "restaurante", "cafeteria", "cafe", "bar ", "starbucks", "mcdonald", "burger", "parrilla"]
+      "keywords": ["restaurant", "restaurante", "cafeteria", "cafe", "bar ", "bistro", "mcdonald", "mcdonalds", "burger", "burger king", "mostaza", "subway", "starbucks", "la pasiva", "parrilla", "comida", "cafe misterio"],
+      "seed_patterns": [
+        { "pattern": "restaurant", "tier": "clear_suggest" },
+        { "pattern": "restaurante", "tier": "clear_suggest" },
+        { "pattern": "cafeteria", "tier": "clear_suggest" },
+        { "pattern": "cafe", "tier": "clear_suggest" },
+        { "pattern": "bar ", "tier": "clear_suggest" },
+        { "pattern": "starbucks", "tier": "obvious_auto" },
+        { "pattern": "mcdonald", "tier": "obvious_auto" },
+        { "pattern": "mcdonalds", "tier": "obvious_auto" },
+        { "pattern": "burger", "tier": "clear_suggest" },
+        { "pattern": "burger king", "tier": "obvious_auto" },
+        { "pattern": "mostaza", "tier": "obvious_auto" },
+        { "pattern": "subway", "tier": "obvious_auto" },
+        { "pattern": "la pasiva", "tier": "obvious_auto" },
+        { "pattern": "parrilla", "tier": "clear_suggest" },
+        { "pattern": "cafe misterio", "tier": "obvious_auto" }
+      ]
     },
     {
       "slug": "delivery",
@@ -76,7 +142,12 @@
       "sort_order": 6,
       "origin": "seed",
       "keywords": ["pedidosya", "rappi", "uber eats", "delivery"],
-      "seed_patterns": ["pedidosya", "rappi", "uber eats", "delivery"]
+      "seed_patterns": [
+        { "pattern": "pedidosya", "tier": "obvious_auto" },
+        { "pattern": "rappi", "tier": "obvious_auto" },
+        { "pattern": "uber eats", "tier": "obvious_auto" },
+        { "pattern": "delivery", "tier": "clear_suggest" }
+      ]
     },
     {
       "slug": "streaming",
@@ -86,8 +157,20 @@
       "color": "#9B59B6",
       "sort_order": 7,
       "origin": "seed",
-      "keywords": ["netflix", "spotify", "disney", "hbo", "youtube", "prime video", "deezer", "tidal"],
-      "seed_patterns": ["netflix", "spotify", "disney", "hbo", "youtube", "prime video"]
+      "keywords": ["netflix", "spotify", "disney", "disney+", "hbo", "hbo max", "youtube", "youtube premium", "prime video", "deezer", "tidal"],
+      "seed_patterns": [
+        { "pattern": "netflix", "tier": "obvious_auto" },
+        { "pattern": "spotify", "tier": "obvious_auto" },
+        { "pattern": "disney", "tier": "obvious_auto" },
+        { "pattern": "disney+", "tier": "obvious_auto" },
+        { "pattern": "hbo", "tier": "obvious_auto" },
+        { "pattern": "hbo max", "tier": "obvious_auto" },
+        { "pattern": "youtube premium", "tier": "obvious_auto" },
+        { "pattern": "youtube", "tier": "clear_suggest" },
+        { "pattern": "prime video", "tier": "obvious_auto" },
+        { "pattern": "deezer", "tier": "obvious_auto" },
+        { "pattern": "tidal", "tier": "obvious_auto" }
+      ]
     },
     {
       "slug": "telefonia",
@@ -98,7 +181,16 @@
       "sort_order": 8,
       "origin": "seed",
       "keywords": ["antel", "movistar", "claro", "telefono", "movil", "celular", "fibra optica", "internet"],
-      "seed_patterns": ["antel", "movistar", "claro", "telefono", "movil", "celular"]
+      "seed_patterns": [
+        { "pattern": "antel", "tier": "obvious_auto" },
+        { "pattern": "movistar", "tier": "obvious_auto" },
+        { "pattern": "claro", "tier": "obvious_auto" },
+        { "pattern": "telefono", "tier": "clear_suggest" },
+        { "pattern": "movil", "tier": "clear_suggest" },
+        { "pattern": "celular", "tier": "clear_suggest" },
+        { "pattern": "fibra optica", "tier": "clear_suggest" },
+        { "pattern": "internet", "tier": "clear_suggest" }
+      ]
     },
     {
       "slug": "gimnasio",
@@ -131,7 +223,13 @@
       "sort_order": 11,
       "origin": "seed",
       "keywords": [" ute ", " ose ", "servicio", "factura", "luz", "agua"],
-      "seed_patterns": [" ute ", " ose ", "luz", "agua", "servicio"]
+      "seed_patterns": [
+        { "pattern": " ute ", "tier": "obvious_auto" },
+        { "pattern": " ose ", "tier": "obvious_auto" },
+        { "pattern": "luz", "tier": "clear_suggest" },
+        { "pattern": "agua", "tier": "clear_suggest" },
+        { "pattern": "servicio", "tier": "clear_suggest" }
+      ]
     },
     {
       "slug": "salud",
@@ -141,8 +239,17 @@
       "color": "#E24B4A",
       "sort_order": 12,
       "origin": "seed",
-      "keywords": ["farmacia", "mutualista", "casmu", "hospital", "clinica", "doctor", "medica", "medico", "dentista", "optica", "laboratorio"],
-      "seed_patterns": ["farmacia", "hospital", "clinica", "medico", "dentista", "laboratorio"]
+      "keywords": ["farmacia", "farmashop", "san roque", "mutualista", "casmu", "hospital", "clinica", "doctor", "medica", "medico", "dentista", "optica", "laboratorio"],
+      "seed_patterns": [
+        { "pattern": "farmacia", "tier": "clear_suggest" },
+        { "pattern": "farmashop", "tier": "obvious_auto" },
+        { "pattern": "san roque", "tier": "obvious_auto" },
+        { "pattern": "hospital", "tier": "clear_suggest" },
+        { "pattern": "clinica", "tier": "clear_suggest" },
+        { "pattern": "medico", "tier": "clear_suggest" },
+        { "pattern": "dentista", "tier": "clear_suggest" },
+        { "pattern": "laboratorio", "tier": "clear_suggest" }
+      ]
     },
     {
       "slug": "otros",

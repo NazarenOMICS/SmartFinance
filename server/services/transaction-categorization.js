@@ -86,6 +86,14 @@ function resolveTransactionClassification(db, descBanco, monto, moneda, explicit
   const rule = findMatchingRule(db, descBanco);
   if (rule) {
     bumpRule(db, rule.id);
+    if (rule.mode !== "auto") {
+      return buildCategorizationRecord({
+        status: "suggested",
+        source: "rule_suggest",
+        confidence: Number(rule.confidence || 0.82),
+        ruleId: rule.id,
+      });
+    }
     return buildCategorizationRecord({
       categoryId: rule.category_id,
       status: "categorized",

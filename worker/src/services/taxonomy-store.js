@@ -136,10 +136,11 @@ export async function ensureTaxonomyReady(db, userId) {
     await ensureCanonicalCategories(db, userId);
   }
 
+  const expectedSeedRules = buildSeedRules().length;
   const seedRuleCount = await db.prepare(
     "SELECT COUNT(*) AS count FROM rules WHERE user_id = ? AND source = 'seed'"
   ).get(userId);
-  if (Number(seedRuleCount?.count || 0) === 0) {
+  if (Number(seedRuleCount?.count || 0) < expectedSeedRules) {
     await ensureSeedRules(db, userId);
   }
 }

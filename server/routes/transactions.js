@@ -107,7 +107,9 @@ router.get("/", (req, res) => {
   }
 
   const rows = getTransactionsForMonth(db, month, filters.join(" "), params);
-  const rules = db.prepare("SELECT id, pattern, category_id FROM rules ORDER BY LENGTH(pattern) DESC, match_count DESC, id ASC").all();
+  const rules = db.prepare(
+    "SELECT id, pattern, normalized_pattern, category_id, mode, confidence FROM rules ORDER BY LENGTH(normalized_pattern) DESC, match_count DESC, id ASC"
+  ).all();
   const categories = db.prepare("SELECT id, name FROM categories").all();
   res.json(rows.map((tx) => suggestSync(tx, rules, categories)));
 });
