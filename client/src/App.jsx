@@ -336,6 +336,7 @@ function AppInner() {
     if (cachedDone) {
       setOnboardStatus("done");
       try {
+        await api.onboard();
         const [accounts] = await Promise.all([
           api.getAccounts(),
           refreshSettings(),
