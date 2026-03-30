@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { assertSchemaVersion, getDb } from "./src/db.js";
+import { assertSchemaVersion } from "./src/db.js";
 import { clerkAuth } from "./src/middleware/auth.js";
 import accountsRouter from "./src/routes/accounts.js";
 import bankFormatsRouter from "./src/routes/bank-formats.js";
@@ -15,7 +15,6 @@ import settingsRouter from "./src/routes/settings.js";
 import systemRouter from "./src/routes/system.js";
 import transactionsRouter from "./src/routes/transactions.js";
 import uploadRouter from "./src/routes/upload.js";
-import { ensureTaxonomyReady } from "./src/services/taxonomy-store.js";
 
 const app = new Hono();
 
@@ -34,10 +33,6 @@ app.use("/api/*", async (c, next) => {
     return next();
   }
   await assertSchemaVersion(c.env);
-  const userId = c.get("userId");
-  if (userId) {
-    await ensureTaxonomyReady(getDb(c.env), userId);
-  }
   return next();
 });
 
