@@ -114,6 +114,10 @@ router.delete("/:id", async (c) => {
     "SELECT COUNT(*) AS count FROM transactions WHERE account_id=? AND user_id=?"
   ).get(id, userId);
   const txCount = txCountRow.count || 0;
+  const uploadCountRow = await db.prepare(
+    "SELECT COUNT(*) AS count FROM uploads WHERE account_id=? AND user_id=?"
+  ).get(id, userId);
+  const uploadCount = uploadCountRow.count || 0;
   const installmentRows = await db.prepare(
     "SELECT id FROM installments WHERE account_id=? AND user_id=?"
   ).all(id, userId);
@@ -133,6 +137,11 @@ router.delete("/:id", async (c) => {
         "DELETE FROM transactions WHERE account_id=? AND user_id=?"
       ).bind(id, userId));
     }
+    if (uploadCount > 0) {
+      statements.push(c.env.DB.prepare(
+        "DELETE FROM uploads WHERE account_id=? AND user_id=?"
+      ).bind(id, userId));
+    }
     if (installmentIds.length > 0) {
       const placeholders = installmentIds.map(() => "?").join(", ");
       statements.push(c.env.DB.prepare(
@@ -143,10 +152,11 @@ router.delete("/:id", async (c) => {
     statements.push(c.env.DB.prepare("DELETE FROM accounts WHERE id=? AND user_id=?").bind(id, userId));
     await c.env.DB.batch(statements);
   } else {
-    if (txCount > 0 || installmentIds.length > 0) {
+    if (txCount > 0 || installmentIds.length > 0 || uploadCount > 0) {
       return c.json({
-        error: "account has linked transactions or installments",
+        error: "account has linked transactions, uploads or installments",
         tx_count: txCount,
+        upload_count: uploadCount,
         installment_count: installmentIds.length
       }, 409);
     }

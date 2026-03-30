@@ -107,10 +107,16 @@ router.delete("/:id", (req, res) => {
   }
 
   const transactionCount = db.prepare("SELECT COUNT(*) AS count FROM transactions WHERE account_id = ?").get(id).count;
+  const uploadCount = db.prepare("SELECT COUNT(*) AS count FROM uploads WHERE account_id = ?").get(id).count;
   const installmentIds = db.prepare("SELECT id FROM installments WHERE account_id = ?").all(id).map((row) => row.id);
 
-  if ((transactionCount > 0 || installmentIds.length > 0) && !force) {
-    return res.status(409).json({ error: "account has linked transactions or installments" });
+  if ((transactionCount > 0 || installmentIds.length > 0 || uploadCount > 0) && !force) {
+    return res.status(409).json({
+      error: "account has linked transactions, uploads or installments",
+      tx_count: transactionCount,
+      upload_count: uploadCount,
+      installment_count: installmentIds.length,
+    });
   }
 
   const deleteAccount = db.transaction((linkedInstallmentIds) => {
@@ -121,6 +127,10 @@ router.delete("/:id", (req, res) => {
 
     if (transactionCount > 0) {
       db.prepare("DELETE FROM transactions WHERE account_id = ?").run(id);
+    }
+
+    if (uploadCount > 0) {
+      db.prepare("DELETE FROM uploads WHERE account_id = ?").run(id);
     }
 
     if (linkedInstallmentIds.length > 0) {
