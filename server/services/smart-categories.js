@@ -157,6 +157,23 @@ function createReviewGroupTracker() {
   return new Map();
 }
 
+function pickReviewSample(descBanco, keyword) {
+  const rawLines = String(descBanco || "")
+    .split(/\r?\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (rawLines.length === 0) return "";
+  if (rawLines.length === 1) return rawLines[0];
+
+  const normalizedKeyword = normalizeText(keyword);
+  if (normalizedKeyword) {
+    const matchingLine = rawLines.find((line) => normalizeText(line).includes(normalizedKeyword));
+    if (matchingLine) return matchingLine;
+  }
+
+  return rawLines[0];
+}
+
 function isGuidedKeyword(keyword) {
   const normalizedKeyword = normalizeText(keyword);
   return Boolean(normalizedKeyword) && normalizedKeyword.length >= 4 && !GENERIC_GUIDED_KEYWORDS.has(normalizedKeyword);
@@ -206,7 +223,7 @@ function trackReviewGroup(groups, tx, match, categoryId, transactionId, options 
   current.count += 1;
   current.transaction_ids.push(transactionId);
   if (current.samples.length < 3) {
-    current.samples.push(tx.desc_banco);
+    current.samples.push(pickReviewSample(tx.desc_banco, match.keyword));
   }
   groups.set(groupKey, current);
 }

@@ -406,6 +406,7 @@ export default function Upload({
   const [guidedOnboardingRequired, setGuidedOnboardingRequired] = useState(false);
   const [transactionReviewQueue, setTransactionReviewQueue] = useState([]);
   const [resolvedGuidedGroupKeys, setResolvedGuidedGroupKeys] = useState([]);
+  const [resolvedReviewGroupKeys, setResolvedReviewGroupKeys] = useState([]);
   const [resolvedReviewTransactionIds, setResolvedReviewTransactionIds] = useState([]);
 
   function resetReviewFlowState() {
@@ -414,6 +415,7 @@ export default function Upload({
     setGuidedOnboardingRequired(false);
     setTransactionReviewQueue([]);
     setResolvedGuidedGroupKeys([]);
+    setResolvedReviewGroupKeys([]);
     setResolvedReviewTransactionIds([]);
   }
 
@@ -546,6 +548,7 @@ export default function Upload({
   }
 
   function handleAcceptedRuleReviewGroup(group) {
+    setResolvedReviewGroupKeys((prev) => (prev.includes(group.key) ? prev : [...prev, group.key]));
     markResolvedTransactions(group);
   }
 
@@ -649,7 +652,7 @@ export default function Upload({
     (item) => !resolvedReviewTransactionIds.includes(item.transaction_id)
   );
   const displayedRuleReviewGroups = reviewGroups.filter(
-    (group) => !resolvedGuidedGroupKeys.includes(group.key)
+    (group) => !resolvedReviewGroupKeys.includes(group.key)
   );
   const pendingGuidedTransactionIds = Array.from(
     new Set([
@@ -770,21 +773,23 @@ export default function Upload({
           onCancel={() => setColumnMapper(null)}
         />
       )}
-      {guidedOnboardingRequired && guidedReviewGroups.length > 0 && (
-        <GuidedCategorizationDeck
-          groups={guidedReviewGroups}
-          onAcceptedGroup={handleAcceptedGuidedGroup}
-          onComplete={handleGuidedComplete}
-          onFollowLater={handleGuidedFollowLater}
-          onSkip={handleGuidedSkip}
+        {guidedOnboardingRequired && guidedReviewGroups.length > 0 && (
+          <GuidedCategorizationDeck
+            key={`guided-review-${guidedReviewGroups.map((group) => group.key).join("|")}`}
+            groups={guidedReviewGroups}
+            onAcceptedGroup={handleAcceptedGuidedGroup}
+            onComplete={handleGuidedComplete}
+            onFollowLater={handleGuidedFollowLater}
+            onSkip={handleGuidedSkip}
         />
       )}
-      {!guidedOnboardingRequired && displayedRuleReviewGroups.length > 0 && (
-        <RuleReviewDeck
-          groups={displayedRuleReviewGroups}
-          onAcceptedGroup={handleAcceptedRuleReviewGroup}
-          onClose={closeUploadFlowWithPending}
-          onDone={() => {
+        {!guidedOnboardingRequired && displayedRuleReviewGroups.length > 0 && (
+          <RuleReviewDeck
+            key={`rule-review-${displayedRuleReviewGroups.map((group) => group.key).join("|")}`}
+            groups={displayedRuleReviewGroups}
+            onAcceptedGroup={handleAcceptedRuleReviewGroup}
+            onClose={closeUploadFlowWithPending}
+            onDone={() => {
             load();
             handleRuleReviewDone();
           }}
