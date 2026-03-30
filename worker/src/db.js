@@ -1,5 +1,4 @@
 import { DEFAULT_PATTERNS } from "./services/tx-extractor.js";
-import { TAXONOMY_VERSION } from "./services/taxonomy.js";
 
 // Wraps Cloudflare D1 to match the better-sqlite3 interface used in routes.
 // All methods are async (D1 is always async).
@@ -21,7 +20,8 @@ export const DEFAULT_SETTINGS = {
   guided_categorization_onboarding_seen_at: "",
 };
 const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
-export const EXPECTED_SCHEMA_VERSION = TAXONOMY_VERSION;
+export const SCHEMA_VERSION = "2026-03-contract-v2";
+export const EXPECTED_SCHEMA_VERSION = SCHEMA_VERSION;
 
 function createSchemaMismatchError(currentVersion) {
   const error = new Error("Schema mismatch. Apply D1 migrations before using the app.");

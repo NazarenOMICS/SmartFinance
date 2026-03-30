@@ -1,6 +1,5 @@
 const path = require("path");
 const Database = require("better-sqlite3");
-const { TAXONOMY_VERSION } = require("./services/taxonomy");
 
 const DB_PATH = path.join(__dirname, "finance-tracker.db");
 const DEFAULT_PATTERNS = [
@@ -26,7 +25,8 @@ const DEFAULT_SETTINGS = {
   guided_categorization_onboarding_seen_at: ""
 };
 const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
-const EXPECTED_SCHEMA_VERSION = TAXONOMY_VERSION;
+const SCHEMA_VERSION = "2026-03-contract-v2";
+const EXPECTED_SCHEMA_VERSION = SCHEMA_VERSION;
 
 const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
@@ -311,7 +311,11 @@ function getSchemaStatus() {
     ok: currentVersion === EXPECTED_SCHEMA_VERSION,
     expected_version: EXPECTED_SCHEMA_VERSION,
     current_version: currentVersion,
-    blocking_reason: currentVersion === EXPECTED_SCHEMA_VERSION ? null : "database_schema_outdated",
+    blocking_reason: currentVersion === EXPECTED_SCHEMA_VERSION
+      ? null
+      : currentVersion
+        ? "database_schema_outdated"
+        : "schema_version_missing",
   };
 }
 

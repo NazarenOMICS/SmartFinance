@@ -233,6 +233,7 @@ function AppInner() {
   const [claimingLegacy, setClaimingLegacy] = useState(false);
   const [apiDown, setApiDown] = useState(false);
   const [schemaStatus, setSchemaStatus] = useState(null);
+  const [bootError, setBootError] = useState(null);
   const settingsRequestIdRef = useRef(0);
   const pendingRequestIdRef = useRef(0);
   const displayName = user?.firstName || user?.fullName?.split(" ")[0] || "Naza";
@@ -321,6 +322,9 @@ function AppInner() {
   async function initApp(attempt = 0) {
     const maxRetries = 3;
     const cachedDone = userId && localStorage.getItem(`sf_onboard_${userId}`) === "done";
+    setApiDown(false);
+    setBootError(null);
+    setSchemaStatus(null);
 
     try {
       const schema = await api.getSchemaStatus();
@@ -329,6 +333,7 @@ function AppInner() {
       if (error.code === "SCHEMA_MISMATCH") {
         setSchemaStatus(error.schema);
         setApiDown(false);
+        setOnboardStatus("boot_blocked");
         return;
       }
     }
@@ -351,6 +356,7 @@ function AppInner() {
         if (e.code === "SCHEMA_MISMATCH") {
           setSchemaStatus(e.schema);
           setApiDown(false);
+          setOnboardStatus("boot_blocked");
           return;
         }
         const message = e.message?.toLowerCase() || "";
@@ -359,9 +365,15 @@ function AppInner() {
 
         if (isNetworkError) {
           setApiDown(true);
+          setBootError("No pudimos cargar tus datos iniciales.");
+          setOnboardStatus("boot_blocked");
         } else if (attempt < maxRetries) {
           const delay = 500 * (attempt + 1);
           setTimeout(() => initApp(attempt + 1), delay);
+        } else {
+          console.error("App boot failed during cached onboard flow", e);
+          setBootError("Fallo el arranque de tu espacio.");
+          setOnboardStatus("boot_blocked");
         }
       }
       return;
@@ -392,6 +404,7 @@ function AppInner() {
       if (e.code === "SCHEMA_MISMATCH") {
         setSchemaStatus(e.schema);
         setApiDown(false);
+        setOnboardStatus("boot_blocked");
         return;
       }
       const message = e.message?.toLowerCase() || "";
@@ -400,13 +413,16 @@ function AppInner() {
 
       if (isNetworkError) {
         setApiDown(true);
-        setOnboardStatus("no_accounts");
+        setBootError("No pudimos conectarnos al servidor para preparar tu espacio.");
+        setOnboardStatus("boot_blocked");
       } else if (attempt < maxRetries) {
         const delay = 500 * (attempt + 1);
         setTimeout(() => initApp(attempt + 1), delay);
       } else {
+        console.error("App boot failed during onboarding flow", e);
         setApiDown(false);
-        setOnboardStatus("done");
+        setBootError("Ocurrio un error preparando tu espacio.");
+        setOnboardStatus("boot_blocked");
       }
     }
   }
@@ -428,7 +444,7 @@ function AppInner() {
     setTab("dashboard");
   }
 
-  if (!isLoaded || onboardStatus === null) {
+  if (!isLoaded) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-finance-cream px-4 dark:bg-neutral-950">
         <div className="flex flex-col items-center gap-4 rounded-[32px] border border-white/70 bg-white/85 px-8 py-7 shadow-panel dark:border-white/10 dark:bg-neutral-900/85">
@@ -437,31 +453,6 @@ function AppInner() {
             <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">Preparando tu espacio</p>
             <p className="mt-1 text-sm text-neutral-400">Conectando con tus datos...</p>
           </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (apiDown) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-finance-cream px-4 dark:bg-neutral-950">
-        <div className="max-w-lg rounded-[36px] border border-white/70 bg-white/88 p-8 text-center shadow-panel dark:border-white/10 dark:bg-neutral-900/88">
-          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-[28px] bg-finance-redSoft text-finance-red dark:bg-red-900/30 dark:text-red-300">
-            <HelpIcon />
-          </div>
-          <h1 className="mt-6 font-display text-4xl text-finance-ink dark:text-neutral-100">
-            No pudimos hablar con el servidor
-          </h1>
-          <p className="mt-3 text-sm leading-7 text-neutral-500 dark:text-neutral-300">
-            Revisa tu conexion y vuelve a intentar. Cuando la API responda, retomamos donde estabas sin
-            perder el contexto.
-          </p>
-          <button
-            onClick={initApp}
-            className="mt-6 rounded-full bg-finance-purple px-6 py-3 font-semibold text-white transition hover:opacity-90"
-          >
-            Reintentar
-          </button>
         </div>
       </div>
     );
@@ -486,6 +477,68 @@ function AppInner() {
             <p><strong>Actual:</strong> {schemaStatus.current_version || "sin version registrada"}</p>
             <p><strong>Motivo:</strong> {schemaStatus.blocking_reason}</p>
           </div>
+          <button
+            onClick={initApp}
+            className="mt-6 rounded-full bg-finance-purple px-6 py-3 font-semibold text-white transition hover:opacity-90"
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (apiDown) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-finance-cream px-4 dark:bg-neutral-950">
+        <div className="max-w-lg rounded-[36px] border border-white/70 bg-white/88 p-8 text-center shadow-panel dark:border-white/10 dark:bg-neutral-900/88">
+          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-[28px] bg-finance-redSoft text-finance-red dark:bg-red-900/30 dark:text-red-300">
+            <HelpIcon />
+          </div>
+          <h1 className="mt-6 font-display text-4xl text-finance-ink dark:text-neutral-100">
+            No pudimos hablar con el servidor
+          </h1>
+          <p className="mt-3 text-sm leading-7 text-neutral-500 dark:text-neutral-300">
+            {bootError || "Revisa tu conexion y vuelve a intentar. Cuando la API responda, retomamos donde estabas sin perder el contexto."}
+          </p>
+          <button
+            onClick={initApp}
+            className="mt-6 rounded-full bg-finance-purple px-6 py-3 font-semibold text-white transition hover:opacity-90"
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (onboardStatus === null) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-finance-cream px-4 dark:bg-neutral-950">
+        <div className="flex flex-col items-center gap-4 rounded-[32px] border border-white/70 bg-white/85 px-8 py-7 shadow-panel dark:border-white/10 dark:bg-neutral-900/85">
+          <BrandMark size="md" className="animate-pulse" />
+          <div className="text-center">
+            <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">Preparando tu espacio</p>
+            <p className="mt-1 text-sm text-neutral-400">Conectando con tus datos...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (onboardStatus === "boot_blocked") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-finance-cream px-4 dark:bg-neutral-950">
+        <div className="max-w-lg rounded-[36px] border border-white/70 bg-white/88 p-8 text-center shadow-panel dark:border-white/10 dark:bg-neutral-900/88">
+          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-[28px] bg-finance-redSoft text-finance-red dark:bg-red-900/30 dark:text-red-300">
+            <HelpIcon />
+          </div>
+          <h1 className="mt-6 font-display text-4xl text-finance-ink dark:text-neutral-100">
+            Algo bloqueo el arranque
+          </h1>
+          <p className="mt-3 text-sm leading-7 text-neutral-500 dark:text-neutral-300">
+            {bootError || "No pudimos terminar de cargar tu espacio. Reintenta y, si vuelve a pasar, ya deberia quedar visible el tipo de fallo."}
+          </p>
           <button
             onClick={initApp}
             className="mt-6 rounded-full bg-finance-purple px-6 py-3 font-semibold text-white transition hover:opacity-90"
