@@ -1,9 +1,16 @@
 const express = require("express");
 const { db, isValidMonthString } = require("../db");
 const { buildDedupHash } = require("../services/dedup");
-const { ensureRuleForManualCategorization, findMatchingRule, bumpRule, isLikelyReintegro, isLikelyTransfer, getCandidatesForPattern } = require("../services/categorizer");
+const { ensureRuleForManualCategorization, getCandidatesForPattern } = require("../services/categorizer");
 const { computeMonthlyEvolution, computeSummary, getTransactionsForMonth } = require("../services/metrics");
 const { suggestSync } = require("../services/suggester");
+const {
+  clearTransactionCategorization,
+  logCategorizationEvent,
+  markTransactionCategorized,
+  markTransactionSuggested,
+  resolveTransactionClassification,
+} = require("../services/transaction-categorization");
 
 const router = express.Router();
 const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
@@ -39,7 +46,7 @@ router.get("/pending", (req, res) => {
   const month = requireMonth(req, res);
   if (!month) return;
 
-  const rows = getTransactionsForMonth(db, month, "AND t.category_id IS NULL");
+  const rows = getTransactionsForMonth(db, month, "AND t.categorization_status != 'categorized'");
   res.json(rows);
 });
 
@@ -151,20 +158,7 @@ router.post("/", (req, res) => {
     }
   }
 
-  let resolvedCategoryId = category_id;
-  if (!resolvedCategoryId) {
-    const rule = findMatchingRule(db, normalizedDescBanco);
-    if (rule) {
-      resolvedCategoryId = rule.category_id;
-      bumpRule(db, rule.id);
-    } else if (isLikelyTransfer(normalizedDescBanco)) {
-      const transferCat = db.prepare("SELECT id FROM categories WHERE name = 'Transferencia'").get();
-      if (transferCat) resolvedCategoryId = transferCat.id;
-    } else if (isLikelyReintegro(db, normalizedDescBanco, Number(monto), moneda)) {
-      const reintegroCat = db.prepare("SELECT id FROM categories WHERE name = 'Reintegro'").get();
-      if (reintegroCat) resolvedCategoryId = reintegroCat.id;
-    }
-  }
+  const classification = resolveTransactionClassification(db, normalizedDescBanco, Number(monto), moneda, category_id);
 
   const dedupHash = buildDedupHash({ fecha, monto, desc_banco: normalizedDescBanco });
   const duplicate = db
@@ -186,11 +180,27 @@ router.post("/", (req, res) => {
     .prepare(
       `
       INSERT INTO transactions (
-        fecha, desc_banco, desc_usuario, monto, moneda, category_id, account_id, es_cuota, installment_id, dedup_hash
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        fecha, desc_banco, desc_usuario, monto, moneda, category_id, account_id, es_cuota, installment_id, dedup_hash,
+        categorization_status, category_source, category_confidence, category_rule_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
     )
-    .run(fecha, normalizedDescBanco, normalizedDescUsuario, monto, moneda, resolvedCategoryId, account_id, es_cuota ? 1 : 0, installment_id, dedupHash);
+    .run(
+      fecha,
+      normalizedDescBanco,
+      normalizedDescUsuario,
+      monto,
+      moneda,
+      classification.categoryId,
+      account_id,
+      es_cuota ? 1 : 0,
+      installment_id,
+      dedupHash,
+      classification.categorizationStatus,
+      classification.categorySource,
+      classification.categoryConfidence,
+      classification.categoryRuleId
+    );
 
   const transaction = db
     .prepare(
@@ -259,13 +269,27 @@ router.put("/:id", (req, res) => {
     return res.status(409).json({ error: "transaction already exists for this month" });
   }
 
-  db.prepare("UPDATE transactions SET category_id = ?, desc_usuario = ?, account_id = ?, fecha = ?, monto = ?, dedup_hash = ? WHERE id = ?").run(
+  const nextStatus = next.category_id == null ? "uncategorized" : "categorized";
+  const nextSource = next.category_id == null ? null : (req.body.category_id !== undefined ? "manual" : current.category_source);
+  const nextConfidence = next.category_id == null ? null : (req.body.category_id !== undefined ? null : current.category_confidence);
+  const nextRuleId = next.category_id == null ? null : (req.body.category_id !== undefined ? null : current.category_rule_id);
+
+  db.prepare(
+    `UPDATE transactions
+     SET category_id = ?, desc_usuario = ?, account_id = ?, fecha = ?, monto = ?, dedup_hash = ?,
+         categorization_status = ?, category_source = ?, category_confidence = ?, category_rule_id = ?
+     WHERE id = ?`
+  ).run(
     next.category_id,
     next.desc_usuario,
     next.account_id,
     next.fecha,
     next.monto,
     nextDedupHash,
+    nextStatus,
+    nextSource,
+    nextConfidence,
+    nextRuleId,
     id
   );
 
@@ -301,7 +325,7 @@ router.get("/candidates", (req, res) => {
 
 // Batch-confirm categorization for specific transaction IDs
 router.post("/confirm-category", (req, res) => {
-  const { transaction_ids, category_id } = req.body;
+  const { transaction_ids, category_id, rule_id = null, origin = "review" } = req.body;
   if (!Array.isArray(transaction_ids) || !category_id) {
     return res.status(400).json({ error: "transaction_ids array and category_id are required" });
   }
@@ -310,17 +334,84 @@ router.post("/confirm-category", (req, res) => {
     return res.status(404).json({ error: "category not found" });
   }
 
-  const update = db.prepare("UPDATE transactions SET category_id = ? WHERE id = ? AND category_id IS NULL");
   let confirmed = 0;
   const run = db.transaction((ids) => {
     for (const id of ids) {
-      const result = update.run(Number(category_id), Number(id));
-      confirmed += result.changes;
+      const tx = db.prepare("SELECT id FROM transactions WHERE id = ?").get(Number(id));
+      if (!tx) continue;
+      markTransactionCategorized(db, Number(id), Number(category_id), {
+        source: origin === "upload_review" ? "upload_review" : "rule_review",
+        confidence: null,
+        ruleId: rule_id,
+      });
+      logCategorizationEvent(db, Number(id), {
+        ruleId: rule_id,
+        categoryId: category_id,
+        decision: "confirm",
+        origin,
+      });
+      confirmed += 1;
     }
   });
   run(transaction_ids);
 
   res.json({ confirmed });
+});
+
+router.post("/reject-category", (req, res) => {
+  const { transaction_id, rule_id, origin = "review" } = req.body;
+  if (!transaction_id || !rule_id) {
+    return res.status(400).json({ error: "transaction_id and rule_id are required" });
+  }
+  const tx = db.prepare("SELECT id FROM transactions WHERE id = ?").get(Number(transaction_id));
+  if (!tx) return res.status(404).json({ error: "transaction not found" });
+  const rule = db.prepare("SELECT id FROM rules WHERE id = ?").get(Number(rule_id));
+  if (!rule) return res.status(404).json({ error: "rule not found" });
+
+  db.prepare(
+    `INSERT OR IGNORE INTO rule_exclusions (rule_id, transaction_id)
+     VALUES (?, ?)`
+  ).run(Number(rule_id), Number(transaction_id));
+  clearTransactionCategorization(db, Number(transaction_id));
+  logCategorizationEvent(db, Number(transaction_id), {
+    ruleId: rule_id,
+    decision: "reject",
+    origin,
+  });
+  res.json({ rejected: true });
+});
+
+router.post("/undo-reject-category", (req, res) => {
+  const { transaction_id, rule_id, origin = "review" } = req.body;
+  if (!transaction_id || !rule_id) {
+    return res.status(400).json({ error: "transaction_id and rule_id are required" });
+  }
+  db.prepare("DELETE FROM rule_exclusions WHERE rule_id = ? AND transaction_id = ?").run(Number(rule_id), Number(transaction_id));
+  markTransactionSuggested(db, Number(transaction_id), {
+    source: "rule_suggest",
+    confidence: null,
+    ruleId: rule_id,
+  });
+  logCategorizationEvent(db, Number(transaction_id), {
+    ruleId: rule_id,
+    decision: "undo_reject",
+    origin,
+  });
+  res.json({ undone: true });
+});
+
+router.post("/undo-confirm-category", (req, res) => {
+  const { transaction_id, category_id, origin = "review" } = req.body;
+  if (!transaction_id || !category_id) {
+    return res.status(400).json({ error: "transaction_id and category_id are required" });
+  }
+  clearTransactionCategorization(db, Number(transaction_id));
+  logCategorizationEvent(db, Number(transaction_id), {
+    categoryId: category_id,
+    decision: "undo_confirm",
+    origin,
+  });
+  res.json({ undone: true });
 });
 
 router.delete("/:id", (req, res) => {
@@ -355,10 +446,10 @@ router.post("/batch", (req, res) => {
 
   const insertStmt = db.prepare(`
     INSERT INTO transactions
-      (fecha, desc_banco, desc_usuario, monto, moneda, category_id, account_id, es_cuota, dedup_hash)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (fecha, desc_banco, desc_usuario, monto, moneda, category_id, account_id, es_cuota, dedup_hash,
+       categorization_status, category_source, category_confidence, category_rule_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  const transferCategory = db.prepare("SELECT id FROM categories WHERE name = 'Transferencia'").get();
 
   const runBatch = db.transaction((txs) => {
     for (const tx of txs) {
@@ -380,22 +471,23 @@ router.post("/batch", (req, res) => {
 
       if (exists) { duplicates += 1; continue; }
 
-      let resolvedCategoryId = category_id;
-      if (!resolvedCategoryId) {
-        const rule = findMatchingRule(db, normalizedDescBanco);
-        if (rule) {
-          resolvedCategoryId = rule.category_id;
-          bumpRule(db, rule.id);
-        } else if (isLikelyTransfer(normalizedDescBanco)) {
-          if (transferCategory) resolvedCategoryId = transferCategory.id;
-        } else if (isLikelyReintegro(db, normalizedDescBanco, Number(monto), moneda)) {
-          const cat = db.prepare("SELECT id FROM categories WHERE name = 'Reintegro'").get();
-          if (cat) resolvedCategoryId = cat.id;
-        }
-      }
+      const classification = resolveClassification(normalizedDescBanco, Number(monto), moneda, category_id);
 
-      insertStmt.run(fecha, normalizedDescBanco, normalizedDescUsuario, monto, moneda,
-                     resolvedCategoryId, account_id, es_cuota ? 1 : 0, hash);
+      insertStmt.run(
+        fecha,
+        normalizedDescBanco,
+        normalizedDescUsuario,
+        monto,
+        moneda,
+        classification.categoryId,
+        account_id,
+        es_cuota ? 1 : 0,
+        hash,
+        classification.categorizationStatus,
+        classification.categorySource,
+        classification.categoryConfidence,
+        classification.categoryRuleId
+      );
       created += 1;
     }
   });

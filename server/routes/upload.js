@@ -8,11 +8,19 @@ const { db, getSettingsObject, isValidMonthString } = require("../db");
 const { parsePdfText } = require("../services/pdf-parser");
 const { extractTransactions } = require("../services/tx-extractor");
 const { buildDedupHash } = require("../services/dedup");
-const { findMatchingRule, bumpRule, isLikelyReintegro, isLikelyTransfer } = require("../services/categorizer");
+const { resolveTransactionClassification } = require("../services/transaction-categorization");
 
 const router = express.Router();
 const uploadsDir = path.join(__dirname, "..", "..", "uploads");
 const SUPPORTED_IMPORT_EXTENSIONS = new Set([".pdf", ".csv", ".txt"]);
+
+function resolveUploadClassification(descBanco, monto, moneda) {
+  const classification = resolveTransactionClassification(db, descBanco, monto, moneda);
+  return {
+    ...classification,
+    autoCategorized: classification.categorizationStatus === "categorized",
+  };
+}
 
 // ─── CSV helpers ──────────────────────────────────────────────────────────────
 
@@ -258,17 +266,14 @@ router.post("/", upload.single("file"), async (req, res, next) => {
       const insertTx = db.prepare(
         `
         INSERT INTO transactions (
-          fecha, desc_banco, monto, moneda, category_id, account_id, upload_id, dedup_hash
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          fecha, desc_banco, monto, moneda, category_id, account_id, upload_id, dedup_hash,
+          categorization_status, category_source, category_confidence, category_rule_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
       );
       const checkDup = db.prepare(
         "SELECT id FROM transactions WHERE dedup_hash = ? AND substr(fecha, 1, 7) = ? LIMIT 1"
       );
-
-      // Cache category IDs so we don't query on every transaction
-      const transferCat  = db.prepare("SELECT id FROM categories WHERE name = 'Transferencia'").get();
-      const reintegroCat = db.prepare("SELECT id FROM categories WHERE name = 'Reintegro'").get();
 
       const runInserts = db.transaction((txList) => {
         for (const transaction of txList) {
@@ -279,23 +284,24 @@ router.post("/", upload.single("file"), async (req, res, next) => {
             continue;
           }
 
-          let categoryId = null;
-          const rule = findMatchingRule(db, transaction.desc_banco);
-          if (rule) {
-            categoryId = rule.category_id;
-            bumpRule(db, rule.id);
-            autoCategorized += 1;
-          } else if (isLikelyTransfer(transaction.desc_banco)) {
-            if (transferCat) { categoryId = transferCat.id; autoCategorized += 1; }
-            else pendingReview += 1;
-          } else if (isLikelyReintegro(db, transaction.desc_banco, transaction.monto, accountCurrency)) {
-            if (reintegroCat) { categoryId = reintegroCat.id; autoCategorized += 1; }
-            else pendingReview += 1;
-          } else {
-            pendingReview += 1;
-          }
+          const classification = resolveUploadClassification(transaction.desc_banco, transaction.monto, accountCurrency);
+          if (classification.autoCategorized) autoCategorized += 1;
+          else pendingReview += 1;
 
-          insertTx.run(transaction.fecha, transaction.desc_banco, transaction.monto, accountCurrency, categoryId, account_id, uploadResult.lastInsertRowid, dedupHash);
+          insertTx.run(
+            transaction.fecha,
+            transaction.desc_banco,
+            transaction.monto,
+            accountCurrency,
+            classification.categoryId,
+            account_id,
+            uploadResult.lastInsertRowid,
+            dedupHash,
+            classification.categorizationStatus,
+            classification.categorySource,
+            classification.categoryConfidence,
+            classification.categoryRuleId
+          );
           newTransactions += 1;
         }
       });
@@ -342,13 +348,14 @@ router.post("/", upload.single("file"), async (req, res, next) => {
           });
         }
         const insertTx = db.prepare(
-          "INSERT INTO transactions (fecha, desc_banco, monto, moneda, category_id, account_id, upload_id, dedup_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+          `INSERT INTO transactions (
+             fecha, desc_banco, monto, moneda, category_id, account_id, upload_id, dedup_hash,
+             categorization_status, category_source, category_confidence, category_rule_id
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
         const checkDup = db.prepare(
           "SELECT id FROM transactions WHERE dedup_hash = ? AND substr(fecha, 1, 7) = ? LIMIT 1"
         );
-        const transferCat  = db.prepare("SELECT id FROM categories WHERE name = 'Transferencia'").get();
-        const reintegroCat = db.prepare("SELECT id FROM categories WHERE name = 'Reintegro'").get();
 
         const runCsvInserts = db.transaction((rowList) => {
           for (const row of rowList) {
@@ -372,23 +379,24 @@ router.post("/", upload.single("file"), async (req, res, next) => {
             const dedupHash = buildDedupHash(tx);
             if (checkDup.get(dedupHash, fecha.slice(0, 7))) { duplicatesSkipped += 1; continue; }
 
-            let categoryId = null;
-            const rule = findMatchingRule(db, desc);
-            if (rule) {
-              categoryId = rule.category_id;
-              bumpRule(db, rule.id);
-              autoCategorized += 1;
-            } else if (isLikelyTransfer(desc)) {
-              if (transferCat) { categoryId = transferCat.id; autoCategorized += 1; }
-              else pendingReview += 1;
-            } else if (isLikelyReintegro(db, desc, monto, accountCurrency)) {
-              if (reintegroCat) { categoryId = reintegroCat.id; autoCategorized += 1; }
-              else pendingReview += 1;
-            } else {
-              pendingReview += 1;
-            }
+            const classification = resolveUploadClassification(desc, monto, accountCurrency);
+            if (classification.autoCategorized) autoCategorized += 1;
+            else pendingReview += 1;
 
-            insertTx.run(fecha, desc, monto, accountCurrency, categoryId, account_id, uploadResult.lastInsertRowid, dedupHash);
+            insertTx.run(
+              fecha,
+              desc,
+              monto,
+              accountCurrency,
+              classification.categoryId,
+              account_id,
+              uploadResult.lastInsertRowid,
+              dedupHash,
+              classification.categorizationStatus,
+              classification.categorySource,
+              classification.categoryConfidence,
+              classification.categoryRuleId
+            );
             newTransactions += 1;
           }
         });

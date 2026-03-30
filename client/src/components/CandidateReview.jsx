@@ -62,7 +62,7 @@ export default function CandidateReview({ pattern, categoryId, categoryName, rul
     const tx = candidates[currentIndex];
     if (!tx) return;
     try {
-      await api.confirmCategory([tx.id], categoryId);
+      await api.confirmCategory([tx.id], categoryId, { ruleId, origin: "review" });
       setConfirmed((prev) => prev + 1);
       setHistory((prev) => [...prev, { type: "confirm", transactionId: tx.id }]);
       advance({ confirmedDelta: 1 });
@@ -77,7 +77,7 @@ export default function CandidateReview({ pattern, categoryId, categoryName, rul
     if (!tx) return;
     try {
       if (ruleId) {
-        await api.rejectCategory(tx.id, ruleId);
+        await api.rejectCategory(tx.id, ruleId, { origin: "review" });
       }
       setSkipped((prev) => prev + 1);
       setHistory((prev) => [...prev, { type: "reject", transactionId: tx.id }]);
@@ -94,7 +94,7 @@ export default function CandidateReview({ pattern, categoryId, categoryName, rul
       return;
     }
 
-    api.confirmCategory(remaining, categoryId)
+    api.confirmCategory(remaining, categoryId, { ruleId, origin: "review" })
       .then((result) => {
         const added = result?.confirmed || remaining.length;
         setConfirmed((prev) => prev + added);
@@ -111,10 +111,10 @@ export default function CandidateReview({ pattern, categoryId, categoryName, rul
     const lastAction = history[history.length - 1];
     try {
       if (lastAction.type === "confirm") {
-        await api.undoConfirmCategory(lastAction.transactionId, categoryId);
+        await api.undoConfirmCategory(lastAction.transactionId, categoryId, { origin: "review" });
         setConfirmed((prev) => Math.max(prev - 1, 0));
       } else if (lastAction.type === "reject" && ruleId) {
-        await api.undoRejectCategory(lastAction.transactionId, ruleId);
+        await api.undoRejectCategory(lastAction.transactionId, ruleId, { origin: "review" });
         setSkipped((prev) => Math.max(prev - 1, 0));
       }
       setHistory((prev) => prev.slice(0, -1));
@@ -166,7 +166,7 @@ export default function CandidateReview({ pattern, categoryId, categoryName, rul
           />
         </div>
         <p className="mb-4 text-xs text-neutral-400">
-          {remaining} restante{remaining !== 1 ? "s" : ""} · {confirmed} confirmada{confirmed !== 1 ? "s" : ""} · {skipped} saltada{skipped !== 1 ? "s" : ""}
+          {remaining} restante{remaining !== 1 ? "s" : ""} | {confirmed} confirmada{confirmed !== 1 ? "s" : ""} | {skipped} saltada{skipped !== 1 ? "s" : ""}
         </p>
 
         <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-5 dark:border-neutral-700 dark:bg-neutral-800">
@@ -175,7 +175,7 @@ export default function CandidateReview({ pattern, categoryId, categoryName, rul
               <p className="font-semibold text-finance-ink dark:text-neutral-100">{current.desc_banco}</p>
               <p className="mt-1 text-xs text-neutral-400">
                 {shortDate(current.fecha)}
-                {current.account_name ? ` · ${current.account_name}` : ""}
+                {current.account_name ? ` | ${current.account_name}` : ""}
               </p>
             </div>
             <p className={`shrink-0 font-semibold ${current.monto > 0 ? "text-finance-teal" : "text-finance-ink dark:text-neutral-100"}`}>

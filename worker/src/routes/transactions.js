@@ -1,12 +1,18 @@
 import { Hono } from "hono";
-import { ensureCategorizerSchema, getDb, getSettingsObject, isValidMonthString } from "../db.js";
+import { getDb, getSettingsObject, isValidMonthString } from "../db.js";
 import { buildDedupHash } from "../services/dedup.js";
 import {
+  bumpRule,
   classifyTransaction,
   ensureRuleForManualCategorization,
-  bumpRule,
   getCandidatesForPattern,
 } from "../services/categorizer.js";
+import {
+  clearTransactionCategorization,
+  logCategorizationEvent,
+  markTransactionCategorized,
+  markTransactionSuggested,
+} from "../services/categorization-events.js";
 import { computeMonthlyEvolution, computeSummary, getTransactionsForMonth } from "../services/metrics.js";
 import { suggestSync } from "../services/suggester.js";
 
@@ -36,17 +42,27 @@ function isValidISODate(value) {
   );
 }
 
-// Global full-text search across all months
+async function fetchTransactionRow(db, userId, id) {
+  return db.prepare(
+    `SELECT t.*, c.name AS category_name, c.slug AS category_slug, c.type AS category_type, c.color AS category_color,
+            a.name AS account_name
+     FROM transactions t
+     LEFT JOIN categories c ON c.id = t.category_id AND c.user_id = t.user_id
+     LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
+     WHERE t.id = ? AND t.user_id = ?`
+  ).get(id, userId);
+}
+
 router.get("/search", async (c) => {
-  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
-  const q     = (c.req.query("q") || "").trim();
+  const q = (c.req.query("q") || "").trim();
   const limit = parsePositiveInt(c.req.query("limit") || 20, 20, 50);
   if (q.length < 2) return c.json([]);
-  const db   = getDb(c.env);
+  const db = getDb(c.env);
   const term = `%${q}%`;
   const rows = await db.prepare(
     `SELECT t.id, t.fecha, t.desc_banco, t.desc_usuario, t.monto, t.moneda,
+            t.categorization_status, t.category_source, t.category_confidence, t.category_rule_id,
             c.name AS category_name, c.color AS category_color, a.name AS account_name
      FROM transactions t
      LEFT JOIN categories c ON c.id = t.category_id AND c.user_id = t.user_id
@@ -59,17 +75,15 @@ router.get("/search", async (c) => {
 });
 
 router.get("/pending", async (c) => {
-  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
-  const month  = getMonth(c);
+  const month = getMonth(c);
   if (!month) return c.json({ error: "month is required in YYYY-MM format" }, 400);
-  const db   = getDb(c.env);
-  const rows = await getTransactionsForMonth(db, month, userId, "AND t.category_id IS NULL");
+  const db = getDb(c.env);
+  const rows = await getTransactionsForMonth(db, month, userId, "AND t.categorization_status != 'categorized'");
   return c.json(rows);
 });
 
 router.get("/candidates", async (c) => {
-  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
   const pattern = (c.req.query("pattern") || "").trim();
   const categoryId = Number(c.req.query("category_id"));
@@ -77,14 +91,12 @@ router.get("/candidates", async (c) => {
     return c.json({ error: "pattern and category_id are required" }, 400);
   }
   const db = getDb(c.env);
-  const candidates = await getCandidatesForPattern(db, pattern, categoryId, userId);
-  return c.json(candidates);
+  return c.json(await getCandidatesForPattern(db, pattern, categoryId, userId));
 });
 
 router.post("/confirm-category", async (c) => {
-  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
-  const { transaction_ids = [], category_id } = await c.req.json();
+  const { transaction_ids = [], category_id, rule_id = null, origin = "review" } = await c.req.json();
   if (!Array.isArray(transaction_ids) || transaction_ids.length === 0 || !category_id) {
     return c.json({ error: "transaction_ids and category_id are required" }, 400);
   }
@@ -97,21 +109,31 @@ router.post("/confirm-category", async (c) => {
 
   let updated = 0;
   for (const txId of transaction_ids) {
-    const result = await db.prepare(
-      `UPDATE transactions
-       SET category_id = ?
-       WHERE id = ? AND user_id = ? AND category_id IS NULL`
-    ).run(Number(category_id), Number(txId), userId);
-    updated += result.changes || 0;
+    const tx = await db.prepare(
+      "SELECT id FROM transactions WHERE id = ? AND user_id = ?"
+    ).get(Number(txId), userId);
+    if (!tx) continue;
+    await markTransactionCategorized(db, userId, txId, category_id, {
+      source: origin === "upload_review" ? "upload_review" : "rule_review",
+      confidence: null,
+      ruleId: rule_id,
+    });
+    await logCategorizationEvent(db, userId, {
+      transactionId: txId,
+      ruleId: rule_id,
+      categoryId: category_id,
+      decision: "confirm",
+      origin,
+    });
+    updated += 1;
   }
 
-  return c.json({ updated });
+  return c.json({ updated, confirmed: updated });
 });
 
 router.post("/reject-category", async (c) => {
-  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
-  const { transaction_id, rule_id } = await c.req.json();
+  const { transaction_id, rule_id, origin = "review" } = await c.req.json();
   if (!transaction_id || !rule_id) {
     return c.json({ error: "transaction_id and rule_id are required" }, 400);
   }
@@ -121,7 +143,6 @@ router.post("/reject-category", async (c) => {
     "SELECT id FROM transactions WHERE id = ? AND user_id = ?"
   ).get(Number(transaction_id), userId);
   if (!tx) return c.json({ error: "transaction not found" }, 404);
-
   const rule = await db.prepare(
     "SELECT id FROM rules WHERE id = ? AND user_id = ?"
   ).get(Number(rule_id), userId);
@@ -132,14 +153,21 @@ router.post("/reject-category", async (c) => {
      VALUES (?, ?, ?)
      ON CONFLICT(user_id, rule_id, transaction_id) DO NOTHING`
   ).bind(userId, Number(rule_id), Number(transaction_id)).run();
+  await clearTransactionCategorization(db, userId, transaction_id);
+  await logCategorizationEvent(db, userId, {
+    transactionId: transaction_id,
+    ruleId: rule_id,
+    categoryId: null,
+    decision: "reject",
+    origin,
+  });
 
   return c.json({ rejected: true });
 });
 
 router.post("/undo-reject-category", async (c) => {
-  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
-  const { transaction_id, rule_id } = await c.req.json();
+  const { transaction_id, rule_id, origin = "review" } = await c.req.json();
   if (!transaction_id || !rule_id) {
     return c.json({ error: "transaction_id and rule_id are required" }, 400);
   }
@@ -148,41 +176,53 @@ router.post("/undo-reject-category", async (c) => {
   await db.prepare(
     "DELETE FROM rule_exclusions WHERE user_id = ? AND rule_id = ? AND transaction_id = ?"
   ).run(userId, Number(rule_id), Number(transaction_id));
+  await markTransactionSuggested(db, userId, transaction_id, {
+    source: "rule_suggest",
+    confidence: null,
+    ruleId: rule_id,
+  });
+  await logCategorizationEvent(db, userId, {
+    transactionId: transaction_id,
+    ruleId: rule_id,
+    categoryId: null,
+    decision: "undo_reject",
+    origin,
+  });
 
   return c.json({ undone: true });
 });
 
 router.post("/undo-confirm-category", async (c) => {
-  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
-  const { transaction_id, category_id } = await c.req.json();
+  const { transaction_id, category_id, origin = "review" } = await c.req.json();
   if (!transaction_id || !category_id) {
     return c.json({ error: "transaction_id and category_id are required" }, 400);
   }
 
   const db = getDb(c.env);
-  const result = await db.prepare(
-    `UPDATE transactions
-     SET category_id = NULL
-     WHERE id = ? AND user_id = ? AND category_id = ?`
-  ).run(Number(transaction_id), userId, Number(category_id));
+  await clearTransactionCategorization(db, userId, transaction_id);
+  await logCategorizationEvent(db, userId, {
+    transactionId: transaction_id,
+    ruleId: null,
+    categoryId: category_id,
+    decision: "undo_confirm",
+    origin,
+  });
 
-  return c.json({ undone: Boolean(result.changes) });
+  return c.json({ undone: true });
 });
 
 router.get("/summary", async (c) => {
-  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
-  const month  = getMonth(c);
+  const month = getMonth(c);
   if (!month) return c.json({ error: "month is required in YYYY-MM format" }, 400);
   const db = getDb(c.env);
   return c.json(await computeSummary(db, c.env, month, userId));
 });
 
 router.get("/monthly-evolution", async (c) => {
-  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
-  const end    = c.req.query("end");
+  const end = c.req.query("end");
   if (!isValidMonthString(end)) {
     return c.json({ error: "end is required in YYYY-MM format" }, 400);
   }
@@ -192,11 +232,10 @@ router.get("/monthly-evolution", async (c) => {
 });
 
 router.get("/", async (c) => {
-  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
-  const month  = getMonth(c);
+  const month = getMonth(c);
   if (!month) return c.json({ error: "month is required in YYYY-MM format" }, 400);
-  const db   = getDb(c.env);
+  const db = getDb(c.env);
   const filters = [];
   const params = [];
 
@@ -213,35 +252,39 @@ router.get("/", async (c) => {
   }
 
   const rows = await getTransactionsForMonth(db, month, userId, filters.join(" "), params);
-  // Attach category suggestions to uncategorized transactions
   const [rules, categories] = await Promise.all([
-    db.prepare("SELECT id, pattern, category_id, mode, confidence FROM rules WHERE user_id = ? ORDER BY LENGTH(pattern) DESC, match_count DESC, id ASC").all(userId),
+    db.prepare(
+      "SELECT id, pattern, normalized_pattern, category_id, mode, confidence FROM rules WHERE user_id = ? ORDER BY LENGTH(normalized_pattern) DESC, match_count DESC, id ASC"
+    ).all(userId),
     db.prepare("SELECT id, name FROM categories WHERE user_id = ?").all(userId),
   ]);
   return c.json(rows.map((tx) => suggestSync(tx, rules, categories)));
 });
 
 router.post("/", async (c) => {
-  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
-  const body   = await c.req.json();
-  const { fecha, desc_banco, desc_usuario = null, monto, moneda = "UYU",
-          category_id = null, account_id = null, es_cuota = 0, installment_id = null } = body;
+  const body = await c.req.json();
+  const {
+    fecha,
+    desc_banco,
+    desc_usuario = null,
+    monto,
+    moneda = "UYU",
+    category_id = null,
+    account_id = null,
+    es_cuota = 0,
+    installment_id = null,
+  } = body;
   const normalizedDescBanco = String(desc_banco || "").trim();
   const normalizedDescUsuario = desc_usuario == null ? null : String(desc_usuario).trim() || null;
   if (!fecha || !normalizedDescBanco || monto == null) {
     return c.json({ error: "fecha, desc_banco and monto are required" }, 400);
   }
-  if (!isValidISODate(fecha)) {
-    return c.json({ error: "fecha must be in YYYY-MM-DD format" }, 400);
-  }
-  if (!Number.isFinite(Number(monto))) {
-    return c.json({ error: "monto must be a finite number" }, 400);
-  }
-  if (!SUPPORTED_CURRENCIES.has(moneda)) {
-    return c.json({ error: "moneda must be UYU, USD or ARS" }, 400);
-  }
-  const db   = getDb(c.env);
+  if (!isValidISODate(fecha)) return c.json({ error: "fecha must be in YYYY-MM-DD format" }, 400);
+  if (!Number.isFinite(Number(monto))) return c.json({ error: "monto must be a finite number" }, 400);
+  if (!SUPPORTED_CURRENCIES.has(moneda)) return c.json({ error: "moneda must be UYU, USD or ARS" }, 400);
+
+  const db = getDb(c.env);
   if (account_id) {
     const account = await db.prepare(
       "SELECT id FROM accounts WHERE id = ? AND user_id = ?"
@@ -260,13 +303,19 @@ router.post("/", async (c) => {
     ).get(Number(installment_id), userId);
     if (!installment) return c.json({ error: "installment not found" }, 404);
   }
+
   const hash = await buildDedupHash({ fecha, monto, desc_banco: normalizedDescBanco });
-  const dup  = await db.prepare(
+  const dup = await db.prepare(
     "SELECT id FROM transactions WHERE dedup_hash = ? AND user_id = ? AND substr(fecha, 1, 7) = substr(?, 1, 7)"
   ).get(hash, userId, fecha);
   if (dup) return c.json({ error: "Duplicate transaction", id: dup.id }, 409);
 
   let resolvedCategoryId = category_id;
+  let categorizationStatus = resolvedCategoryId ? "categorized" : "uncategorized";
+  let categorySource = resolvedCategoryId ? "manual" : null;
+  let categoryConfidence = null;
+  let categoryRuleId = null;
+
   if (!resolvedCategoryId) {
     const settings = await getSettingsObject(c.env, userId);
     const classification = await classifyTransaction(db, c.env, {
@@ -275,6 +324,11 @@ router.post("/", async (c) => {
       moneda,
       account_id,
     }, userId, { settings });
+
+    categorizationStatus = classification.categorization_status;
+    categorySource = classification.category_source;
+    categoryConfidence = classification.category_confidence;
+    categoryRuleId = classification.category_rule_id;
 
     if (classification.action === "auto" && classification.categoryId) {
       resolvedCategoryId = classification.categoryId;
@@ -285,29 +339,38 @@ router.post("/", async (c) => {
   }
 
   const result = await db.prepare(
-    `INSERT INTO transactions (fecha,desc_banco,desc_usuario,monto,moneda,category_id,account_id,es_cuota,installment_id,dedup_hash,user_id)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`
-  ).run(fecha, normalizedDescBanco, normalizedDescUsuario, Number(monto), moneda,
-        resolvedCategoryId, account_id, es_cuota ? 1 : 0, installment_id, hash, userId);
+    `INSERT INTO transactions (
+      fecha, desc_banco, desc_usuario, monto, moneda, category_id, account_id, es_cuota, installment_id, dedup_hash, user_id,
+      categorization_status, category_source, category_confidence, category_rule_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    fecha,
+    normalizedDescBanco,
+    normalizedDescUsuario,
+    Number(monto),
+    moneda,
+    resolvedCategoryId,
+    account_id,
+    es_cuota ? 1 : 0,
+    installment_id,
+    hash,
+    userId,
+    categorizationStatus,
+    categorySource,
+    categoryConfidence,
+    categoryRuleId
+  );
 
-  const created = await db.prepare(
-    `SELECT t.*, c.name AS category_name, c.type AS category_type, a.name AS account_name
-     FROM transactions t
-     LEFT JOIN categories c ON c.id = t.category_id AND c.user_id = t.user_id
-     LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
-     WHERE t.id = ? AND t.user_id = ?`
-  ).get(result.lastInsertRowid, userId);
-
+  const created = await fetchTransactionRow(db, userId, result.lastInsertRowid);
   return c.json(created, 201);
 });
 
-// Batch create (CSV import)
 router.post("/batch", async (c) => {
-  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
   const { transactions: txList, account_id: batchAccount } = await c.req.json();
   if (!Array.isArray(txList)) return c.json({ error: "transactions array required" }, 400);
-  const db    = getDb(c.env);
+
+  const db = getDb(c.env);
   const settings = await getSettingsObject(c.env, userId);
   if (batchAccount) {
     const batchAccountRow = await db.prepare(
@@ -316,7 +379,7 @@ router.post("/batch", async (c) => {
     if (!batchAccountRow) return c.json({ error: "account not found" }, 404);
   }
   const accountCurrencyCache = new Map();
-  const categories = await db.prepare("SELECT id, name, type, color FROM categories WHERE user_id = ?").all(userId);
+  const categories = await db.prepare("SELECT id, name, slug, type, color, origin FROM categories WHERE user_id = ?").all(userId);
   const categoryIds = new Set(categories.map((row) => Number(row.id)));
   if (batchAccount) {
     const batchAccountRow = await db.prepare(
@@ -325,7 +388,10 @@ router.post("/batch", async (c) => {
     if (batchAccountRow?.currency) accountCurrencyCache.set(batchAccount, batchAccountRow.currency);
   }
 
-  let created = 0, duplicates = 0, errors = 0;
+  let created = 0;
+  let duplicates = 0;
+  let errors = 0;
+
   for (const tx of txList) {
     try {
       const { fecha, desc_banco, monto, moneda, account_id } = tx;
@@ -334,8 +400,9 @@ router.post("/batch", async (c) => {
       if (!isValidISODate(fecha) || !Number.isFinite(Number(monto))) { errors++; continue; }
       if (moneda != null && !SUPPORTED_CURRENCIES.has(moneda)) { errors++; continue; }
       if (tx.category_id != null && !categoryIds.has(Number(tx.category_id))) { errors++; continue; }
+
       const hash = await buildDedupHash({ fecha, monto, desc_banco: normalizedDescBanco });
-      const dup  = await db.prepare(
+      const dup = await db.prepare(
         "SELECT id FROM transactions WHERE dedup_hash = ? AND user_id = ? AND substr(fecha, 1, 7) = substr(?, 1, 7)"
       ).get(hash, userId, fecha);
       if (dup) { duplicates++; continue; }
@@ -346,44 +413,57 @@ router.post("/batch", async (c) => {
           "SELECT currency FROM accounts WHERE id = ? AND user_id = ?"
         ).get(resolvedAccountId, userId);
         if (!accountRow) { errors++; continue; }
-        if (accountRow?.currency) accountCurrencyCache.set(resolvedAccountId, accountRow.currency);
+        accountCurrencyCache.set(resolvedAccountId, accountRow.currency);
       }
       const resolvedCurrency = moneda || accountCurrencyCache.get(resolvedAccountId) || "UYU";
-      let resolvedCategoryId = null;
       const classification = await classifyTransaction(db, c.env, {
         desc_banco: normalizedDescBanco,
         monto: Number(monto),
         moneda: resolvedCurrency,
         account_id: resolvedAccountId,
-      }, userId, {
-        settings,
-        categories,
-      });
+      }, userId, { settings, categories });
+
+      let resolvedCategoryId = null;
       if (classification.action === "auto" && classification.categoryId) {
         resolvedCategoryId = classification.categoryId;
         if (classification.rule?.id) {
           await bumpRule(db, classification.rule.id);
         }
       }
+
       await db.prepare(
-        `INSERT INTO transactions (fecha,desc_banco,monto,moneda,category_id,account_id,dedup_hash,user_id)
-         VALUES (?,?,?,?,?,?,?,?)`
-      ).run(fecha, normalizedDescBanco, Number(monto), resolvedCurrency,
-            resolvedCategoryId, resolvedAccountId, hash, userId);
+        `INSERT INTO transactions (
+          fecha, desc_banco, monto, moneda, category_id, account_id, dedup_hash, user_id,
+          categorization_status, category_source, category_confidence, category_rule_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        fecha,
+        normalizedDescBanco,
+        Number(monto),
+        resolvedCurrency,
+        resolvedCategoryId,
+        resolvedAccountId,
+        hash,
+        userId,
+        classification.categorization_status,
+        classification.category_source,
+        classification.category_confidence,
+        classification.category_rule_id
+      );
       created++;
-    } catch { errors++; }
+    } catch {
+      errors++;
+    }
   }
+
   return c.json({ created, duplicates, errors });
 });
 
 router.put("/:id", async (c) => {
-  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
-  const id     = Number(c.req.param("id"));
-  const db     = getDb(c.env);
-  const tx     = await db.prepare(
-    "SELECT * FROM transactions WHERE id = ? AND user_id = ?"
-  ).get(id, userId);
+  const id = Number(c.req.param("id"));
+  const db = getDb(c.env);
+  const tx = await db.prepare("SELECT * FROM transactions WHERE id = ? AND user_id = ?").get(id, userId);
   if (!tx) return c.json({ error: "transaction not found" }, 404);
 
   const body = await c.req.json();
@@ -408,17 +488,19 @@ router.put("/:id", async (c) => {
     ).get(Number(body.category_id), userId);
     if (!category) return c.json({ error: "category not found" }, 404);
   }
+
   const next = {
-    category_id:  body.category_id  !== undefined ? body.category_id  : tx.category_id,
+    category_id: body.category_id !== undefined ? body.category_id : tx.category_id,
     desc_usuario: body.desc_usuario !== undefined ? (String(body.desc_usuario).trim() || null) : tx.desc_usuario,
-    account_id:   body.account_id   !== undefined ? body.account_id   : tx.account_id,
-    fecha:        body.fecha        !== undefined ? body.fecha        : tx.fecha,
-    monto:        body.monto        !== undefined ? Number(body.monto): tx.monto,
+    account_id: body.account_id !== undefined ? body.account_id : tx.account_id,
+    fecha: body.fecha !== undefined ? body.fecha : tx.fecha,
+    monto: body.monto !== undefined ? Number(body.monto) : tx.monto,
   };
+
   const nextDedupHash = await buildDedupHash({
     fecha: next.fecha,
     monto: next.monto,
-    desc_banco: tx.desc_banco
+    desc_banco: tx.desc_banco,
   });
   const duplicate = await db.prepare(
     `SELECT id
@@ -430,36 +512,77 @@ router.put("/:id", async (c) => {
     return c.json({ error: "Duplicate transaction", id: duplicate.id }, 409);
   }
 
-  await db.prepare(
-    `UPDATE transactions SET category_id=?,desc_usuario=?,account_id=?,fecha=?,monto=?,dedup_hash=?
-     WHERE id=? AND user_id=?`
-  ).run(next.category_id, next.desc_usuario, next.account_id, next.fecha, next.monto, nextDedupHash, id, userId);
-
   let ruleResult = null;
-  if (body.category_id != null && body.category_id !== tx.category_id) {
-    ruleResult = await ensureRuleForManualCategorization(db, tx, body.category_id, userId);
+  let categorizationStatus = tx.categorization_status || (tx.category_id ? "categorized" : "uncategorized");
+  let categorySource = tx.category_source || (tx.category_id ? "manual" : null);
+  let categoryConfidence = tx.category_confidence ?? null;
+  let categoryRuleId = tx.category_rule_id ?? null;
+
+  if (body.category_id === null) {
+    categorizationStatus = "uncategorized";
+    categorySource = null;
+    categoryConfidence = null;
+    categoryRuleId = null;
+  } else if (body.category_id != null) {
+    categorizationStatus = "categorized";
+    categorySource = "manual";
+    categoryConfidence = null;
+    categoryRuleId = null;
   }
 
-  const updated = await db.prepare(
-    `SELECT t.*, c.name AS category_name, c.type AS category_type, a.name AS account_name
-     FROM transactions t
-     LEFT JOIN categories c ON c.id = t.category_id AND c.user_id = t.user_id
-     LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
-     WHERE t.id = ? AND t.user_id = ?`
-  ).get(id, userId);
+  await db.prepare(
+    `UPDATE transactions
+     SET category_id = ?, desc_usuario = ?, account_id = ?, fecha = ?, monto = ?, dedup_hash = ?,
+         categorization_status = ?, category_source = ?, category_confidence = ?, category_rule_id = ?
+     WHERE id = ? AND user_id = ?`
+  ).run(
+    next.category_id,
+    next.desc_usuario,
+    next.account_id,
+    next.fecha,
+    next.monto,
+    nextDedupHash,
+    categorizationStatus,
+    categorySource,
+    categoryConfidence,
+    categoryRuleId,
+    id,
+    userId
+  );
 
+  if (body.category_id != null && body.category_id !== tx.category_id) {
+    ruleResult = await ensureRuleForManualCategorization(db, { ...tx, ...next }, body.category_id, userId);
+    await logCategorizationEvent(db, userId, {
+      transactionId: id,
+      ruleId: null,
+      categoryId: body.category_id,
+      decision: "confirm",
+      origin: "manual_edit",
+    });
+  } else if (body.category_id === null && tx.category_id != null) {
+    await logCategorizationEvent(db, userId, {
+      transactionId: id,
+      ruleId: null,
+      categoryId: tx.category_id,
+      decision: "undo_confirm",
+      origin: "manual_edit",
+    });
+  }
+
+  const updated = await fetchTransactionRow(db, userId, id);
   return c.json({ transaction: updated, rule: ruleResult });
 });
 
 router.delete("/:id", async (c) => {
-  await ensureCategorizerSchema(c.env);
   const userId = c.get("userId");
-  const id     = Number(c.req.param("id"));
-  const db     = getDb(c.env);
-  const tx     = await db.prepare(
+  const id = Number(c.req.param("id"));
+  const db = getDb(c.env);
+  const tx = await db.prepare(
     "SELECT id FROM transactions WHERE id = ? AND user_id = ?"
   ).get(id, userId);
   if (!tx) return c.json({ error: "transaction not found" }, 404);
+  await db.prepare("DELETE FROM categorization_events WHERE user_id = ? AND transaction_id = ?").run(userId, id);
+  await db.prepare("DELETE FROM rule_exclusions WHERE user_id = ? AND transaction_id = ?").run(userId, id);
   await db.prepare("DELETE FROM transactions WHERE id = ? AND user_id = ?").run(id, userId);
   return new Response(null, { status: 204 });
 });

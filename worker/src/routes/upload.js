@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { ensureCategorizerSchema, getDb, getSettingsObject, isValidMonthString } from "../db.js";
+import { getDb, getSettingsObject, isValidMonthString } from "../db.js";
 import { buildDedupHash } from "../services/dedup.js";
 import { bumpRule, classifyTransaction } from "../services/categorizer.js";
 import { extractTransactions } from "../services/tx-extractor.js";
@@ -93,7 +93,6 @@ function findHeader(text) {
 }
 
 router.get("/", async (c) => {
-  await ensureCategorizerSchema(c.env);
   const db = getDb(c.env);
   const userId = c.get("userId");
   const period = c.req.query("period");
@@ -110,7 +109,6 @@ router.get("/", async (c) => {
 });
 
 router.post("/", async (c) => {
-  await ensureCategorizerSchema(c.env);
   let uploadId = null;
   const userId = c.get("userId");
   const db = getDb(c.env);
@@ -279,6 +277,10 @@ router.post("/", async (c) => {
       }
 
       let categoryId = null;
+      let categorizationStatus = "uncategorized";
+      let categorySource = null;
+      let categoryConfidence = null;
+      let categoryRuleId = null;
       const classification = await classifyTransaction(db, c.env, {
         desc_banco: normalizedDescBanco,
         monto: normalizedTx.monto,
@@ -288,6 +290,10 @@ router.post("/", async (c) => {
         settings,
         categories,
       });
+      categorizationStatus = classification.categorization_status;
+      categorySource = classification.category_source;
+      categoryConfidence = classification.category_confidence;
+      categoryRuleId = classification.category_rule_id;
       if (classification.action === "auto" && classification.categoryId) {
         categoryId = classification.categoryId;
         autoCategorized++;
@@ -299,7 +305,10 @@ router.post("/", async (c) => {
       }
 
       const insertResult = await db.prepare(
-        "INSERT INTO transactions (fecha,desc_banco,monto,moneda,category_id,account_id,upload_id,dedup_hash,user_id) VALUES (?,?,?,?,?,?,?,?,?)"
+        `INSERT INTO transactions (
+          fecha,desc_banco,monto,moneda,category_id,account_id,upload_id,dedup_hash,user_id,
+          categorization_status,category_source,category_confidence,category_rule_id
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).run(
         normalizedTx.fecha,
         normalizedTx.desc_banco,
@@ -309,7 +318,11 @@ router.post("/", async (c) => {
         account_id,
         uploadId,
         dedupHash,
-        userId
+        userId,
+        categorizationStatus,
+        categorySource,
+        categoryConfidence,
+        categoryRuleId
       );
       if (!categoryId) {
         const smartMatch = matchSmartCategoryTemplate(normalizedDescBanco);

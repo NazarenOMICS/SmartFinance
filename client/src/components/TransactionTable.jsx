@@ -41,6 +41,7 @@ export default function TransactionTable({
   }, []);
 
   const catTypeMap = Object.fromEntries(categories.map((c) => [c.id, c.type]));
+  const isCategorized = (tx) => tx.categorization_status === "categorized";
 
   const filtered = transactions.filter((tx) => {
     if (externalCatFilter) return tx.category_name === externalCatFilter;
@@ -52,11 +53,11 @@ export default function TransactionTable({
 
     const matchesCat = !filterCat ||
       String(tx.category_id) === filterCat ||
-      (filterCat === "__none__" && !tx.category_id);
+      (filterCat === "__none__" && !isCategorized(tx));
 
     const isTransfer = tx.category_type === "transferencia";
     let matchesQuick = true;
-    if (activeFilter === "pending") matchesQuick = !tx.category_id;
+    if (activeFilter === "pending") matchesQuick = !isCategorized(tx);
     else if (activeFilter === "income") matchesQuick = tx.monto > 0 && !isTransfer;
     else if (activeFilter === "fijo") matchesQuick = catTypeMap[tx.category_id] === "fijo";
     else if (activeFilter === "variable") matchesQuick = catTypeMap[tx.category_id] === "variable";
@@ -64,9 +65,9 @@ export default function TransactionTable({
     return matchesSearch && matchesCat && matchesQuick;
   });
 
-  const pendingCount = transactions.filter((t) => !t.category_id).length;
+  const pendingCount = transactions.filter((tx) => !isCategorized(tx)).length;
   const uniqueCats = [...new Map(
-    transactions.filter((t) => t.category_id).map((t) => [t.category_id, t.category_name])
+    transactions.filter((tx) => isCategorized(tx)).map((tx) => [tx.category_id, tx.category_name])
   ).entries()];
 
   const PILLS = [
@@ -78,7 +79,7 @@ export default function TransactionTable({
   ];
 
   const hasBulkSelect = pendingCount > 0;
-  const uncatInFiltered = filtered.filter((t) => !t.category_id);
+  const uncatInFiltered = filtered.filter((tx) => !isCategorized(tx));
   const allUncatSelected = uncatInFiltered.length > 0 && uncatInFiltered.every((t) => selectedIds.has(t.id));
 
   // Grid template: with or without checkbox column
@@ -261,7 +262,7 @@ export default function TransactionTable({
             ? "bg-finance-purpleSoft dark:bg-purple-900/20"
             : isTransfer
             ? "bg-neutral-50/70 dark:bg-neutral-800/30"
-            : !tx.category_id
+            : !isCategorized(tx)
             ? "bg-finance-amberSoft/40 dark:bg-amber-900/15"
             : "";
 
@@ -320,7 +321,7 @@ export default function TransactionTable({
               <div className={`md:hidden px-4 py-3 text-sm ${rowBg}`}>
                 <div className="flex items-start gap-3">
                   {/* Bulk select checkbox */}
-                  {hasBulkSelect && !tx.category_id && (
+                  {hasBulkSelect && !isCategorized(tx) && (
                     <button
                       onClick={() => toggleSelect(tx.id)}
                       className={`mt-1 h-4 w-4 shrink-0 rounded border-2 flex items-center justify-center transition ${
@@ -386,7 +387,7 @@ export default function TransactionTable({
                 {/* Checkbox for uncategorized rows */}
                 {hasBulkSelect && (
                   <div className="flex items-center">
-                    {!tx.category_id ? (
+                    {!isCategorized(tx) ? (
                       <button
                         onClick={() => toggleSelect(tx.id)}
                         title={isSelected ? "Deseleccionar" : "Seleccionar para categorizar en lote"}

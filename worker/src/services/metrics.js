@@ -125,7 +125,7 @@ export async function computeSummary(db, env, month, userId) {
     byCategory: budgets.filter((item) => item.spent > 0),
     byType,
     budgets,
-    pending_count: current.filter((tx) => !tx.category_id && !isLikelyTransfer(tx.desc_banco)).length,
+    pending_count: current.filter((tx) => tx.categorization_status !== "categorized" && !isLikelyTransfer(tx.desc_banco)).length,
     currency: displayCurrency
   };
 }

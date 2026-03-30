@@ -1,30 +1,21 @@
 import { suggest } from "./suggester.js";
 import { suggestCategoryWithOllama } from "./ollama.js";
+import { normalizePatternValue, normalizeText } from "./taxonomy.js";
 
 async function listRules(db, userId) {
   return db.prepare(
-    `SELECT id, pattern, category_id, match_count, mode, confidence, source,
+    `SELECT id, pattern, normalized_pattern, category_id, match_count, mode, confidence, source,
             account_id, currency, direction, merchant_key, last_matched_at, created_at
      FROM rules
      WHERE user_id = ?
-     ORDER BY LENGTH(pattern) DESC, confidence DESC, match_count DESC, id ASC`
+     ORDER BY LENGTH(normalized_pattern) DESC, confidence DESC, match_count DESC, id ASC`
   ).all(userId);
 }
 
 async function listCategories(db, userId) {
   return db.prepare(
-    "SELECT id, name, type, color FROM categories WHERE user_id = ? ORDER BY sort_order ASC, id ASC"
+    "SELECT id, name, slug, type, color, origin FROM categories WHERE user_id = ? ORDER BY sort_order ASC, id ASC"
   ).all(userId);
-}
-
-function normalizeText(value) {
-  return String(value || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 function getDirection(monto) {
@@ -45,7 +36,7 @@ export function buildPatternFromDescription(descBanco) {
   const cleaned = normalizeText(descBanco).replace(/\b\d{4,}\b/g, " ");
   const tokens = cleaned
     .split(" ")
-    .filter((t) => t.length >= 2 && !stopwords.has(t));
+    .filter((item) => item.length >= 2 && !stopwords.has(item));
   return tokens.slice(0, 2).join(" ").trim() || cleaned.split(" ").slice(0, 2).join(" ").trim();
 }
 
@@ -55,7 +46,7 @@ function buildMerchantKey(descBanco) {
 
 function scoreRule(rule, tx) {
   const desc = normalizeText(tx.desc_banco);
-  const pattern = normalizeText(rule.pattern);
+  const pattern = rule.normalized_pattern || normalizePatternValue(rule.pattern);
   if (!desc || !pattern || !desc.includes(pattern)) {
     return 0;
   }
@@ -140,15 +131,15 @@ const TRANSFER_KEYWORDS = [
 ];
 
 export function isLikelyTransfer(descBanco) {
-  const normalized = String(descBanco || "").toLowerCase();
-  return TRANSFER_KEYWORDS.some((kw) => normalized.includes(kw));
+  const normalized = normalizeText(descBanco);
+  return TRANSFER_KEYWORDS.some((item) => normalized.includes(normalizeText(item)));
 }
 
 export async function isLikelyReintegro(db, descBanco, monto, moneda, userId) {
   if (monto <= 0) return false;
 
-  const normalized = String(descBanco || "").toLowerCase();
-  if (REINTEGRO_KEYWORDS.some((kw) => normalized.includes(kw))) return true;
+  const normalized = normalizeText(descBanco);
+  if (REINTEGRO_KEYWORDS.some((item) => normalized.includes(normalizeText(item)))) return true;
 
   const threshold = REINTEGRO_THRESHOLDS[moneda] ?? REINTEGRO_THRESHOLDS.UYU;
   if (monto < threshold) {
@@ -165,10 +156,34 @@ export async function isLikelyReintegro(db, descBanco, monto, moneda, userId) {
   return false;
 }
 
+async function resolveCategoryByName(db, userId, name) {
+  if (!name) return null;
+  return db.prepare(
+    "SELECT id, name, slug, color, type FROM categories WHERE user_id = ? AND name = ? COLLATE NOCASE"
+  ).get(userId, name);
+}
+
+function buildSuggestion(rule, category, confidence, reason, source = "regla") {
+  return {
+    category_id: rule?.category_id ?? category?.id ?? null,
+    category_name: category?.name || null,
+    source,
+    confidence,
+    reason,
+  };
+}
+
 export async function findCandidatesForRule(db, pattern, categoryId, userId) {
+  const normalizedPattern = normalizePatternValue(pattern);
   const rule = await db.prepare(
-    "SELECT id FROM rules WHERE user_id = ? AND LOWER(pattern) = LOWER(?) AND category_id = ? ORDER BY id DESC LIMIT 1"
-  ).get(userId, pattern, Number(categoryId));
+    `SELECT id
+     FROM rules
+     WHERE user_id = ?
+       AND normalized_pattern = ?
+       AND category_id = ?
+     ORDER BY id DESC
+     LIMIT 1`
+  ).get(userId, normalizedPattern, Number(categoryId));
   const excludeClause = rule ? `
        AND t.id NOT IN (
          SELECT transaction_id
@@ -176,15 +191,16 @@ export async function findCandidatesForRule(db, pattern, categoryId, userId) {
          WHERE user_id = ?
            AND rule_id = ?
        )` : "";
-  const params = rule ? [userId, pattern, userId, rule.id] : [userId, pattern];
+  const params = rule ? [userId, normalizedPattern, userId, rule.id] : [userId, normalizedPattern];
   return db.prepare(
     `SELECT t.id, t.fecha, t.desc_banco, t.monto, t.moneda,
+            t.categorization_status, t.category_source, t.category_confidence, t.category_rule_id,
             a.name AS account_name
      FROM transactions t
      LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
      WHERE t.user_id = ?
-       AND t.category_id IS NULL
-       AND LOWER(t.desc_banco) LIKE '%' || LOWER(?) || '%'
+       AND t.categorization_status != 'categorized'
+       AND LOWER(t.desc_banco) LIKE '%' || ? || '%'
        ${excludeClause}
      ORDER BY t.fecha DESC
      LIMIT 50`
@@ -199,6 +215,7 @@ export async function ensureRuleForManualCategorization(db, transaction, categor
   const pattern = buildPatternFromDescription(transaction.desc_banco);
   if (!pattern) return { created: false, conflict: false, rule: null };
 
+  const normalizedPattern = normalizePatternValue(pattern);
   const merchantKey = buildMerchantKey(transaction.desc_banco);
   const direction = getDirection(transaction.monto);
   const accountId = transaction.account_id || null;
@@ -217,12 +234,12 @@ export async function ensureRuleForManualCategorization(db, transaction, categor
     `SELECT *
      FROM rules
      WHERE user_id = ?
-       AND LOWER(pattern) = LOWER(?)
+       AND normalized_pattern = ?
        AND category_id = ?
        AND COALESCE(account_id, '') = COALESCE(?, '')
        AND COALESCE(currency, '') = COALESCE(?, '')
        AND direction = ?`
-  ).get(userId, pattern, Number(categoryId), accountId, currency, direction);
+  ).get(userId, normalizedPattern, Number(categoryId), accountId, currency, direction);
 
   if (existing) {
     const nextConfidence = Math.min(Number(existing.confidence || 0.72) + 0.06, 0.98);
@@ -240,17 +257,17 @@ export async function ensureRuleForManualCategorization(db, transaction, categor
     return {
       created: false,
       conflict: false,
-      rule: { ...existing, confidence: nextConfidence, mode: nextMode, match_count: nextMatchCount },
+      rule: { ...existing, pattern, normalized_pattern: normalizedPattern, confidence: nextConfidence, mode: nextMode, match_count: nextMatchCount },
       candidates_count: 0
     };
   }
 
   const result = await db.prepare(
     `INSERT INTO rules (
-      pattern, category_id, match_count, user_id, mode, confidence, source,
+      pattern, normalized_pattern, category_id, match_count, user_id, mode, confidence, source,
       account_id, currency, direction, merchant_key, last_matched_at
-    ) VALUES (?, ?, 1, ?, 'suggest', 0.72, 'manual', ?, ?, ?, ?, datetime('now'))`
-  ).run(pattern, Number(categoryId), userId, accountId, currency, direction, merchantKey);
+    ) VALUES (?, ?, ?, 1, ?, 'suggest', 0.72, 'manual', ?, ?, ?, ?, datetime('now'))`
+  ).run(pattern, normalizedPattern, Number(categoryId), userId, accountId, currency, direction, merchantKey);
 
   const candidates = await findCandidatesForRule(db, pattern, categoryId, userId);
   return {
@@ -259,6 +276,7 @@ export async function ensureRuleForManualCategorization(db, transaction, categor
     rule: {
       id: result.lastInsertRowid,
       pattern,
+      normalized_pattern: normalizedPattern,
       category_id: Number(categoryId),
       mode: "suggest",
       confidence: 0.72,
@@ -272,13 +290,6 @@ export async function ensureRuleForManualCategorization(db, transaction, categor
   };
 }
 
-async function resolveCategoryByName(db, userId, name) {
-  if (!name) return null;
-  return db.prepare(
-    "SELECT id, name, color, type FROM categories WHERE user_id = ? AND name = ? COLLATE NOCASE"
-  ).get(userId, name);
-}
-
 export async function classifyTransaction(db, env, tx, userId, options = {}) {
   const settings = options.settings || {};
   const rules = options.rules || await listRules(db, userId);
@@ -287,15 +298,22 @@ export async function classifyTransaction(db, env, tx, userId, options = {}) {
   const bestRule = pickBestRule(rules, tx);
 
   if (bestRule) {
+    const category = categories.find((item) => item.id === bestRule.category_id) || null;
     const shouldAuto = bestRule.mode === "auto" && bestRule.score >= thresholds.autoThreshold;
     if (shouldAuto) {
       return {
         categoryId: bestRule.category_id,
         action: "auto",
         confidence: bestRule.score,
-        source: "rule",
+        source: "rule_auto",
         rule: bestRule,
+        suggestion: null,
+        categorization_status: "categorized",
+        category_source: "rule_auto",
+        category_confidence: bestRule.score,
+        category_rule_id: bestRule.id,
         reason: `Regla ${bestRule.pattern} (${Math.round(bestRule.score * 100)}%)`,
+        category,
       };
     }
     if (bestRule.score >= thresholds.suggestThreshold) {
@@ -303,15 +321,21 @@ export async function classifyTransaction(db, env, tx, userId, options = {}) {
         categoryId: null,
         action: "suggest",
         confidence: bestRule.score,
-        source: "rule",
+        source: "rule_suggest",
         rule: bestRule,
-        suggestion: {
-          category_id: bestRule.category_id,
-          category_name: categories.find((category) => category.id === bestRule.category_id)?.name || null,
-          source: "regla",
-          confidence: bestRule.score,
-          reason: `Coincidencia contextual con ${bestRule.pattern}`,
-        },
+        suggestion: buildSuggestion(
+          bestRule,
+          category,
+          bestRule.score,
+          `Coincidencia contextual con ${bestRule.pattern}`,
+          "regla"
+        ),
+        categorization_status: "suggested",
+        category_source: "rule_suggest",
+        category_confidence: bestRule.score,
+        category_rule_id: bestRule.id,
+        reason: `Coincidencia contextual con ${bestRule.pattern}`,
+        category,
       };
     }
   }
@@ -324,7 +348,14 @@ export async function classifyTransaction(db, env, tx, userId, options = {}) {
         action: "auto",
         confidence: 0.97,
         source: "transfer",
+        rule: null,
+        suggestion: null,
+        categorization_status: "categorized",
+        category_source: "transfer",
+        category_confidence: 0.97,
+        category_rule_id: null,
         reason: "Detectado como transferencia interna o cambio de divisa",
+        category: transferCategory,
       };
     }
   }
@@ -337,7 +368,14 @@ export async function classifyTransaction(db, env, tx, userId, options = {}) {
         action: "auto",
         confidence: 0.9,
         source: "refund",
+        rule: null,
+        suggestion: null,
+        categorization_status: "categorized",
+        category_source: "refund",
+        category_confidence: 0.9,
+        category_rule_id: null,
         reason: "Detectado como reintegro/devolucion",
+        category: refundCategory,
       };
     }
   }
@@ -351,6 +389,7 @@ export async function classifyTransaction(db, env, tx, userId, options = {}) {
         action: "suggest",
         confidence,
         source: heuristicSuggestion.source === "palabra clave" ? "keyword" : "history",
+        rule: null,
         suggestion: {
           category_id: heuristicSuggestion.category_id,
           category_name: heuristicSuggestion.category_name,
@@ -360,6 +399,14 @@ export async function classifyTransaction(db, env, tx, userId, options = {}) {
             ? "Coincidencia por palabra clave"
             : "Coincidencia por historial reciente",
         },
+        categorization_status: "suggested",
+        category_source: heuristicSuggestion.source === "palabra clave" ? "keyword" : "history",
+        category_confidence: confidence,
+        category_rule_id: null,
+        reason: heuristicSuggestion.source === "palabra clave"
+          ? "Coincidencia por palabra clave"
+          : "Coincidencia por historial reciente",
+        category: categories.find((item) => item.id === heuristicSuggestion.category_id) || null,
       };
     }
   }
@@ -375,24 +422,44 @@ export async function classifyTransaction(db, env, tx, userId, options = {}) {
     );
     if (category) {
       const shouldAuto = llmSuggestion.should_auto && llmSuggestion.confidence >= Math.max(thresholds.autoThreshold, 0.93);
+      const canSuggest = llmSuggestion.confidence >= thresholds.suggestThreshold;
       return {
         categoryId: shouldAuto ? category.id : null,
-        action: shouldAuto ? "auto" : (llmSuggestion.confidence >= thresholds.suggestThreshold ? "suggest" : "none"),
+        action: shouldAuto ? "auto" : (canSuggest ? "suggest" : "none"),
         confidence: llmSuggestion.confidence,
         source: "ollama",
-        suggestion: llmSuggestion.confidence >= thresholds.suggestThreshold ? {
+        rule: null,
+        suggestion: canSuggest ? {
           category_id: category.id,
           category_name: category.name,
           source: "ollama",
           confidence: llmSuggestion.confidence,
           reason: llmSuggestion.reason || "Sugerencia de Ollama",
         } : null,
+        categorization_status: shouldAuto ? "categorized" : (canSuggest ? "suggested" : "uncategorized"),
+        category_source: shouldAuto ? "ollama_auto" : (canSuggest ? "ollama_suggest" : null),
+        category_confidence: canSuggest || shouldAuto ? llmSuggestion.confidence : null,
+        category_rule_id: null,
         reason: llmSuggestion.reason || "Clasificacion semantica por Ollama",
+        category,
       };
     }
   }
 
-  return { categoryId: null, action: "none", confidence: 0, source: "none", suggestion: null };
+  return {
+    categoryId: null,
+    action: "none",
+    confidence: 0,
+    source: "none",
+    rule: null,
+    suggestion: null,
+    categorization_status: "uncategorized",
+    category_source: null,
+    category_confidence: null,
+    category_rule_id: null,
+    reason: "",
+    category: null,
+  };
 }
 
 export async function applyAllRulesRetroactively(db, userId) {
@@ -401,11 +468,17 @@ export async function applyAllRulesRetroactively(db, userId) {
   for (const rule of rules) {
     if (rule.mode !== "auto") continue;
     const result = await db.prepare(
-      `UPDATE transactions SET category_id = ?
-       WHERE category_id IS NULL AND user_id = ? AND LOWER(desc_banco) LIKE '%' || LOWER(?) || '%'`
-    ).run(rule.category_id, userId, rule.pattern);
+      `UPDATE transactions
+       SET category_id = ?,
+           categorization_status = 'categorized',
+           category_source = 'rule_auto',
+           category_confidence = ?,
+           category_rule_id = ?
+       WHERE category_id IS NULL
+         AND user_id = ?
+         AND LOWER(desc_banco) LIKE '%' || ? || '%'`
+    ).run(rule.category_id, Number(rule.confidence || 0.72), rule.id, userId, rule.normalized_pattern);
     total += result.changes || 0;
   }
   return total;
 }
-

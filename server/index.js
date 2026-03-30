@@ -3,8 +3,7 @@ const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
 
-const { seed } = require("./seed");
-const { ensureDefaultRules } = require("./services/categorizer");
+const { getSchemaStatus } = require("./db");
 const { startDailyRefresh } = require("./services/exchange-rates");
 const transactionsRouter = require("./routes/transactions");
 const categoriesRouter = require("./routes/categories");
@@ -27,9 +26,9 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-seed();
-ensureDefaultRules(require("./db").db);
 startDailyRefresh();
+onboardRouter.ensureCanonicalCategories?.();
+onboardRouter.ensureSeedRules?.();
 
 app.use(cors({
   origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : true
@@ -39,6 +38,11 @@ app.use("/uploads", express.static(uploadsDir));
 
 app.get("/api/health", (req, res) => {
   res.json({ ok: true });
+});
+
+app.get("/api/system/schema", (req, res) => {
+  const status = getSchemaStatus();
+  res.status(status.ok ? 200 : 503).json(status);
 });
 
 app.use("/api/onboard", onboardRouter);

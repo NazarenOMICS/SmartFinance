@@ -1,97 +1,39 @@
-const SMART_CATEGORY_TEMPLATES = [
-  {
-    key: "dining_out",
-    name: "Comer afuera",
-    budget: 8000,
-    type: "variable",
-    color: "#378ADD",
-    keywords: ["restaurant", "restaurante", "cafeteria", "cafe", "bar ", "bistro", "mcdonald", "burger", "subway", "starbucks", "mostaza", "la pasiva", "parrilla"],
-  },
-  {
-    key: "delivery",
-    name: "Delivery",
-    budget: 6000,
-    type: "variable",
-    color: "#D85A30",
-    keywords: ["pedidosya", "rappi", "uber eats", "delivery"],
-  },
-  {
-    key: "streaming",
-    name: "Streaming",
-    budget: 2500,
-    type: "fijo",
-    color: "#9B59B6",
-    keywords: ["netflix", "spotify", "disney", "hbo", "youtube", "prime video", "deezer", "tidal"],
-  },
-  {
-    key: "telefonia",
-    name: "Telefonia",
-    budget: 3000,
-    type: "fijo",
-    color: "#2ECC71",
-    keywords: ["antel", "movistar", "claro", "tigo", "telefono", "movil", "celular"],
-  },
-  {
-    key: "gimnasio",
-    name: "Gimnasio",
-    budget: 3000,
-    type: "fijo",
-    color: "#E67E22",
-    keywords: ["smartfit", "smart fit", "gym", "gimnasio", "fitness", "bodytech"],
-  },
-  {
-    key: "mascotas",
-    name: "Mascotas",
-    budget: 2000,
-    type: "variable",
-    color: "#3498DB",
-    keywords: ["veterinaria", "veterinar", "pet shop", "laika", "mascota"],
-  },
-];
+import { CANONICAL_CATEGORIES, matchCanonicalCategory, normalizeText } from "./taxonomy.js";
 
-function normalizeText(value) {
-  return String(value || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+const REVIEWABLE_SLUGS = new Set(["comer_afuera", "delivery", "streaming", "telefonia", "gimnasio", "mascotas"]);
 
 export function matchSmartCategoryTemplate(descBanco) {
-  const normalized = normalizeText(descBanco);
-  for (const template of SMART_CATEGORY_TEMPLATES) {
-    const keyword = template.keywords.find((item) => normalized.includes(item));
-    if (keyword) {
-      return { template, keyword };
-    }
-  }
-  return null;
+  const match = matchCanonicalCategory(descBanco);
+  if (!match || !REVIEWABLE_SLUGS.has(match.category.slug)) return null;
+  return {
+    template: {
+      key: match.category.slug,
+      name: match.category.name,
+      budget: match.category.budget,
+      type: match.category.type,
+      color: match.category.color,
+      slug: match.category.slug,
+    },
+    keyword: match.keyword,
+  };
 }
 
 export async function ensureSmartCategoriesForTransactions(db, userId, transactions) {
-  const matches = transactions
-    .map((tx) => matchSmartCategoryTemplate(tx.desc_banco))
-    .filter(Boolean);
-  if (matches.length === 0) {
-    return {};
-  }
-
   const existingCategories = await db.prepare(
-    "SELECT id, name FROM categories WHERE user_id = ?"
+    "SELECT id, name, slug FROM categories WHERE user_id = ?"
   ).all(userId);
-  const byName = Object.fromEntries(existingCategories.map((row) => [normalizeText(row.name), row]));
+  const bySlug = Object.fromEntries(existingCategories.map((row) => [row.slug || normalizeText(row.name).replace(/\s+/g, "_"), row]));
 
-  for (const match of matches) {
-    const key = normalizeText(match.template.name);
-    if (byName[key]) continue;
+  for (const category of CANONICAL_CATEGORIES.filter((item) => REVIEWABLE_SLUGS.has(item.slug))) {
+    if (bySlug[category.slug]) continue;
     const result = await db.prepare(
-      "INSERT INTO categories (name, budget, type, color, sort_order, user_id) VALUES (?, ?, ?, ?, ?, ?)"
-    ).run(match.template.name, match.template.budget, match.template.type, match.template.color, 40, userId);
-    byName[key] = { id: result.lastInsertRowid, name: match.template.name };
+      `INSERT INTO categories (name, budget, type, color, sort_order, user_id, slug, origin)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'seed')`
+    ).run(category.name, category.budget, category.type, category.color, category.sort_order, userId, category.slug);
+    bySlug[category.slug] = { id: result.lastInsertRowid, name: category.name, slug: category.slug };
   }
 
-  return byName;
+  return bySlug;
 }
 
 export function createReviewGroupTracker() {
@@ -99,12 +41,13 @@ export function createReviewGroupTracker() {
 }
 
 export function trackReviewGroup(groups, tx, match, categoryId, transactionId) {
-  const groupKey = `${match.template.key}:${match.keyword}`;
+  const groupKey = `${match.template.slug}:${match.keyword}`;
   const current = groups.get(groupKey) || {
     key: groupKey,
     pattern: match.keyword,
     category_id: categoryId,
     category_name: match.template.name,
+    category_slug: match.template.slug,
     count: 0,
     transaction_ids: [],
     samples: [],

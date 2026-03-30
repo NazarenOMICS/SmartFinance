@@ -139,7 +139,7 @@ function computeSummary(db, month) {
     byType,
     budgets,
     // Transfers are auto-categorized system entries — don't count as pending review
-    pending_count: current.filter((tx) => !tx.category_id && !isLikelyTransfer(tx.desc_banco)).length,
+    pending_count: current.filter((tx) => tx.categorization_status !== "categorized" && !isLikelyTransfer(tx.desc_banco)).length,
     currency: displayCurrency
   };
 }

@@ -232,6 +232,7 @@ function AppInner() {
   const [legacyAvailable, setLegacyAvailable] = useState(false);
   const [claimingLegacy, setClaimingLegacy] = useState(false);
   const [apiDown, setApiDown] = useState(false);
+  const [schemaStatus, setSchemaStatus] = useState(null);
   const settingsRequestIdRef = useRef(0);
   const pendingRequestIdRef = useRef(0);
   const displayName = user?.firstName || user?.fullName?.split(" ")[0] || "Naza";
@@ -321,6 +322,17 @@ function AppInner() {
     const maxRetries = 3;
     const cachedDone = userId && localStorage.getItem(`sf_onboard_${userId}`) === "done";
 
+    try {
+      const schema = await api.getSchemaStatus();
+      setSchemaStatus(schema);
+    } catch (error) {
+      if (error.code === "SCHEMA_MISMATCH") {
+        setSchemaStatus(error.schema);
+        setApiDown(false);
+        return;
+      }
+    }
+
     if (cachedDone) {
       setOnboardStatus("done");
       try {
@@ -336,6 +348,11 @@ function AppInner() {
           setOnboardStatus("no_accounts");
         }
       } catch (e) {
+        if (e.code === "SCHEMA_MISMATCH") {
+          setSchemaStatus(e.schema);
+          setApiDown(false);
+          return;
+        }
         const message = e.message?.toLowerCase() || "";
         const isNetworkError =
           message.includes("fetch") || message.includes("network") || message.includes("failed to fetch");
@@ -372,6 +389,11 @@ function AppInner() {
         setOnboardStatus("no_accounts");
       }
     } catch (e) {
+      if (e.code === "SCHEMA_MISMATCH") {
+        setSchemaStatus(e.schema);
+        setApiDown(false);
+        return;
+      }
       const message = e.message?.toLowerCase() || "";
       const isNetworkError =
         message.includes("fetch") || message.includes("network") || message.includes("failed to fetch");
@@ -434,6 +456,36 @@ function AppInner() {
             Revisa tu conexion y vuelve a intentar. Cuando la API responda, retomamos donde estabas sin
             perder el contexto.
           </p>
+          <button
+            onClick={initApp}
+            className="mt-6 rounded-full bg-finance-purple px-6 py-3 font-semibold text-white transition hover:opacity-90"
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (schemaStatus && !schemaStatus.ok) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-finance-cream px-4 dark:bg-neutral-950">
+        <div className="max-w-xl rounded-[36px] border border-white/70 bg-white/88 p-8 text-center shadow-panel dark:border-white/10 dark:bg-neutral-900/88">
+          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-[28px] bg-finance-purpleSoft text-finance-purple dark:bg-purple-900/30 dark:text-purple-300">
+            <HelpIcon />
+          </div>
+          <h1 className="mt-6 font-display text-4xl text-finance-ink dark:text-neutral-100">
+            La base necesita migraciones
+          </h1>
+          <p className="mt-3 text-sm leading-7 text-neutral-500 dark:text-neutral-300">
+            La app detecto un desajuste entre el schema esperado y la base publicada. Cuando el deploy aplique
+            la migracion correcta, todo vuelve a funcionar sin dejarte frente a errores SQL crudos.
+          </p>
+          <div className="mt-5 rounded-[24px] bg-finance-cream/80 px-5 py-4 text-left text-sm text-neutral-500 dark:bg-neutral-800/80 dark:text-neutral-300">
+            <p><strong>Esperado:</strong> {schemaStatus.expected_version}</p>
+            <p><strong>Actual:</strong> {schemaStatus.current_version || "sin version registrada"}</p>
+            <p><strong>Motivo:</strong> {schemaStatus.blocking_reason}</p>
+          </div>
           <button
             onClick={initApp}
             className="mt-6 rounded-full bg-finance-purple px-6 py-3 font-semibold text-white transition hover:opacity-90"

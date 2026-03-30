@@ -93,7 +93,17 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
         ...prev,
         transactions: prev.transactions.map((tx) =>
           tx.id === id
-            ? { ...tx, category_id: Number(categoryId), category_name: catName, category_type: cat?.type, category_color: cat?.color }
+            ? {
+                ...tx,
+                category_id: Number(categoryId),
+                category_name: catName,
+                category_type: cat?.type,
+                category_color: cat?.color,
+                categorization_status: "categorized",
+                category_source: "manual",
+                category_confidence: null,
+                category_rule_id: null,
+              }
             : tx
         ),
       }));

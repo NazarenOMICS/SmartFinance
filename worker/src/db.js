@@ -1,4 +1,5 @@
 import { DEFAULT_PATTERNS } from "./services/tx-extractor.js";
+import { TAXONOMY_VERSION } from "./services/taxonomy.js";
 
 // Wraps Cloudflare D1 to match the better-sqlite3 interface used in routes.
 // All methods are async (D1 is always async).
@@ -17,8 +18,22 @@ export const DEFAULT_SETTINGS = {
   categorizer_ollama_model: "qwen2.5:3b"
 };
 const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
-let categorizerSchemaReady = false;
-let categorizerSchemaPromise = null;
+export const EXPECTED_SCHEMA_VERSION = TAXONOMY_VERSION;
+
+function createSchemaMismatchError(currentVersion) {
+  const error = new Error("Schema mismatch. Apply D1 migrations before using the app.");
+  error.status = 503;
+  error.code = "SCHEMA_MISMATCH";
+  error.schema = {
+    ok: false,
+    expected_version: EXPECTED_SCHEMA_VERSION,
+    current_version: currentVersion,
+    blocking_reason: currentVersion
+      ? "database_schema_outdated"
+      : "schema_version_missing",
+  };
+  return error;
+}
 
 export function getDb(env) {
   return {
@@ -49,58 +64,38 @@ export function getDb(env) {
   };
 }
 
-export async function ensureCategorizerSchema(env) {
-  if (categorizerSchemaReady) return;
-  if (categorizerSchemaPromise) return categorizerSchemaPromise;
+export async function getSchemaStatus(env) {
+  try {
+    const meta = await env.DB.prepare(
+      "SELECT value FROM system_meta WHERE key = 'schema_version' LIMIT 1"
+    ).first();
+    const currentVersion = meta?.value || null;
+    return {
+      ok: currentVersion === EXPECTED_SCHEMA_VERSION,
+      expected_version: EXPECTED_SCHEMA_VERSION,
+      current_version: currentVersion,
+      blocking_reason: currentVersion === EXPECTED_SCHEMA_VERSION
+        ? null
+        : currentVersion
+          ? "database_schema_outdated"
+          : "schema_version_missing",
+    };
+  } catch {
+    return {
+      ok: false,
+      expected_version: EXPECTED_SCHEMA_VERSION,
+      current_version: null,
+      blocking_reason: "schema_meta_unavailable",
+    };
+  }
+}
 
-  categorizerSchemaPromise = (async () => {
-    const rulesInfo = await env.DB.prepare("PRAGMA table_info(rules)").all();
-    const ruleColumns = new Set((rulesInfo.results || []).map((column) => column.name));
-    const statements = [];
-
-    if (!ruleColumns.has("mode")) statements.push("ALTER TABLE rules ADD COLUMN mode TEXT NOT NULL DEFAULT 'suggest'");
-    if (!ruleColumns.has("confidence")) statements.push("ALTER TABLE rules ADD COLUMN confidence REAL NOT NULL DEFAULT 0.72");
-    if (!ruleColumns.has("source")) statements.push("ALTER TABLE rules ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'");
-    if (!ruleColumns.has("account_id")) statements.push("ALTER TABLE rules ADD COLUMN account_id TEXT");
-    if (!ruleColumns.has("currency")) statements.push("ALTER TABLE rules ADD COLUMN currency TEXT");
-    if (!ruleColumns.has("direction")) statements.push("ALTER TABLE rules ADD COLUMN direction TEXT NOT NULL DEFAULT 'any'");
-    if (!ruleColumns.has("merchant_key")) statements.push("ALTER TABLE rules ADD COLUMN merchant_key TEXT");
-    if (!ruleColumns.has("last_matched_at")) statements.push("ALTER TABLE rules ADD COLUMN last_matched_at TEXT");
-
-    if (statements.length > 0) {
-      for (const statement of statements) {
-        await env.DB.exec(statement);
-      }
-    }
-
-    await env.DB.exec(`
-      CREATE TABLE IF NOT EXISTS rule_exclusions (
-        user_id TEXT NOT NULL DEFAULT '',
-        rule_id INTEGER NOT NULL,
-        transaction_id INTEGER NOT NULL,
-        created_at TEXT DEFAULT (datetime('now')),
-        PRIMARY KEY (user_id, rule_id, transaction_id)
-      );
-    `);
-
-    await env.DB.exec(`
-      CREATE INDEX IF NOT EXISTS idx_rule_exclusions_user_tx
-      ON rule_exclusions(user_id, transaction_id);
-    `);
-
-    for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
-      await env.DB.prepare(
-        `INSERT INTO settings (user_id, key, value) VALUES (?, ?, ?)
-         ON CONFLICT(user_id, key) DO NOTHING`
-      ).bind("", key, value).run();
-    }
-
-    categorizerSchemaReady = true;
-  })().finally(() => {
-    categorizerSchemaPromise = null;
-  });
-
-  return categorizerSchemaPromise;
+export async function assertSchemaVersion(env) {
+  const status = await getSchemaStatus(env);
+  if (!status.ok) {
+    throw createSchemaMismatchError(status.current_version);
+  }
+  return status;
 }
 
 export function monthWindow(month) {

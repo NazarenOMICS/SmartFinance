@@ -1,5 +1,6 @@
 const path = require("path");
 const Database = require("better-sqlite3");
+const { TAXONOMY_VERSION } = require("./services/taxonomy");
 
 const DB_PATH = path.join(__dirname, "finance-tracker.db");
 const DEFAULT_PATTERNS = [
@@ -22,6 +23,7 @@ const DEFAULT_SETTINGS = {
   categorizer_ollama_model: "qwen2.5:3b"
 };
 const SUPPORTED_CURRENCIES = new Set(["UYU", "USD", "ARS"]);
+const EXPECTED_SCHEMA_VERSION = TAXONOMY_VERSION;
 
 const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
@@ -43,7 +45,9 @@ function migrate() {
       budget REAL DEFAULT 0,
       type TEXT DEFAULT 'variable',
       color TEXT,
-      sort_order INTEGER DEFAULT 0
+      sort_order INTEGER DEFAULT 0,
+      slug TEXT NOT NULL DEFAULT '',
+      origin TEXT NOT NULL DEFAULT 'manual'
     );
 
     CREATE TABLE IF NOT EXISTS uploads (
@@ -83,6 +87,10 @@ function migrate() {
       upload_id INTEGER,
       dedup_hash TEXT,
       created_at TEXT DEFAULT (datetime('now')),
+      categorization_status TEXT NOT NULL DEFAULT 'uncategorized',
+      category_source TEXT,
+      category_confidence REAL,
+      category_rule_id INTEGER,
       FOREIGN KEY (category_id) REFERENCES categories(id),
       FOREIGN KEY (account_id) REFERENCES accounts(id),
       FOREIGN KEY (installment_id) REFERENCES installments(id),
@@ -94,9 +102,18 @@ function migrate() {
     CREATE TABLE IF NOT EXISTS rules (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       pattern TEXT NOT NULL,
+      normalized_pattern TEXT NOT NULL DEFAULT '',
       category_id INTEGER NOT NULL,
       match_count INTEGER DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now')),
+      mode TEXT NOT NULL DEFAULT 'suggest',
+      confidence REAL NOT NULL DEFAULT 0.72,
+      source TEXT NOT NULL DEFAULT 'manual',
+      account_id TEXT,
+      currency TEXT,
+      direction TEXT NOT NULL DEFAULT 'any',
+      merchant_key TEXT,
+      last_matched_at TEXT,
       FOREIGN KEY (category_id) REFERENCES categories(id)
     );
 
@@ -110,9 +127,36 @@ function migrate() {
       config TEXT NOT NULL,
       created_at TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS rule_exclusions (
+      rule_id INTEGER NOT NULL,
+      transaction_id INTEGER NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (rule_id, transaction_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS categorization_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      transaction_id INTEGER NOT NULL,
+      rule_id INTEGER,
+      category_id INTEGER,
+      decision TEXT NOT NULL,
+      origin TEXT NOT NULL DEFAULT 'unknown',
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS system_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
 
+  const categoryColumns = new Set(db.prepare("PRAGMA table_info(categories)").all().map((column) => column.name));
+  if (!categoryColumns.has("slug")) db.exec("ALTER TABLE categories ADD COLUMN slug TEXT NOT NULL DEFAULT ''");
+  if (!categoryColumns.has("origin")) db.exec("ALTER TABLE categories ADD COLUMN origin TEXT NOT NULL DEFAULT 'manual'");
+
   const ruleColumns = new Set(db.prepare("PRAGMA table_info(rules)").all().map((column) => column.name));
+  if (!ruleColumns.has("normalized_pattern")) db.exec("ALTER TABLE rules ADD COLUMN normalized_pattern TEXT NOT NULL DEFAULT ''");
   if (!ruleColumns.has("mode")) db.exec("ALTER TABLE rules ADD COLUMN mode TEXT NOT NULL DEFAULT 'suggest'");
   if (!ruleColumns.has("confidence")) db.exec("ALTER TABLE rules ADD COLUMN confidence REAL NOT NULL DEFAULT 0.72");
   if (!ruleColumns.has("source")) db.exec("ALTER TABLE rules ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'");
@@ -122,12 +166,62 @@ function migrate() {
   if (!ruleColumns.has("merchant_key")) db.exec("ALTER TABLE rules ADD COLUMN merchant_key TEXT");
   if (!ruleColumns.has("last_matched_at")) db.exec("ALTER TABLE rules ADD COLUMN last_matched_at TEXT");
 
+  const txColumns = new Set(db.prepare("PRAGMA table_info(transactions)").all().map((column) => column.name));
+  if (!txColumns.has("categorization_status")) db.exec("ALTER TABLE transactions ADD COLUMN categorization_status TEXT NOT NULL DEFAULT 'uncategorized'");
+  if (!txColumns.has("category_source")) db.exec("ALTER TABLE transactions ADD COLUMN category_source TEXT");
+  if (!txColumns.has("category_confidence")) db.exec("ALTER TABLE transactions ADD COLUMN category_confidence REAL");
+  if (!txColumns.has("category_rule_id")) db.exec("ALTER TABLE transactions ADD COLUMN category_rule_id INTEGER");
+
+  db.exec(`
+    UPDATE transactions
+    SET category_id = NULL
+    WHERE category_id IS NOT NULL
+      AND category_id NOT IN (SELECT id FROM categories)
+  `);
+  db.exec(`
+    UPDATE transactions
+    SET categorization_status = CASE
+      WHEN category_id IS NULL THEN 'uncategorized'
+      ELSE 'categorized'
+    END
+  `);
+  db.exec(`
+    UPDATE transactions
+    SET category_source = CASE
+      WHEN category_id IS NULL THEN NULL
+      ELSE COALESCE(NULLIF(category_source, ''), 'legacy')
+    END
+  `);
+  db.exec("UPDATE transactions SET category_confidence = NULL WHERE category_id IS NULL");
+  db.exec("UPDATE transactions SET category_rule_id = NULL WHERE category_id IS NULL");
+
+  db.exec("UPDATE rules SET normalized_pattern = LOWER(TRIM(pattern)) WHERE COALESCE(normalized_pattern, '') = ''");
+  db.exec(`
+    DELETE FROM rules
+    WHERE id NOT IN (
+      SELECT MIN(id)
+      FROM rules
+      GROUP BY normalized_pattern, IFNULL(account_id, ''), IFNULL(currency, ''), direction
+    )
+  `);
+
+  db.exec("DROP INDEX IF EXISTS idx_rules_user_pattern");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_categories_slug ON categories(slug)");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_rules_scope ON rules(normalized_pattern, IFNULL(account_id, ''), IFNULL(currency, ''), direction)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_rule_exclusions_tx ON rule_exclusions(transaction_id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_categorization_events_tx ON categorization_events(transaction_id, created_at DESC)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(categorization_status, fecha DESC)");
+
   const insertSetting = db.prepare(`
     INSERT INTO settings (key, value) VALUES (?, ?)
     ON CONFLICT(key) DO NOTHING
   `);
-
   Object.entries(DEFAULT_SETTINGS).forEach(([key, value]) => insertSetting.run(key, value));
+
+  db.prepare(`
+    INSERT INTO system_meta (key, value) VALUES ('schema_version', ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(EXPECTED_SCHEMA_VERSION);
 }
 
 function normalizeSettingValue(key, value) {
@@ -167,7 +261,7 @@ function normalizeSettingValue(key, value) {
         return JSON.stringify(parsed);
       }
     } catch (_) {
-      // fall through to default
+      return DEFAULT_SETTINGS.parsing_patterns;
     }
     return DEFAULT_SETTINGS.parsing_patterns;
   }
@@ -185,12 +279,10 @@ function getSettingsObject() {
 
 function upsertSetting(key, value) {
   const normalizedValue = normalizeSettingValue(key, value);
-  return db
-    .prepare(`
-      INSERT INTO settings (key, value) VALUES (?, ?)
-      ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `)
-    .run(key, normalizedValue);
+  return db.prepare(
+    `INSERT INTO settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+  ).run(key, normalizedValue);
 }
 
 function monthWindow(month) {
@@ -209,6 +301,17 @@ function isValidMonthString(value) {
   return month >= 1 && month <= 12;
 }
 
+function getSchemaStatus() {
+  const row = db.prepare("SELECT value FROM system_meta WHERE key = 'schema_version'").get();
+  const currentVersion = row?.value || null;
+  return {
+    ok: currentVersion === EXPECTED_SCHEMA_VERSION,
+    expected_version: EXPECTED_SCHEMA_VERSION,
+    current_version: currentVersion,
+    blocking_reason: currentVersion === EXPECTED_SCHEMA_VERSION ? null : "database_schema_outdated",
+  };
+}
+
 migrate();
 
 module.exports = {
@@ -216,10 +319,11 @@ module.exports = {
   DB_PATH,
   DEFAULT_PATTERNS,
   DEFAULT_SETTINGS,
+  EXPECTED_SCHEMA_VERSION,
+  getSchemaStatus,
   getSettingsObject,
   isValidMonthString,
   monthWindow,
   normalizeSettingValue,
-  upsertSetting
+  upsertSetting,
 };
-

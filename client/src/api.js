@@ -17,13 +17,19 @@ async function request(url, options = {}) {
 
   if (!response.ok) {
     let message = "Request failed";
+    let parsed = null;
     try {
-      const data = await response.json();
-      message = data.error || message;
+      parsed = await response.json();
+      message = parsed.error || (parsed.blocking_reason ? "La base de datos necesita migraciones antes de usar la app." : message);
     } catch {
       message = response.statusText || message;
     }
-    throw new Error(message);
+    const error = new Error(message);
+    if (parsed?.blocking_reason) {
+      error.code = "SCHEMA_MISMATCH";
+      error.schema = parsed;
+    }
+    throw error;
   }
 
   const contentType = response.headers.get("content-type") || "";
@@ -32,6 +38,8 @@ async function request(url, options = {}) {
 }
 
 export const api = {
+  getSchemaStatus: () => request("/api/system/schema"),
+
   // Onboarding
   onboard: () => request("/api/onboard", { method: "POST" }),
   claimLegacy: () => request("/api/onboard/claim-legacy", { method: "POST" }),
@@ -53,14 +61,14 @@ export const api = {
     request(`/api/transactions/${id}`, { method: "DELETE" }),
   getCandidates: (pattern, categoryId) =>
     request(`/api/transactions/candidates?pattern=${encodeURIComponent(pattern)}&category_id=${categoryId}`),
-  confirmCategory: (transactionIds, categoryId) =>
-    request("/api/transactions/confirm-category", { method: "POST", body: JSON.stringify({ transaction_ids: transactionIds, category_id: categoryId }) }),
-  rejectCategory: (transactionId, ruleId) =>
-    request("/api/transactions/reject-category", { method: "POST", body: JSON.stringify({ transaction_id: transactionId, rule_id: ruleId }) }),
-  undoRejectCategory: (transactionId, ruleId) =>
-    request("/api/transactions/undo-reject-category", { method: "POST", body: JSON.stringify({ transaction_id: transactionId, rule_id: ruleId }) }),
-  undoConfirmCategory: (transactionId, categoryId) =>
-    request("/api/transactions/undo-confirm-category", { method: "POST", body: JSON.stringify({ transaction_id: transactionId, category_id: categoryId }) }),
+  confirmCategory: (transactionIds, categoryId, options = {}) =>
+    request("/api/transactions/confirm-category", { method: "POST", body: JSON.stringify({ transaction_ids: transactionIds, category_id: categoryId, rule_id: options.ruleId ?? null, origin: options.origin ?? "review" }) }),
+  rejectCategory: (transactionId, ruleId, options = {}) =>
+    request("/api/transactions/reject-category", { method: "POST", body: JSON.stringify({ transaction_id: transactionId, rule_id: ruleId, origin: options.origin ?? "review" }) }),
+  undoRejectCategory: (transactionId, ruleId, options = {}) =>
+    request("/api/transactions/undo-reject-category", { method: "POST", body: JSON.stringify({ transaction_id: transactionId, rule_id: ruleId, origin: options.origin ?? "review" }) }),
+  undoConfirmCategory: (transactionId, categoryId, options = {}) =>
+    request("/api/transactions/undo-confirm-category", { method: "POST", body: JSON.stringify({ transaction_id: transactionId, category_id: categoryId, origin: options.origin ?? "review" }) }),
 
   // Categories
   getCategories: () => request("/api/categories"),

@@ -1,0 +1,181 @@
+{
+  "version": "2026-03-contract-v2",
+  "categories": [
+    {
+      "slug": "ingreso",
+      "name": "Ingreso",
+      "budget": 0,
+      "type": "variable",
+      "color": "#639922",
+      "sort_order": 0,
+      "origin": "seed",
+      "keywords": ["sueldo", "salario", "haberes", "honorarios", "cobro", "deposito", "transferencia recibida"],
+      "seed_patterns": ["sueldo", "salario", "haberes", "honorarios", "deposito"]
+    },
+    {
+      "slug": "alquiler",
+      "name": "Alquiler",
+      "budget": 18000,
+      "type": "fijo",
+      "color": "#639922",
+      "sort_order": 1,
+      "origin": "seed",
+      "keywords": ["alquiler", "arrendamiento"],
+      "seed_patterns": ["alquiler", "arrendamiento"]
+    },
+    {
+      "slug": "supermercado",
+      "name": "Supermercado",
+      "budget": 12000,
+      "type": "variable",
+      "color": "#534AB7",
+      "sort_order": 2,
+      "origin": "seed",
+      "keywords": ["disco", "devoto", "tienda inglesa", "geant", "ta-ta", "tata", "multiahorro", "el dorado", "macromercado", "supermercado", "hiper", "almacen", "feria"],
+      "seed_patterns": ["supermercado", "tienda inglesa", "disco", "devoto", "geant", "ta-ta", "multiahorro"]
+    },
+    {
+      "slug": "transporte",
+      "name": "Transporte",
+      "budget": 6000,
+      "type": "variable",
+      "color": "#1D9E75",
+      "sort_order": 3,
+      "origin": "seed",
+      "keywords": ["uber", "cabify", "cutcsa", "taxi", "peaje", "ancap", "nafta", "gasolina", "combustible", "bolt", "autobus", "omnibus", "stm "],
+      "seed_patterns": ["uber", "cabify", "cutcsa", "ancap", "combustible", "taxi", "peaje"]
+    },
+    {
+      "slug": "suscripciones",
+      "name": "Suscripciones",
+      "budget": 5000,
+      "type": "fijo",
+      "color": "#D85A30",
+      "sort_order": 4,
+      "origin": "seed",
+      "keywords": ["suscripcion", "chatgpt", "openai", "playstation", "xbox", "steam", "apple.com", "google play"],
+      "seed_patterns": ["suscripcion", "chatgpt", "openai", "steam", "playstation"]
+    },
+    {
+      "slug": "comer_afuera",
+      "name": "Comer afuera",
+      "budget": 8000,
+      "type": "variable",
+      "color": "#378ADD",
+      "sort_order": 5,
+      "origin": "seed",
+      "keywords": ["restaurant", "restaurante", "cafeteria", "cafe", "bar ", "bistro", "mcdonald", "mcdonalds", "burger", "mostaza", "subway", "starbucks", "la pasiva", "parrilla", "comida"],
+      "seed_patterns": ["restaurant", "restaurante", "cafeteria", "cafe", "bar ", "starbucks", "mcdonald", "burger", "parrilla"]
+    },
+    {
+      "slug": "delivery",
+      "name": "Delivery",
+      "budget": 6000,
+      "type": "variable",
+      "color": "#D85A30",
+      "sort_order": 6,
+      "origin": "seed",
+      "keywords": ["pedidosya", "rappi", "uber eats", "delivery"],
+      "seed_patterns": ["pedidosya", "rappi", "uber eats", "delivery"]
+    },
+    {
+      "slug": "streaming",
+      "name": "Streaming",
+      "budget": 2500,
+      "type": "fijo",
+      "color": "#9B59B6",
+      "sort_order": 7,
+      "origin": "seed",
+      "keywords": ["netflix", "spotify", "disney", "hbo", "youtube", "prime video", "deezer", "tidal"],
+      "seed_patterns": ["netflix", "spotify", "disney", "hbo", "youtube", "prime video"]
+    },
+    {
+      "slug": "telefonia",
+      "name": "Telefonia",
+      "budget": 3000,
+      "type": "fijo",
+      "color": "#2ECC71",
+      "sort_order": 8,
+      "origin": "seed",
+      "keywords": ["antel", "movistar", "claro", "telefono", "movil", "celular", "fibra optica", "internet"],
+      "seed_patterns": ["antel", "movistar", "claro", "telefono", "movil", "celular"]
+    },
+    {
+      "slug": "gimnasio",
+      "name": "Gimnasio",
+      "budget": 3000,
+      "type": "fijo",
+      "color": "#E67E22",
+      "sort_order": 9,
+      "origin": "seed",
+      "keywords": ["smartfit", "smart fit", "gym", "gimnasio", "fitness", "bodytech"],
+      "seed_patterns": ["smartfit", "smart fit", "gym", "gimnasio", "fitness"]
+    },
+    {
+      "slug": "mascotas",
+      "name": "Mascotas",
+      "budget": 2000,
+      "type": "variable",
+      "color": "#3498DB",
+      "sort_order": 10,
+      "origin": "seed",
+      "keywords": ["veterinaria", "veterinar", "pet shop", "laika", "mascota"],
+      "seed_patterns": ["veterinaria", "pet shop", "laika", "mascota"]
+    },
+    {
+      "slug": "servicios",
+      "name": "Servicios",
+      "budget": 7000,
+      "type": "fijo",
+      "color": "#BA7517",
+      "sort_order": 11,
+      "origin": "seed",
+      "keywords": [" ute ", " ose ", "servicio", "factura", "luz", "agua"],
+      "seed_patterns": [" ute ", " ose ", "luz", "agua", "servicio"]
+    },
+    {
+      "slug": "salud",
+      "name": "Salud",
+      "budget": 4000,
+      "type": "variable",
+      "color": "#E24B4A",
+      "sort_order": 12,
+      "origin": "seed",
+      "keywords": ["farmacia", "mutualista", "casmu", "hospital", "clinica", "doctor", "medica", "medico", "dentista", "optica", "laboratorio"],
+      "seed_patterns": ["farmacia", "hospital", "clinica", "medico", "dentista", "laboratorio"]
+    },
+    {
+      "slug": "otros",
+      "name": "Otros",
+      "budget": 5000,
+      "type": "variable",
+      "color": "#888780",
+      "sort_order": 13,
+      "origin": "seed",
+      "keywords": [],
+      "seed_patterns": []
+    },
+    {
+      "slug": "reintegro",
+      "name": "Reintegro",
+      "budget": 0,
+      "type": "variable",
+      "color": "#1D9E75",
+      "sort_order": 90,
+      "origin": "seed",
+      "keywords": ["devolucion", "reintegro", "cashback", "reversal", "reversa"],
+      "seed_patterns": ["devolucion", "reintegro", "cashback", "reversal"]
+    },
+    {
+      "slug": "transferencia",
+      "name": "Transferencia",
+      "budget": 0,
+      "type": "transferencia",
+      "color": "#888780",
+      "sort_order": 91,
+      "origin": "seed",
+      "keywords": ["transferencia propia", "transferencia entre cuentas", "transferencia interna", "movimiento entre cuentas", "cambio divisas"],
+      "seed_patterns": ["transferencia propia", "transferencia entre cuentas", "transferencia interna", "cambio divisas"]
+    }
+  ]
+}

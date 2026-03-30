@@ -9,7 +9,7 @@ const KEYWORD_MAP = [
   },
   {
     keywords: ["pedidosya", "rappi", "mcdonald", "mcdonalds", "burguer", "burger", "sushi", "pizza", "parrilla", "restaurant", "restoran", "cafeteria", "bar ", "comida", "delivery"],
-    category: "Restaurantes"
+    category: "Comer afuera"
   },
   {
     keywords: ["netflix", "spotify", "amazon", "disney", "hbo", "openai", "chatgpt", "youtube", "apple.com", "google play", "playstation", "xbox", "steam", "suscripcion"],
@@ -46,7 +46,7 @@ function suggestFromKeywords(descBanco) {
 }
 
 function suggestSync(tx, rules, categories) {
-  if (tx.category_id) return tx;
+  if (tx.categorization_status === "categorized") return tx;
 
   const normalizedDesc = String(tx.desc_banco || "").toLowerCase();
   const matchedRule = rules.find((rule) => normalizedDesc.includes(rule.pattern.toLowerCase()));

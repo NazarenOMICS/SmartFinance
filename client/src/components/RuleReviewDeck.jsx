@@ -33,7 +33,10 @@ export default function RuleReviewDeck({ groups, onDone }) {
         mode: "auto",
         confidence: 0.94,
       });
-      await api.confirmCategory(current.transaction_ids, current.category_id);
+      await api.confirmCategory(current.transaction_ids, current.category_id, {
+        ruleId: rule.id,
+        origin: "upload_review",
+      });
       setHistory((prev) => [...prev, {
         type: "accept",
         ruleId: rule.id,
@@ -62,7 +65,7 @@ export default function RuleReviewDeck({ groups, onDone }) {
     try {
       if (last.type === "accept") {
         await Promise.all(last.transactionIds.map((transactionId) =>
-          api.undoConfirmCategory(transactionId, last.categoryId)
+          api.undoConfirmCategory(transactionId, last.categoryId, { origin: "upload_review" })
         ));
         if (last.ruleId) {
           await api.deleteRule(last.ruleId);
