@@ -12,6 +12,7 @@ const {
   normalizeText,
 } = require("./taxonomy");
 const { findGlobalAliasMatch } = require("./global-learning");
+const { detectInternalOperation } = require("./internal-operations");
 
 const CATEGORY_PROPOSAL_COLORS = [
   "#5B4FCF",
@@ -148,7 +149,7 @@ function buildCategorizationRecord({ categoryId = null, status = "uncategorized"
   };
 }
 
-function resolveTransactionClassification(db, descBanco, monto, moneda, explicitCategoryId = null) {
+function resolveTransactionClassification(db, descBanco, monto, moneda, explicitCategoryId = null, txInfo = {}) {
   if (explicitCategoryId != null) {
     return buildCategorizationRecord({
       categoryId: explicitCategoryId,
@@ -175,6 +176,27 @@ function resolveTransactionClassification(db, descBanco, monto, moneda, explicit
       confidence: Number(rule.confidence || 0.82),
       ruleId: rule.id,
     });
+  }
+
+  const internalOperation = detectInternalOperation(db, {
+    id: txInfo.id || null,
+    desc_banco: descBanco,
+    monto,
+    moneda,
+    account_id: txInfo.account_id || null,
+    fecha: txInfo.fecha || null,
+  });
+  if (internalOperation) {
+    return {
+      ...buildCategorizationRecord({
+        status: "suggested",
+        source: internalOperation.kind === "fx_exchange" ? "fx_exchange_suggest" : "internal_transfer_suggest",
+        confidence: internalOperation.status === "suggested" ? 0.96 : 0.88,
+      }),
+      movementKind: internalOperation.kind,
+      internalOperation,
+      reason: internalOperation.reason,
+    };
   }
 
   if (isLikelySupernetIncome(descBanco, monto)) {
@@ -264,6 +286,35 @@ function buildTransactionReviewSuggestion(db, tx, options = {}) {
     tx.moneda,
     null
   );
+
+  if (classification.internalOperation?.kind) {
+    return {
+      transaction_id: tx.id,
+      desc_banco: tx.desc_banco,
+      fecha: tx.fecha,
+      monto: tx.monto,
+      moneda: tx.moneda,
+      suggested_category_id: null,
+      suggested_category_name: classification.internalOperation.kind === "fx_exchange" ? "Compra de moneda" : "Transferencia interna",
+      suggestion_source: classification.categorySource || classification.source || classification.internalOperation.kind,
+      suggestion_reason: classification.reason || "Operacion interna detectada",
+      proposed_new_category: null,
+      movement_kind: classification.internalOperation.kind,
+      internal_operation_kind: classification.internalOperation.kind,
+      internal_operation_status: classification.internalOperation.status,
+      internal_operation_id: classification.internalOperation.id || null,
+      counterparty_account_id: classification.internalOperation.to_account_id || null,
+      internal_operation_source_transaction_id: classification.internalOperation.source_transaction_id || tx.id,
+      internal_operation_target_transaction_id: classification.internalOperation.target_transaction_id || null,
+      internal_operation_from_account_id: classification.internalOperation.from_account_id || tx.account_id || null,
+      internal_operation_to_account_id: classification.internalOperation.to_account_id || null,
+      internal_operation_from_account_name: classification.internalOperation.from_account_name || null,
+      internal_operation_to_account_name: classification.internalOperation.to_account_name || null,
+      internal_operation_from_currency: classification.internalOperation.from_currency || tx.moneda,
+      internal_operation_to_currency: classification.internalOperation.to_currency || null,
+      internal_operation_effective_rate: classification.internalOperation.effective_rate ?? null,
+    };
+  }
 
   if (classification.categoryId) {
     const category = categories.find((item) => item.id === classification.categoryId) || null;

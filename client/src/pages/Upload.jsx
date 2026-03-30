@@ -799,6 +799,7 @@ export default function Upload({
         <TransactionReviewDeck
           items={displayedTransactionReviewQueue}
           categories={categories}
+          accounts={accounts}
           onCategoryCreated={load}
           onClose={closeUploadFlowWithPending}
           onDone={() => {

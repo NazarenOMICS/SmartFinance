@@ -22,6 +22,11 @@ const {
   resolveTransactionClassification,
 } = require("../services/transaction-categorization");
 const { recordGlobalPatternLearning } = require("../services/global-learning");
+const {
+  confirmInternalOperation,
+  rejectInternalOperation,
+  upsertInternalOperationSuggestion,
+} = require("../services/internal-operations");
 
 const router = express.Router();
 const SUPPORTED_CURRENCIES = new Set(SUPPORTED_CURRENCY_LIST);
@@ -51,6 +56,18 @@ function isValidISODate(value) {
     date.getUTCMonth() === month - 1 &&
     date.getUTCDate() === day
   );
+}
+
+function fetchTransactionRow(id) {
+  return db.prepare(
+    `SELECT t.*, c.name AS category_name, c.type AS category_type, c.color AS category_color,
+            a.name AS account_name, io.status AS internal_operation_status, io.kind AS internal_operation_kind
+     FROM transactions t
+     LEFT JOIN categories c ON c.id = t.category_id
+     LEFT JOIN accounts a ON a.id = t.account_id
+     LEFT JOIN internal_operations io ON io.id = t.internal_operation_id
+     WHERE t.id = ?`
+  ).get(Number(id));
 }
 
 function buildPendingGuidedReviewPayload(transactions, settings, categories) {
@@ -91,7 +108,8 @@ function buildPendingGuidedReviewPayload(transactions, settings, categories) {
       transaction.desc_banco,
       Number(transaction.monto),
       transaction.moneda,
-      null
+      null,
+      transaction
     );
 
     const smartMatch = matchSmartCategoryTemplate(transaction.desc_banco);
@@ -222,6 +240,42 @@ router.post("/review/pending-guided", (req, res) => {
   res.json(buildPendingGuidedReviewPayload(transactions, settings, categories));
 });
 
+router.post("/confirm-internal-operation", (req, res) => {
+  const kind = req.body.kind === "fx_exchange" ? "fx_exchange" : "internal_transfer";
+  const sourceTransactionId = Number(req.body.source_transaction_id);
+  if (!Number.isInteger(sourceTransactionId) || sourceTransactionId < 1) {
+    return res.status(400).json({ error: "source_transaction_id is required" });
+  }
+
+  try {
+    const operation = confirmInternalOperation(db, {
+      kind,
+      source_transaction_id: sourceTransactionId,
+      target_transaction_id: req.body.target_transaction_id ? Number(req.body.target_transaction_id) : null,
+      from_account_id: req.body.from_account_id || null,
+      to_account_id: req.body.to_account_id || null,
+      effective_rate: req.body.effective_rate != null ? Number(req.body.effective_rate) : null,
+    });
+    res.json({ ok: true, operation, transaction: fetchTransactionRow(sourceTransactionId) });
+  } catch (error) {
+    res.status(400).json({ error: error.message || "could not confirm internal operation" });
+  }
+});
+
+router.post("/reject-internal-operation", (req, res) => {
+  const sourceTransactionId = Number(req.body.source_transaction_id);
+  if (!Number.isInteger(sourceTransactionId) || sourceTransactionId < 1) {
+    return res.status(400).json({ error: "source_transaction_id is required" });
+  }
+
+  try {
+    const operationId = rejectInternalOperation(db, sourceTransactionId);
+    res.json({ ok: true, operation_id: operationId, transaction: fetchTransactionRow(sourceTransactionId) });
+  } catch (error) {
+    res.status(400).json({ error: error.message || "could not reject internal operation" });
+  }
+});
+
 router.get("/", (req, res) => {
   const month = requireMonth(req, res);
   if (!month) return;
@@ -293,7 +347,10 @@ router.post("/", (req, res) => {
     }
   }
 
-  const classification = resolveTransactionClassification(db, normalizedDescBanco, Number(monto), moneda, category_id);
+  const classification = resolveTransactionClassification(db, normalizedDescBanco, Number(monto), moneda, category_id, {
+    fecha,
+    account_id,
+  });
 
   const dedupHash = buildDedupHash({ fecha, monto, desc_banco: normalizedDescBanco });
   const duplicate = db
@@ -316,9 +373,10 @@ router.post("/", (req, res) => {
       `
       INSERT INTO transactions (
         fecha, desc_banco, desc_usuario, monto, moneda, category_id, account_id, es_cuota, installment_id, dedup_hash,
-        categorization_status, category_source, category_confidence, category_rule_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `
+        categorization_status, category_source, category_confidence, category_rule_id,
+        movement_kind, internal_operation_id, counterparty_account_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+      `
     )
     .run(
       fecha,
@@ -334,22 +392,17 @@ router.post("/", (req, res) => {
       classification.categorizationStatus,
       classification.categorySource,
       classification.categoryConfidence,
-      classification.categoryRuleId
+      classification.categoryRuleId,
+      classification.movementKind || "normal"
     );
 
-  const transaction = db
-    .prepare(
-      `
-      SELECT t.*, c.name AS category_name, c.type AS category_type, a.name AS account_name
-      FROM transactions t
-      LEFT JOIN categories c ON c.id = t.category_id
-      LEFT JOIN accounts a ON a.id = t.account_id
-      WHERE t.id = ?
-    `
-    )
-    .get(result.lastInsertRowid);
-
-  res.status(201).json(transaction);
+  if (classification.internalOperation) {
+    upsertInternalOperationSuggestion(db, {
+      ...classification.internalOperation,
+      source_transaction_id: Number(result.lastInsertRowid),
+    });
+  }
+  res.status(201).json(fetchTransactionRow(result.lastInsertRowid));
 });
 
 router.put("/:id", (req, res) => {
@@ -408,11 +461,15 @@ router.put("/:id", (req, res) => {
   const nextSource = next.category_id == null ? null : (req.body.category_id !== undefined ? "manual" : current.category_source);
   const nextConfidence = next.category_id == null ? null : (req.body.category_id !== undefined ? null : current.category_confidence);
   const nextRuleId = next.category_id == null ? null : (req.body.category_id !== undefined ? null : current.category_rule_id);
+  const nextMovementKind = req.body.category_id !== undefined ? "normal" : (current.movement_kind || "normal");
+  const nextInternalOperationId = req.body.category_id !== undefined ? null : (current.internal_operation_id ?? null);
+  const nextCounterpartyAccountId = req.body.category_id !== undefined ? null : (current.counterparty_account_id ?? null);
 
   db.prepare(
     `UPDATE transactions
      SET category_id = ?, desc_usuario = ?, account_id = ?, fecha = ?, monto = ?, dedup_hash = ?,
-         categorization_status = ?, category_source = ?, category_confidence = ?, category_rule_id = ?
+         categorization_status = ?, category_source = ?, category_confidence = ?, category_rule_id = ?,
+         movement_kind = ?, internal_operation_id = ?, counterparty_account_id = ?
      WHERE id = ?`
   ).run(
     next.category_id,
@@ -425,6 +482,9 @@ router.put("/:id", (req, res) => {
     nextSource,
     nextConfidence,
     nextRuleId,
+    nextMovementKind,
+    nextInternalOperationId,
+    nextCounterpartyAccountId,
     id
   );
 
@@ -434,19 +494,7 @@ router.put("/:id", (req, res) => {
     recordGlobalPatternLearning(db, "local-user", current.desc_banco, req.body.category_id, "confirm");
   }
 
-  const updated = db
-    .prepare(
-      `
-      SELECT t.*, c.name AS category_name, c.type AS category_type, a.name AS account_name
-      FROM transactions t
-      LEFT JOIN categories c ON c.id = t.category_id
-      LEFT JOIN accounts a ON a.id = t.account_id
-      WHERE t.id = ?
-    `
-    )
-    .get(id);
-
-  res.json({ transaction: updated, rule: ruleStatus });
+  res.json({ transaction: fetchTransactionRow(id), rule: ruleStatus });
 });
 
 // Get candidate transactions that match a pattern (for Tinder-style confirmation)
@@ -606,8 +654,9 @@ router.post("/batch", (req, res) => {
   const insertStmt = db.prepare(`
     INSERT INTO transactions
       (fecha, desc_banco, desc_usuario, monto, moneda, category_id, account_id, es_cuota, dedup_hash,
-       categorization_status, category_source, category_confidence, category_rule_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       categorization_status, category_source, category_confidence, category_rule_id,
+       movement_kind, internal_operation_id, counterparty_account_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
   `);
 
   const runBatch = db.transaction((txs) => {
@@ -630,7 +679,10 @@ router.post("/batch", (req, res) => {
 
       if (exists) { duplicates += 1; continue; }
 
-      const classification = resolveTransactionClassification(db, normalizedDescBanco, Number(monto), moneda, category_id);
+      const classification = resolveTransactionClassification(db, normalizedDescBanco, Number(monto), moneda, category_id, {
+        fecha,
+        account_id,
+      });
 
       const insertResult = insertStmt.run(
         fecha,
@@ -645,8 +697,15 @@ router.post("/batch", (req, res) => {
         classification.categorizationStatus,
         classification.categorySource,
         classification.categoryConfidence,
-        classification.categoryRuleId
+        classification.categoryRuleId,
+        classification.movementKind || "normal"
       );
+      if (classification.internalOperation) {
+        upsertInternalOperationSuggestion(db, {
+          ...classification.internalOperation,
+          source_transaction_id: Number(insertResult.lastInsertRowid),
+        });
+      }
       if (!classification.categoryId) {
         const smartMatch = matchSmartCategoryTemplate(normalizedDescBanco);
         if (smartMatch) {

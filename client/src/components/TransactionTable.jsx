@@ -65,7 +65,7 @@ export default function TransactionTable({
       String(tx.category_id) === filterCat ||
       (filterCat === "__none__" && !isCategorized(tx));
 
-    const isTransfer = tx.category_type === "transferencia";
+    const isTransfer = tx.category_type === "transferencia" || tx.movement_kind === "internal_transfer" || tx.movement_kind === "fx_exchange";
     let matchesQuick = true;
     if (activeFilter === "pending") matchesQuick = !isCategorized(tx);
     else if (activeFilter === "income") matchesQuick = tx.monto > 0 && !isTransfer;
@@ -83,7 +83,7 @@ export default function TransactionTable({
   const PILLS = [
     { id: "all",      label: "Todos",       count: transactions.length },
     { id: "pending",  label: "Pendientes",  count: pendingCount },
-    { id: "income",   label: "Ingresos",    count: transactions.filter((t) => t.monto > 0 && t.category_type !== "transferencia").length },
+    { id: "income",   label: "Ingresos",    count: transactions.filter((t) => t.monto > 0 && t.category_type !== "transferencia" && t.movement_kind !== "internal_transfer" && t.movement_kind !== "fx_exchange").length },
     { id: "fijo",     label: "Gastos fijos",count: transactions.filter((t) => catTypeMap[t.category_id] === "fijo").length },
     { id: "variable", label: "Variables",   count: transactions.filter((t) => catTypeMap[t.category_id] === "variable").length },
   ];
@@ -267,7 +267,7 @@ export default function TransactionTable({
             : categories.filter((c) => c.name !== "Ingreso");
           const isEditingThis = editingRow === tx.id;
           const isSelected    = selectedIds.has(tx.id);
-          const isTransfer    = tx.category_type === "transferencia";
+          const isTransfer    = tx.category_type === "transferencia" || tx.movement_kind === "internal_transfer" || tx.movement_kind === "fx_exchange";
           const rowBg = isSelected
             ? "bg-finance-purpleSoft dark:bg-purple-900/20"
             : isTransfer

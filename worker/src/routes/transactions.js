@@ -27,6 +27,11 @@ import { suggestSync } from "../services/suggester.js";
 import { normalizePatternValue } from "../services/taxonomy.js";
 import { SUPPORTED_CURRENCY_LIST } from "../db.js";
 import { recordGlobalPatternLearning } from "../services/global-learning.js";
+import {
+  confirmInternalOperation,
+  rejectInternalOperation,
+  upsertInternalOperationSuggestion,
+} from "../services/internal-operations.js";
 
 const router = new Hono();
 const SUPPORTED_CURRENCIES = new Set(SUPPORTED_CURRENCY_LIST);
@@ -57,10 +62,11 @@ function isValidISODate(value) {
 async function fetchTransactionRow(db, userId, id) {
   return db.prepare(
     `SELECT t.*, c.name AS category_name, c.slug AS category_slug, c.type AS category_type, c.color AS category_color,
-            a.name AS account_name
+            a.name AS account_name, io.status AS internal_operation_status, io.kind AS internal_operation_kind
      FROM transactions t
      LEFT JOIN categories c ON c.id = t.category_id AND c.user_id = t.user_id
      LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
+     LEFT JOIN internal_operations io ON io.id = t.internal_operation_id AND io.user_id = t.user_id
      WHERE t.id = ? AND t.user_id = ?`
   ).get(id, userId);
 }
@@ -239,6 +245,50 @@ router.post("/review/pending-guided", async (c) => {
   ).all(userId);
 
   return c.json(await buildPendingGuidedReviewPayload(db, c.env, userId, transactions, settings, categories));
+});
+
+router.post("/confirm-internal-operation", async (c) => {
+  const userId = c.get("userId");
+  const body = await c.req.json();
+  const kind = body.kind === "fx_exchange" ? "fx_exchange" : "internal_transfer";
+  const sourceTransactionId = Number(body.source_transaction_id);
+  if (!Number.isInteger(sourceTransactionId) || sourceTransactionId < 1) {
+    return c.json({ error: "source_transaction_id is required" }, 400);
+  }
+
+  const db = getDb(c.env);
+  try {
+    const operation = await confirmInternalOperation(db, userId, {
+      kind,
+      source_transaction_id: sourceTransactionId,
+      target_transaction_id: body.target_transaction_id ? Number(body.target_transaction_id) : null,
+      from_account_id: body.from_account_id || null,
+      to_account_id: body.to_account_id || null,
+      effective_rate: body.effective_rate != null ? Number(body.effective_rate) : null,
+    });
+    const transaction = await fetchTransactionRow(db, userId, sourceTransactionId);
+    return c.json({ ok: true, operation, transaction });
+  } catch (error) {
+    return c.json({ error: error.message || "could not confirm internal operation" }, 400);
+  }
+});
+
+router.post("/reject-internal-operation", async (c) => {
+  const userId = c.get("userId");
+  const body = await c.req.json();
+  const sourceTransactionId = Number(body.source_transaction_id);
+  if (!Number.isInteger(sourceTransactionId) || sourceTransactionId < 1) {
+    return c.json({ error: "source_transaction_id is required" }, 400);
+  }
+
+  const db = getDb(c.env);
+  try {
+    const operationId = await rejectInternalOperation(db, userId, sourceTransactionId);
+    const transaction = await fetchTransactionRow(db, userId, sourceTransactionId);
+    return c.json({ ok: true, operation_id: operationId, transaction });
+  } catch (error) {
+    return c.json({ error: error.message || "could not reject internal operation" }, 400);
+  }
 });
 
 router.post("/confirm-category", async (c) => {
@@ -468,6 +518,8 @@ router.post("/", async (c) => {
   let categorySource = resolvedCategoryId ? "manual" : null;
   let categoryConfidence = null;
   let categoryRuleId = null;
+  let movementKind = "normal";
+  let internalOperationSuggestion = null;
 
   if (!resolvedCategoryId) {
     const settings = await getSettingsObject(c.env, userId);
@@ -482,6 +534,8 @@ router.post("/", async (c) => {
     categorySource = classification.category_source;
     categoryConfidence = classification.category_confidence;
     categoryRuleId = classification.category_rule_id;
+    movementKind = classification.movement_kind || "normal";
+    internalOperationSuggestion = classification.internal_operation || null;
 
     if (classification.action === "auto" && classification.categoryId) {
       resolvedCategoryId = classification.categoryId;
@@ -494,8 +548,9 @@ router.post("/", async (c) => {
   const result = await db.prepare(
     `INSERT INTO transactions (
       fecha, desc_banco, desc_usuario, monto, moneda, category_id, account_id, es_cuota, installment_id, dedup_hash, user_id,
-      categorization_status, category_source, category_confidence, category_rule_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      categorization_status, category_source, category_confidence, category_rule_id,
+      movement_kind, internal_operation_id, counterparty_account_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`
   ).run(
     fecha,
     normalizedDescBanco,
@@ -511,8 +566,16 @@ router.post("/", async (c) => {
     categorizationStatus,
     categorySource,
     categoryConfidence,
-    categoryRuleId
+    categoryRuleId,
+    movementKind
   );
+
+  if (internalOperationSuggestion) {
+    await upsertInternalOperationSuggestion(db, userId, {
+      ...internalOperationSuggestion,
+      source_transaction_id: Number(result.lastInsertRowid),
+    });
+  }
 
   const created = await fetchTransactionRow(db, userId, result.lastInsertRowid);
   return c.json(created, 201);
@@ -597,6 +660,7 @@ router.post("/batch", async (c) => {
       }, userId, { settings, categories });
 
       let resolvedCategoryId = null;
+      let movementKind = classification.movement_kind || "normal";
       if (classification.action === "auto" && classification.categoryId) {
         resolvedCategoryId = classification.categoryId;
         if (classification.rule?.id) {
@@ -607,8 +671,9 @@ router.post("/batch", async (c) => {
       const result = await db.prepare(
         `INSERT INTO transactions (
           fecha, desc_banco, monto, moneda, category_id, account_id, dedup_hash, user_id,
-          categorization_status, category_source, category_confidence, category_rule_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          categorization_status, category_source, category_confidence, category_rule_id,
+          movement_kind, internal_operation_id, counterparty_account_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`
       ).run(
         fecha,
         normalizedDescBanco,
@@ -621,8 +686,15 @@ router.post("/batch", async (c) => {
         classification.categorization_status,
         classification.category_source,
         classification.category_confidence,
-        classification.category_rule_id
+        classification.category_rule_id,
+        movementKind
       );
+      if (classification.internal_operation) {
+        await upsertInternalOperationSuggestion(db, userId, {
+          ...classification.internal_operation,
+          source_transaction_id: Number(result.lastInsertRowid),
+        });
+      }
       if (!resolvedCategoryId) {
         const smartMatch = matchSmartCategoryTemplate(normalizedDescBanco);
         if (smartMatch) {
@@ -730,23 +802,33 @@ router.put("/:id", async (c) => {
   let categorySource = tx.category_source || (tx.category_id ? "manual" : null);
   let categoryConfidence = tx.category_confidence ?? null;
   let categoryRuleId = tx.category_rule_id ?? null;
+  let movementKind = tx.movement_kind || "normal";
+  let internalOperationId = tx.internal_operation_id ?? null;
+  let counterpartyAccountId = tx.counterparty_account_id ?? null;
 
   if (body.category_id === null) {
     categorizationStatus = "uncategorized";
     categorySource = null;
     categoryConfidence = null;
     categoryRuleId = null;
+    movementKind = "normal";
+    internalOperationId = null;
+    counterpartyAccountId = null;
   } else if (body.category_id != null) {
     categorizationStatus = "categorized";
     categorySource = "manual";
     categoryConfidence = null;
     categoryRuleId = null;
+    movementKind = "normal";
+    internalOperationId = null;
+    counterpartyAccountId = null;
   }
 
   await db.prepare(
     `UPDATE transactions
      SET category_id = ?, desc_usuario = ?, account_id = ?, fecha = ?, monto = ?, dedup_hash = ?,
-         categorization_status = ?, category_source = ?, category_confidence = ?, category_rule_id = ?
+         categorization_status = ?, category_source = ?, category_confidence = ?, category_rule_id = ?,
+         movement_kind = ?, internal_operation_id = ?, counterparty_account_id = ?
      WHERE id = ? AND user_id = ?`
   ).run(
     next.category_id,
@@ -759,9 +841,33 @@ router.put("/:id", async (c) => {
     categorySource,
     categoryConfidence,
     categoryRuleId,
+    movementKind,
+    internalOperationId,
+    counterpartyAccountId,
     id,
     userId
   );
+
+  if (tx.internal_operation_id && body.category_id !== undefined) {
+    await db.prepare(
+      `UPDATE internal_operations
+       SET status = 'rejected',
+           updated_at = datetime('now')
+       WHERE id = ? AND user_id = ?`
+    ).run(Number(tx.internal_operation_id), userId);
+    await db.prepare(
+      `UPDATE transactions
+       SET movement_kind = 'normal',
+           internal_operation_id = NULL,
+           counterparty_account_id = NULL,
+           category_id = CASE WHEN id = ? THEN category_id ELSE NULL END,
+           categorization_status = CASE WHEN id = ? THEN categorization_status ELSE 'uncategorized' END,
+           category_source = CASE WHEN id = ? THEN category_source ELSE NULL END,
+           category_confidence = CASE WHEN id = ? THEN category_confidence ELSE NULL END,
+           category_rule_id = CASE WHEN id = ? THEN category_rule_id ELSE NULL END
+       WHERE internal_operation_id = ? AND user_id = ?`
+    ).run(id, id, id, id, id, Number(tx.internal_operation_id), userId);
+  }
 
   if (body.category_id != null && body.category_id !== tx.category_id) {
     ruleResult = await ensureRuleForManualCategorization(db, { ...tx, ...next }, body.category_id, userId);

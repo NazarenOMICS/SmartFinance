@@ -1,6 +1,7 @@
 import { suggest } from "./suggester.js";
 import { suggestCategoryWithOllama } from "./ollama.js";
 import { findGlobalAliasMatch } from "./global-learning.js";
+import { detectInternalOperation } from "./internal-operations.js";
 import { hasAmbiguousMerchantHint, matchCanonicalCategory, normalizePatternValue, normalizeText } from "./taxonomy.js";
 
 const CATEGORY_PROPOSAL_COLORS = ["#534AB7", "#1D9E75", "#D85A30", "#378ADD", "#BA7517", "#639922", "#E24B4A", "#888780", "#9B59B6", "#2ECC71"];
@@ -515,6 +516,26 @@ export async function classifyTransaction(db, env, tx, userId, options = {}) {
     }
   }
 
+  const internalOperation = await detectInternalOperation(db, env, tx, userId, { settings });
+  if (internalOperation) {
+    return {
+      categoryId: null,
+      action: "suggest",
+      confidence: internalOperation.status === "suggested" ? 0.96 : 0.88,
+      source: internalOperation.kind,
+      rule: null,
+      suggestion: null,
+      categorization_status: "suggested",
+      category_source: internalOperation.kind === "fx_exchange" ? "fx_exchange_suggest" : "internal_transfer_suggest",
+      category_confidence: internalOperation.status === "suggested" ? 0.96 : 0.88,
+      category_rule_id: null,
+      reason: internalOperation.reason,
+      category: null,
+      movement_kind: internalOperation.kind,
+      internal_operation: internalOperation,
+    };
+  }
+
   if (isLikelySupernetIncome(tx.desc_banco, tx.monto)) {
     const incomeCategory = await resolveCategoryByName(db, userId, "Ingreso");
     if (incomeCategory) {
@@ -724,6 +745,8 @@ export async function classifyTransaction(db, env, tx, userId, options = {}) {
     category_rule_id: null,
     reason: "",
     category: null,
+    movement_kind: "normal",
+    internal_operation: null,
   };
 }
 
@@ -731,6 +754,35 @@ export async function buildTransactionReviewSuggestion(db, env, tx, userId, opti
   const settings = options.settings || {};
   const categories = options.categories || await listCategories(db, userId);
   const classification = options.classification || await classifyTransaction(db, env, tx, userId, { settings, categories });
+
+  if (classification.internal_operation?.kind) {
+    return {
+      transaction_id: tx.id,
+      desc_banco: tx.desc_banco,
+      fecha: tx.fecha,
+      monto: tx.monto,
+      moneda: tx.moneda,
+      suggested_category_id: null,
+      suggested_category_name: classification.internal_operation.kind === "fx_exchange" ? "Compra de moneda" : "Transferencia interna",
+      suggestion_source: classification.source,
+      suggestion_reason: classification.reason || "Operacion interna detectada",
+      proposed_new_category: null,
+      movement_kind: classification.internal_operation.kind,
+      internal_operation_kind: classification.internal_operation.kind,
+      internal_operation_status: classification.internal_operation.status,
+      internal_operation_id: classification.internal_operation.id || null,
+      counterparty_account_id: classification.internal_operation.to_account_id || null,
+      internal_operation_source_transaction_id: classification.internal_operation.source_transaction_id || tx.id,
+      internal_operation_target_transaction_id: classification.internal_operation.target_transaction_id || null,
+      internal_operation_from_account_id: classification.internal_operation.from_account_id || tx.account_id || null,
+      internal_operation_to_account_id: classification.internal_operation.to_account_id || null,
+      internal_operation_from_account_name: classification.internal_operation.from_account_name || null,
+      internal_operation_to_account_name: classification.internal_operation.to_account_name || null,
+      internal_operation_from_currency: classification.internal_operation.from_currency || tx.moneda,
+      internal_operation_to_currency: classification.internal_operation.to_currency || null,
+      internal_operation_effective_rate: classification.internal_operation.effective_rate ?? null,
+    };
+  }
 
   if (classification.categoryId) {
     const category = categories.find((item) => item.id === classification.categoryId) || classification.category || null;

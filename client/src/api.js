@@ -64,6 +64,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  confirmInternalOperation: (body) =>
+    request("/api/transactions/confirm-internal-operation", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  rejectInternalOperation: (body) =>
+    request("/api/transactions/reject-internal-operation", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   getEvolution: (end, months = 6) =>
     request(`/api/transactions/monthly-evolution?end=${end}&months=${months}`),
   deleteTransaction: (id) =>

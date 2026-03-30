@@ -11,10 +11,12 @@ export function previousMonth(month) {
 export async function getTransactionsForMonth(db, month, userId, extraWhere = "", params = []) {
   const { start, end } = monthWindow(month);
   return db.prepare(
-    `SELECT t.*, c.name AS category_name, c.type AS category_type, a.name AS account_name
+    `SELECT t.*, c.name AS category_name, c.type AS category_type, a.name AS account_name,
+            io.status AS internal_operation_status, io.kind AS internal_operation_kind
      FROM transactions t
      LEFT JOIN categories c ON c.id = t.category_id AND c.user_id = t.user_id
      LEFT JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
+     LEFT JOIN internal_operations io ON io.id = t.internal_operation_id AND io.user_id = t.user_id
      WHERE t.fecha >= ? AND t.fecha < ? AND t.user_id = ?
      ${extraWhere}
      ORDER BY t.fecha ASC, t.id ASC`
@@ -37,9 +39,10 @@ export async function computeSummary(db, env, month, userId) {
   const displayCurrency = settings.display_currency || "UYU";
   const exchangeRates = getExchangeRateMap(settings);
   const isTransfer = (tx) => tx.category_type === "transferencia";
+  const isInternalMovement = (tx) => tx.movement_kind === "internal_transfer" || tx.movement_kind === "fx_exchange";
 
-  const financialCurrent = current.filter((tx) => !isTransfer(tx));
-  const financialPrevious = previous.filter((tx) => !isTransfer(tx));
+  const financialCurrent = current.filter((tx) => !isTransfer(tx) && !isInternalMovement(tx));
+  const financialPrevious = previous.filter((tx) => !isTransfer(tx) && !isInternalMovement(tx));
   const toDisplayAmount = (tx) => convertAmount(tx.monto, tx.moneda, displayCurrency, exchangeRates);
 
   const currentIncome = financialCurrent
@@ -124,7 +127,7 @@ export async function computeMonthlyEvolution(db, env, endMonth, months, userId)
     const monthIndex = (total % 12) + 1;
     const month = `${year}-${String(monthIndex).padStart(2, "0")}`;
     const tx = await getTransactionsForMonth(db, month, userId);
-    const financial = tx.filter((item) => item.category_type !== "transferencia");
+    const financial = tx.filter((item) => item.category_type !== "transferencia" && item.movement_kind !== "internal_transfer" && item.movement_kind !== "fx_exchange");
     series.push({
       month,
       ingresos: financial

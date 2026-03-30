@@ -6,19 +6,31 @@ import { fmtMoney } from "../utils";
 
 function formatSuggestionSource(source) {
   if (source === "rule_suggest" || source === "regla") return "Regla";
-  if (source === "heuristica" || source === "keyword" || source === "history") return "Heurística";
+  if (source === "heuristica" || source === "keyword" || source === "history") return "Heuristica";
   if (source === "ollama") return "Ollama";
-  if (source === "ollama_new_category") return "Categoría nueva sugerida";
-  if (source === "fallback_new_category") return "Nueva categoría sugerida";
+  if (source === "ollama_new_category") return "Categoria nueva sugerida";
+  if (source === "fallback_new_category") return "Nueva categoria sugerida";
+  if (source === "fx_exchange") return "Cambio de moneda";
+  if (source === "internal_transfer") return "Transferencia interna";
   return "Sugerencia";
 }
 
-export default function TransactionReviewDeck({ items, categories, onDone, onClose, onCategoryCreated }) {
+export default function TransactionReviewDeck({
+  items,
+  categories,
+  accounts = [],
+  onDone,
+  onClose,
+  onCategoryCreated,
+}) {
   const { addToast } = useToast();
   const [index, setIndex] = useState(0);
   const [history, setHistory] = useState([]);
   const [saving, setSaving] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
+  const [selectedTargetAccountId, setSelectedTargetAccountId] = useState("");
+  const [dismissedInternalIds, setDismissedInternalIds] = useState([]);
+
   const otherCategory = useMemo(
     () => categories.find((category) => String(category.name || "").toLowerCase() === "otros") || null,
     [categories]
@@ -29,6 +41,11 @@ export default function TransactionReviewDeck({ items, categories, onDone, onClo
     if (items.length === 0) return 0;
     return ((index + 1) / items.length) * 100;
   }, [items.length, index]);
+  const isInternalOperationActive = Boolean(current?.internal_operation_kind) && !dismissedInternalIds.includes(current?.transaction_id);
+  const availableCounterpartyAccounts = useMemo(
+    () => accounts.filter((account) => account.id !== current?.internal_operation_from_account_id && account.id !== current?.account_id),
+    [accounts, current?.internal_operation_from_account_id, current?.account_id]
+  );
 
   useEffect(() => {
     if (index >= items.length && items.length > 0) {
@@ -42,6 +59,10 @@ export default function TransactionReviewDeck({ items, categories, onDone, onClo
   useEffect(() => {
     setSelectedCategoryId(current?.suggested_category_id ? String(current.suggested_category_id) : "");
   }, [current?.transaction_id, current?.suggested_category_id]);
+
+  useEffect(() => {
+    setSelectedTargetAccountId(current?.internal_operation_to_account_id ? String(current.internal_operation_to_account_id) : "");
+  }, [current?.transaction_id, current?.internal_operation_to_account_id]);
 
   function next() {
     if (index + 1 >= items.length) {
@@ -72,8 +93,54 @@ export default function TransactionReviewDeck({ items, categories, onDone, onClo
     }
   }
 
+  async function handleConfirmInternalOperation(kindOverride) {
+    if (!current || saving || !current.internal_operation_kind) return;
+    const targetTransactionId = current.internal_operation_target_transaction_id || null;
+    const toAccountId = selectedTargetAccountId || current.internal_operation_to_account_id || null;
+    if (!targetTransactionId && !toAccountId) {
+      addToast("warning", "Elegi la cuenta destino para guardar esta operacion.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await api.confirmInternalOperation({
+        kind: kindOverride,
+        source_transaction_id: current.transaction_id,
+        target_transaction_id: targetTransactionId,
+        from_account_id: current.internal_operation_from_account_id || current.account_id || null,
+        to_account_id: toAccountId,
+        effective_rate: current.internal_operation_effective_rate || null,
+      });
+      addToast("success", kindOverride === "fx_exchange" ? "Compra de moneda confirmada." : "Transferencia interna confirmada.");
+      next();
+    } catch (error) {
+      addToast("error", error.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRejectInternalOperation() {
+    if (!current || saving) return;
+    setSaving(true);
+    try {
+      await api.rejectInternalOperation({ source_transaction_id: current.transaction_id });
+      setDismissedInternalIds((prev) => [...prev, current.transaction_id]);
+      addToast("info", "Perfecto. Ahora podes categorizarlo como un movimiento normal.");
+    } catch (error) {
+      addToast("error", error.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleAcceptSuggestion() {
     if (!current || saving) return;
+    if (isInternalOperationActive) {
+      await handleConfirmInternalOperation(current.internal_operation_kind);
+      return;
+    }
     if (current.suggested_category_id) {
       await applyCategory(current.suggested_category_id);
       return;
@@ -98,7 +165,7 @@ export default function TransactionReviewDeck({ items, categories, onDone, onClo
       return;
     }
 
-    addToast("warning", "No hay una categoría sugerida lista para aceptar.");
+    addToast("warning", "No hay una categoria sugerida lista para aceptar.");
   }
 
   function handleSkip() {
@@ -141,12 +208,12 @@ export default function TransactionReviewDeck({ items, categories, onDone, onClo
       <div className="max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-[32px] bg-white p-6 shadow-2xl dark:bg-neutral-900">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Revisión individual</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Revision individual</p>
             <h3 className="mt-1 font-display text-3xl text-finance-ink dark:text-neutral-100">
-              Ajustemos lo que todavía no quedó claro
+              Ajustemos lo que todavia no quedo claro
             </h3>
             <p className="mt-2 max-w-xl text-sm leading-6 text-neutral-500 dark:text-neutral-300">
-              Cada movimiento tiene una sugerencia para que no quede bajo una categoría incorrecta.
+              Cada movimiento sale con una sugerencia para que no quede enterrado bajo una categoria incorrecta.
             </p>
           </div>
           <button
@@ -170,39 +237,124 @@ export default function TransactionReviewDeck({ items, categories, onDone, onClo
             <span className="rounded-full bg-white/70 px-3 py-1 text-xs text-neutral-500 dark:bg-neutral-900/70 dark:text-neutral-300">
               {current.fecha}
             </span>
-            <span className="rounded-full bg-white/70 px-3 py-1 text-xs text-neutral-500 dark:bg-neutral-900/70 dark:text-neutral-300">
-              {fmtMoney(current.monto, current.moneda)}
-            </span>
           </div>
 
-          <p className="mt-4 text-lg font-semibold text-finance-ink dark:text-neutral-100">
+          <p className="mt-4 text-4xl font-semibold tracking-tight text-finance-ink dark:text-neutral-100">
+            {fmtMoney(current.monto, current.moneda)}
+          </p>
+          <p className="mt-3 text-lg font-semibold text-finance-ink dark:text-neutral-100">
             {current.desc_banco}
           </p>
           <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-300">
             {current.suggestion_reason || "Sugerencia del motor"}
           </p>
 
-          <div className="mt-4 rounded-2xl bg-white/80 px-4 py-4 dark:bg-neutral-900/80">
-            <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-400">Categoria sugerida</p>
-            {current.suggested_category_id ? (
-              <p className="mt-1 text-lg font-semibold text-finance-ink dark:text-neutral-100">
-                {current.suggested_category_name}
+          {isInternalOperationActive ? (
+            <div className="mt-4 rounded-2xl bg-white/85 px-4 py-4 dark:bg-neutral-900/85">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-400">
+                {current.internal_operation_kind === "fx_exchange" ? "Cambio de moneda" : "Transferencia interna"}
               </p>
-            ) : (
-              <div className="mt-2">
-                <p className="text-lg font-semibold text-finance-ink dark:text-neutral-100">
-                  {current.proposed_new_category?.name || current.suggested_category_name}
-                </p>
-                <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-300">
-                  Categoria nueva sugerida en modo {current.proposed_new_category?.type || "variable"}
-                </p>
+              <p className="mt-2 text-lg font-semibold text-finance-ink dark:text-neutral-100">
+                {current.internal_operation_kind === "fx_exchange"
+                  ? "Detectamos una compra de moneda entre tus cuentas"
+                  : "Detectamos una transferencia entre tus cuentas"}
+              </p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl bg-finance-cream/70 px-4 py-3 dark:bg-neutral-800/80">
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-400">Origen</p>
+                  <p className="mt-1 font-semibold text-finance-ink dark:text-neutral-100">
+                    {current.internal_operation_from_account_name || "Cuenta actual"}
+                  </p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-300">
+                    {current.internal_operation_from_currency || current.moneda}
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-finance-cream/70 px-4 py-3 dark:bg-neutral-800/80">
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-400">Destino</p>
+                  <p className="mt-1 font-semibold text-finance-ink dark:text-neutral-100">
+                    {current.internal_operation_to_account_name || "Pendiente de vincular"}
+                  </p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-300">
+                    {current.internal_operation_to_currency
+                      ? `${current.internal_operation_to_currency}${current.internal_operation_effective_rate ? ` · TC ${Number(current.internal_operation_effective_rate).toFixed(2)}` : ""}`
+                      : "Falta la otra pata de la operacion"}
+                  </p>
+                </div>
               </div>
-            )}
-          </div>
+              {!current.internal_operation_target_transaction_id && (
+                <div className="mt-4">
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-400">Elegi la otra cuenta</p>
+                  <select
+                    value={selectedTargetAccountId}
+                    onChange={(event) => setSelectedTargetAccountId(event.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm text-finance-ink dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+                  >
+                    <option value="">Seleccionar cuenta destino</option>
+                    {availableCounterpartyAccounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.name} · {account.currency}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="mt-4 rounded-2xl bg-white/80 px-4 py-4 dark:bg-neutral-900/80">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-400">Categoria sugerida</p>
+              {current.suggested_category_id ? (
+                <p className="mt-1 text-lg font-semibold text-finance-ink dark:text-neutral-100">
+                  {current.suggested_category_name}
+                </p>
+              ) : (
+                <div className="mt-2">
+                  <p className="text-lg font-semibold text-finance-ink dark:text-neutral-100">
+                    {current.proposed_new_category?.name || current.suggested_category_name}
+                  </p>
+                  <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-300">
+                    Categoria nueva sugerida en modo {current.proposed_new_category?.type || "variable"}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="mt-5 rounded-[26px] border border-neutral-200 bg-white/80 p-5 dark:border-neutral-700 dark:bg-neutral-950/60">
-          <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Cambiar categoría</p>
+          {isInternalOperationActive && (
+            <div className="mb-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => handleConfirmInternalOperation(current.internal_operation_kind)}
+                disabled={saving}
+                className="rounded-full bg-finance-purple px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
+              >
+                {current.internal_operation_target_transaction_id
+                  ? (current.internal_operation_kind === "fx_exchange" ? "Confirmar compra de moneda" : "Confirmar transferencia interna")
+                  : "Guardar como incompleta"}
+              </button>
+              {current.internal_operation_kind === "fx_exchange" && (
+                <button
+                  type="button"
+                  onClick={() => handleConfirmInternalOperation("internal_transfer")}
+                  disabled={saving}
+                  className="rounded-full border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-finance-ink transition hover:border-finance-purple hover:text-finance-purple dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+                >
+                  Es transferencia entre mis cuentas
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleRejectInternalOperation}
+                disabled={saving}
+                className="rounded-full border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-600 transition hover:border-finance-purple hover:text-finance-purple dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+              >
+                No, categorizar normal
+              </button>
+            </div>
+          )}
+
+          <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Cambiar categoria</p>
           {otherCategory ? (
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
@@ -234,7 +386,7 @@ export default function TransactionReviewDeck({ items, categories, onDone, onClo
             </button>
           </div>
           <p className="mt-2 text-xs leading-6 text-neutral-500 dark:text-neutral-300">
-            Si no existe, podés crear una desde el selector.
+            Si no existe, podes crear una desde el selector.
           </p>
         </div>
 
@@ -264,7 +416,11 @@ export default function TransactionReviewDeck({ items, categories, onDone, onClo
             disabled={saving}
             className="rounded-2xl bg-finance-purple px-5 py-3 font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
           >
-            {current.suggested_category_id ? "Aceptar sugerencia" : "Crear y usar sugerencia"}
+            {isInternalOperationActive
+              ? (current.internal_operation_target_transaction_id
+                ? (current.internal_operation_kind === "fx_exchange" ? "Confirmar compra de moneda" : "Confirmar transferencia interna")
+                : "Guardar como incompleta")
+              : (current.suggested_category_id ? "Aceptar sugerencia" : "Crear y usar sugerencia")}
           </button>
         </div>
       </div>

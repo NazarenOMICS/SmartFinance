@@ -17,10 +17,13 @@ function getTransactionsForMonth(db, month, extraWhere = "", params = []) {
         t.*,
         c.name AS category_name,
         c.type AS category_type,
-        a.name AS account_name
+        a.name AS account_name,
+        io.status AS internal_operation_status,
+        io.kind AS internal_operation_kind
       FROM transactions t
       LEFT JOIN categories c ON c.id = t.category_id
       LEFT JOIN accounts a ON a.id = t.account_id
+      LEFT JOIN internal_operations io ON io.id = t.internal_operation_id
       WHERE t.fecha >= ? AND t.fecha < ?
       ${extraWhere}
       ORDER BY t.fecha ASC, t.id ASC
@@ -45,8 +48,9 @@ function computeSummary(db, month) {
   const exchangeRates = getExchangeRateMap(settings);
 
   const isTransfer = (tx) => tx.category_type === "transferencia";
-  const financialCurrent = current.filter((tx) => !isTransfer(tx));
-  const financialPrevious = previous.filter((tx) => !isTransfer(tx));
+  const isInternalMovement = (tx) => tx.movement_kind === "internal_transfer" || tx.movement_kind === "fx_exchange";
+  const financialCurrent = current.filter((tx) => !isTransfer(tx) && !isInternalMovement(tx));
+  const financialPrevious = previous.filter((tx) => !isTransfer(tx) && !isInternalMovement(tx));
   const toDisplayAmount = (tx) => convertAmount(tx.monto, tx.moneda, displayCurrency, exchangeRates);
 
   const currentIncome = financialCurrent
@@ -135,7 +139,7 @@ function computeMonthlyEvolution(db, endMonth, months) {
     const month = `${year}-${String(monthIndex).padStart(2, "0")}`;
     const tx = getTransactionsForMonth(db, month);
 
-    const financial = tx.filter((item) => item.category_type !== "transferencia");
+    const financial = tx.filter((item) => item.category_type !== "transferencia" && item.movement_kind !== "internal_transfer" && item.movement_kind !== "fx_exchange");
     series.push({
       month,
       ingresos: financial

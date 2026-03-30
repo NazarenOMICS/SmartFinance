@@ -43,7 +43,7 @@ const DEFAULT_GLOBAL_EXCHANGE_RATES = {
   exchange_rate_fetch_error: "",
 };
 const SUPPORTED_CURRENCIES = new Set(SUPPORTED_CURRENCY_LIST);
-const SCHEMA_VERSION = "2026-03-contract-v3";
+const SCHEMA_VERSION = "2026-03-contract-v4";
 const EXPECTED_SCHEMA_VERSION = SCHEMA_VERSION;
 
 function getExchangeRateSettingKey(currency) {
@@ -125,6 +125,9 @@ function migrate() {
       category_source TEXT,
       category_confidence REAL,
       category_rule_id INTEGER,
+      movement_kind TEXT NOT NULL DEFAULT 'normal',
+      internal_operation_id INTEGER,
+      counterparty_account_id TEXT,
       FOREIGN KEY (category_id) REFERENCES categories(id),
       FOREIGN KEY (account_id) REFERENCES accounts(id),
       FOREIGN KEY (installment_id) REFERENCES installments(id),
@@ -215,6 +218,21 @@ function migrate() {
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS internal_operations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL,
+      source_transaction_id INTEGER NOT NULL,
+      target_transaction_id INTEGER,
+      from_account_id TEXT NOT NULL,
+      to_account_id TEXT,
+      from_currency TEXT NOT NULL,
+      to_currency TEXT,
+      effective_rate REAL,
+      status TEXT NOT NULL DEFAULT 'suggested',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
   `);
 
   const categoryColumns = new Set(db.prepare("PRAGMA table_info(categories)").all().map((column) => column.name));
@@ -237,6 +255,9 @@ function migrate() {
   if (!txColumns.has("category_source")) db.exec("ALTER TABLE transactions ADD COLUMN category_source TEXT");
   if (!txColumns.has("category_confidence")) db.exec("ALTER TABLE transactions ADD COLUMN category_confidence REAL");
   if (!txColumns.has("category_rule_id")) db.exec("ALTER TABLE transactions ADD COLUMN category_rule_id INTEGER");
+  if (!txColumns.has("movement_kind")) db.exec("ALTER TABLE transactions ADD COLUMN movement_kind TEXT NOT NULL DEFAULT 'normal'");
+  if (!txColumns.has("internal_operation_id")) db.exec("ALTER TABLE transactions ADD COLUMN internal_operation_id INTEGER");
+  if (!txColumns.has("counterparty_account_id")) db.exec("ALTER TABLE transactions ADD COLUMN counterparty_account_id TEXT");
 
   db.exec(`
     UPDATE transactions
@@ -260,6 +281,14 @@ function migrate() {
   `);
   db.exec("UPDATE transactions SET category_confidence = NULL WHERE category_id IS NULL");
   db.exec("UPDATE transactions SET category_rule_id = NULL WHERE category_id IS NULL");
+  db.exec(`
+    UPDATE transactions
+    SET movement_kind = CASE
+      WHEN category_id IN (SELECT id FROM categories WHERE slug = 'transferencia') THEN 'internal_transfer'
+      ELSE 'normal'
+    END
+    WHERE movement_kind NOT IN ('normal', 'internal_transfer', 'fx_exchange')
+  `);
 
   db.exec("UPDATE rules SET normalized_pattern = LOWER(TRIM(pattern)) WHERE COALESCE(normalized_pattern, '') = ''");
   db.exec(`
@@ -279,6 +308,9 @@ function migrate() {
   db.exec("CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(categorization_status, fecha DESC)");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_global_pattern_candidate_scope ON global_pattern_candidates(normalized_pattern, category_slug)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_global_pattern_candidates_status ON global_pattern_candidates(status, confidence_score DESC, user_count DESC)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_internal_operations_status ON internal_operations(status, updated_at DESC)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_internal_operations_source_tx ON internal_operations(source_transaction_id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_internal_operations_target_tx ON internal_operations(target_transaction_id)");
 
   const insertSetting = db.prepare(`
     INSERT INTO settings (key, value) VALUES (?, ?)
