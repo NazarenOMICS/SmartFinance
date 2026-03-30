@@ -1,6 +1,10 @@
 const express = require("express");
 const { db, upsertSetting } = require("../db");
-const { CANONICAL_CATEGORIES, buildSeedRules } = require("../services/taxonomy");
+const {
+  CANONICAL_CATEGORIES,
+  buildSeedRules,
+  TAXONOMY_VERSION,
+} = require("../services/taxonomy");
 
 const router = express.Router();
 
@@ -72,10 +76,42 @@ function ensureSeedRules() {
   })();
 }
 
+function ensureTaxonomyReady() {
+  const seedCategoryCount = db
+    .prepare("SELECT COUNT(*) AS count FROM categories WHERE origin = 'seed'")
+    .get().count;
+  const expectedSeedRules = buildSeedRules().length;
+  const seedRuleCount = db
+    .prepare("SELECT COUNT(*) AS count FROM rules WHERE source = 'seed'")
+    .get().count;
+  const versionRow = db
+    .prepare("SELECT value FROM system_meta WHERE key = 'schema_version' LIMIT 1")
+    .get();
+
+  if (Number(seedCategoryCount || 0) < CANONICAL_CATEGORIES.length) {
+    ensureCanonicalCategories();
+  }
+
+  if (Number(seedRuleCount || 0) < expectedSeedRules) {
+    ensureSeedRules();
+  }
+
+  if (!versionRow || versionRow.value !== TAXONOMY_VERSION) {
+    db.prepare(
+      `INSERT INTO system_meta (key, value) VALUES ('schema_version', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+    ).run(TAXONOMY_VERSION);
+  }
+}
+
 router.post("/", (req, res) => {
   const count = db.prepare("SELECT COUNT(*) AS n FROM categories").get().n;
-  ensureCanonicalCategories();
-  ensureSeedRules();
+  if (Number(count || 0) > 0) {
+    ensureTaxonomyReady();
+  } else {
+    ensureCanonicalCategories();
+    ensureSeedRules();
+  }
   res.json({ status: count > 0 ? "existing" : "created", categories_seeded: true, rules_seeded: true });
 });
 

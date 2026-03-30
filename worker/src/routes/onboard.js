@@ -1,7 +1,11 @@
 import { Hono } from "hono";
 import { getDb, upsertSetting } from "../db.js";
 import { DEFAULT_PATTERNS } from "../services/tx-extractor.js";
-import { ensureCanonicalCategories, ensureSeedRules } from "../services/taxonomy-store.js";
+import {
+  ensureCanonicalCategories,
+  ensureSeedRules,
+  ensureTaxonomyReady,
+} from "../services/taxonomy-store.js";
 
 const router = new Hono();
 
@@ -43,13 +47,17 @@ router.post("/", async (c) => {
     "SELECT COUNT(*) AS count FROM categories WHERE user_id = ?"
   ).get(userId);
 
-  await ensureCanonicalCategories(db, userId);
-  await ensureSeedRules(db, userId);
+  if (Number(existing?.count || 0) > 0) {
+    await ensureTaxonomyReady(db, userId);
+  } else {
+    await ensureCanonicalCategories(db, userId);
+    await ensureSeedRules(db, userId);
+  }
 
   const statements = DEFAULT_SETTINGS.map((setting) =>
     c.env.DB.prepare(
       `INSERT INTO settings (user_id, key, value) VALUES (?, ?, ?)
-       ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value`
+       ON CONFLICT(user_id, key) DO NOTHING`
     ).bind(userId, setting.key, setting.value)
   );
   if (statements.length > 0) {
