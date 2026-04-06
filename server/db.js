@@ -15,6 +15,19 @@ const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 
+function hasColumn(table, column) {
+  return db.prepare(`PRAGMA table_info(${table})`).all().some((item) => item.name === column);
+}
+
+function ensureColumn(table, column, definition) {
+  if (hasColumn(table, column)) {
+    return false;
+  }
+
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  return true;
+}
+
 function migrate() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS accounts (
@@ -22,6 +35,7 @@ function migrate() {
       name TEXT NOT NULL,
       currency TEXT NOT NULL,
       balance REAL DEFAULT 0,
+      opening_balance REAL DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now'))
     );
 
@@ -70,6 +84,10 @@ function migrate() {
       installment_id INTEGER,
       upload_id INTEGER,
       dedup_hash TEXT,
+      entry_type TEXT,
+      movement_type TEXT DEFAULT 'standard',
+      transfer_group_id TEXT,
+      linked_transaction_id INTEGER,
       created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (category_id) REFERENCES categories(id),
       FOREIGN KEY (account_id) REFERENCES accounts(id),
@@ -78,6 +96,7 @@ function migrate() {
     );
     CREATE INDEX IF NOT EXISTS idx_tx_fecha ON transactions(fecha);
     CREATE INDEX IF NOT EXISTS idx_tx_dedup ON transactions(dedup_hash);
+    CREATE INDEX IF NOT EXISTS idx_tx_account ON transactions(account_id);
 
     CREATE TABLE IF NOT EXISTS rules (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,11 +107,72 @@ function migrate() {
       FOREIGN KEY (category_id) REFERENCES categories(id)
     );
 
+    CREATE TABLE IF NOT EXISTS rule_rejections (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rule_id INTEGER NOT NULL,
+      desc_banco_normalized TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(rule_id, desc_banco_normalized),
+      FOREIGN KEY (rule_id) REFERENCES rules(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS account_links (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_a_id TEXT NOT NULL,
+      account_b_id TEXT NOT NULL,
+      relation_type TEXT DEFAULT 'fx_pair',
+      created_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(account_a_id, account_b_id),
+      FOREIGN KEY (account_a_id) REFERENCES accounts(id),
+      FOREIGN KEY (account_b_id) REFERENCES accounts(id)
+    );
   `);
+
+  const addedOpeningBalance = ensureColumn("accounts", "opening_balance", "REAL DEFAULT 0");
+  ensureColumn("transactions", "entry_type", "TEXT");
+  ensureColumn("transactions", "movement_type", "TEXT DEFAULT 'standard'");
+  ensureColumn("transactions", "transfer_group_id", "TEXT");
+  ensureColumn("transactions", "linked_transaction_id", "INTEGER");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_tx_transfer_group ON transactions(transfer_group_id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_rule_rejections_lookup ON rule_rejections(rule_id, desc_banco_normalized)");
+
+  if (addedOpeningBalance) {
+    db.prepare(
+      `
+      UPDATE accounts
+      SET opening_balance = COALESCE(balance, 0) - COALESCE((
+        SELECT SUM(t.monto)
+        FROM transactions t
+        WHERE t.account_id = accounts.id
+      ), 0)
+    `
+    ).run();
+  }
+
+  db.prepare(
+    `
+    UPDATE transactions
+    SET movement_type = 'standard'
+    WHERE movement_type IS NULL OR TRIM(movement_type) = ''
+  `
+  ).run();
+
+  db.prepare(
+    `
+    UPDATE transactions
+    SET entry_type = CASE
+      WHEN COALESCE(movement_type, 'standard') = 'internal_transfer' THEN 'internal_transfer'
+      WHEN monto >= 0 THEN 'income'
+      ELSE 'expense'
+    END
+    WHERE entry_type IS NULL OR TRIM(entry_type) = ''
+  `
+  ).run();
 
   const defaults = {
     exchange_rate_usd_uyu: "42.5",

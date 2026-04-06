@@ -10,9 +10,55 @@ function getRules(db) {
     .all();
 }
 
+function normalizeDescription(descBanco) {
+  return String(descBanco || "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function rejectRuleForDescription(db, ruleId, descBanco) {
+  const normalizedDescription = normalizeDescription(descBanco);
+  if (!ruleId || !normalizedDescription) {
+    return null;
+  }
+
+  db.prepare(
+    `
+    INSERT INTO rule_rejections (rule_id, desc_banco_normalized)
+    VALUES (?, ?)
+    ON CONFLICT(rule_id, desc_banco_normalized) DO NOTHING
+  `
+  ).run(ruleId, normalizedDescription);
+
+  return { rule_id: Number(ruleId), desc_banco_normalized: normalizedDescription };
+}
+
+function isRuleRejectedForDescription(db, ruleId, descBanco) {
+  const normalizedDescription = normalizeDescription(descBanco);
+  if (!ruleId || !normalizedDescription) {
+    return false;
+  }
+
+  const existing = db
+    .prepare(
+      `
+      SELECT id
+      FROM rule_rejections
+      WHERE rule_id = ? AND desc_banco_normalized = ?
+      LIMIT 1
+    `
+    )
+    .get(ruleId, normalizedDescription);
+
+  return Boolean(existing);
+}
+
 function findMatchingRule(db, descBanco) {
   const normalized = String(descBanco || "").toLowerCase();
-  return getRules(db).find((rule) => normalized.includes(rule.pattern.toLowerCase())) || null;
+  return (
+    getRules(db).find((rule) => normalized.includes(rule.pattern.toLowerCase()) && !isRuleRejectedForDescription(db, rule.id, descBanco)) || null
+  );
 }
 
 function bumpRule(db, ruleId) {
@@ -84,6 +130,8 @@ module.exports = {
   buildPatternFromDescription,
   bumpRule,
   ensureRuleForManualCategorization,
-  findMatchingRule
+  findMatchingRule,
+  normalizeDescription,
+  rejectRuleForDescription
 };
 

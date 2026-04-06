@@ -51,9 +51,26 @@ router.get("/", (req, res) => {
 
 router.post("/", upload.single("file"), async (req, res, next) => {
   try {
-    const { account_id = null, period } = req.body;
+    const { account_id = null, period, statement_currency } = req.body;
     if (!req.file || !period) {
       return res.status(400).json({ error: "file and period are required" });
+    }
+
+    let account = null;
+    if (account_id) {
+      account = db.prepare("SELECT id, currency FROM accounts WHERE id = ?").get(account_id);
+      if (!account) {
+        return res.status(404).json({ error: "account not found" });
+      }
+    }
+
+    const normalizedCurrency = String(statement_currency || account?.currency || "UYU").toUpperCase();
+    if (!["UYU", "USD", "ARS"].includes(normalizedCurrency)) {
+      return res.status(400).json({ error: "statement_currency must be UYU, USD or ARS" });
+    }
+
+    if (account && account.currency !== normalizedCurrency) {
+      return res.status(409).json({ error: `selected account currency (${account.currency}) does not match statement currency (${normalizedCurrency})` });
     }
 
     const uploadResult = db
@@ -71,12 +88,13 @@ router.post("/", upload.single("file"), async (req, res, next) => {
       const settings = getSettingsObject();
       const patterns = JSON.parse(settings.parsing_patterns || "[]");
       const extracted = extractTransactions(text, patterns, period);
+      const incomeCategory = db.prepare("SELECT id FROM categories WHERE LOWER(name) = 'ingreso' LIMIT 1").get();
 
       const insertTx = db.prepare(
         `
         INSERT INTO transactions (
-          fecha, desc_banco, monto, moneda, category_id, account_id, upload_id, dedup_hash
-        ) VALUES (?, ?, ?, 'UYU', ?, ?, ?, ?)
+          fecha, desc_banco, monto, moneda, category_id, account_id, upload_id, dedup_hash, entry_type, movement_type
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'standard')
       `
       );
 
@@ -98,8 +116,11 @@ router.post("/", upload.single("file"), async (req, res, next) => {
         }
 
         let categoryId = null;
+        const entryType = transaction.monto >= 0 ? "income" : "expense";
         const rule = findMatchingRule(db, transaction.desc_banco);
-        if (rule) {
+        if (entryType === "income") {
+          categoryId = incomeCategory?.id || null;
+        } else if (rule) {
           categoryId = rule.category_id;
           bumpRule(db, rule.id);
           autoCategorized += 1;
@@ -107,7 +128,17 @@ router.post("/", upload.single("file"), async (req, res, next) => {
           pendingReview += 1;
         }
 
-        insertTx.run(transaction.fecha, transaction.desc_banco, transaction.monto, categoryId, account_id, uploadResult.lastInsertRowid, dedupHash);
+        insertTx.run(
+          transaction.fecha,
+          transaction.desc_banco,
+          transaction.monto,
+          normalizedCurrency,
+          categoryId,
+          account_id,
+          uploadResult.lastInsertRowid,
+          dedupHash,
+          entryType
+        );
         newTransactions += 1;
       });
     }

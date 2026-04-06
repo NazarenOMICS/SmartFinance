@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 
-export default function Rules() {
+export default function Rules({ dataVersion, invalidateData }) {
   const [state, setState] = useState({ loading: true, error: "", categories: [], rules: [] });
   const [form, setForm] = useState({ pattern: "", category_id: "" });
 
@@ -17,10 +17,11 @@ export default function Rules() {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [dataVersion]);
 
   async function updateCategory(category, changes) {
     await api.updateCategory(category.id, { ...category, ...changes });
+    invalidateData();
     await load();
   }
 

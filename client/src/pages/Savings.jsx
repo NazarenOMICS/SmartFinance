@@ -4,7 +4,7 @@ import { api } from "../api";
 import MetricCard from "../components/MetricCard";
 import { fmtMoney } from "../utils";
 
-export default function Savings({ month, settings, refreshSettings }) {
+export default function Savings({ month, settings, refreshSettings, dataVersion }) {
   const [state, setState] = useState({ loading: true, error: "", projection: null, insights: null });
   const [form, setForm] = useState({
     savings_initial: settings.savings_initial || "50000",
@@ -32,7 +32,7 @@ export default function Savings({ month, settings, refreshSettings }) {
 
   useEffect(() => {
     load();
-  }, [month]);
+  }, [month, dataVersion]);
 
   async function handleSave() {
     await Promise.all(

@@ -20,6 +20,8 @@ const accounts = [
   { id: "itau_uyu", name: "Itau Cuenta Corriente", currency: "UYU", balance: 22100 }
 ];
 
+const accountLinks = [["brou_usd", "brou_uyu", "fx_pair"]];
+
 const installments = [
   { descripcion: "Heladera Samsung", monto_total: 45000, cantidad_cuotas: 12, cuota_actual: 4, account_id: "visa_gold", start_month: "2025-12" },
   { descripcion: "Notebook Lenovo", monto_total: 28000, cantidad_cuotas: 6, cuota_actual: 2, account_id: "visa_gold", start_month: "2026-02" },
@@ -87,7 +89,9 @@ function seed() {
     return { seeded: false };
   }
 
-  const insertAccount = db.prepare("INSERT INTO accounts (id, name, currency, balance) VALUES (@id, @name, @currency, @balance)");
+  const insertAccount = db.prepare(
+    "INSERT INTO accounts (id, name, currency, balance, opening_balance) VALUES (@id, @name, @currency, @balance, @opening_balance)"
+  );
   const insertCategory = db.prepare(
     "INSERT INTO categories (name, budget, type, color, sort_order) VALUES (@name, @budget, @type, @color, @sort_order)"
   );
@@ -101,13 +105,13 @@ function seed() {
   const insertTx = db.prepare(
     `
     INSERT INTO transactions (
-      fecha, desc_banco, monto, moneda, category_id, account_id, es_cuota, installment_id, dedup_hash
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      fecha, desc_banco, monto, moneda, category_id, account_id, es_cuota, installment_id, dedup_hash, entry_type, movement_type
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'standard')
   `
   );
+  const insertAccountLink = db.prepare("INSERT INTO account_links (account_a_id, account_b_id, relation_type) VALUES (?, ?, ?)");
 
   const transaction = db.transaction(() => {
-    accounts.forEach((account) => insertAccount.run(account));
     categories.forEach((category) => insertCategory.run(category));
     installments.forEach((installment) =>
       insertInstallment.run({
@@ -121,6 +125,18 @@ function seed() {
       return acc;
     }, {});
 
+    const accountTotals = txRows.reduce((acc, [, , monto, , , accountId]) => {
+      acc[accountId] = (acc[accountId] || 0) + Number(monto);
+      return acc;
+    }, {});
+
+    accounts.forEach((account) =>
+      insertAccount.run({
+        ...account,
+        opening_balance: Number(account.balance || 0) - Number(accountTotals[account.id] || 0)
+      })
+    );
+
     txRows.forEach(([fecha, desc_banco, monto, moneda, categoryName, accountId, esCuota, installmentId]) => {
       insertTx.run(
         fecha,
@@ -131,12 +147,17 @@ function seed() {
         accountId,
         esCuota,
         installmentId,
-        buildDedupHash({ fecha, monto, desc_banco })
+        buildDedupHash({ fecha, monto, desc_banco }),
+        monto >= 0 ? "income" : "expense"
       );
     });
 
     rules.forEach(([pattern, categoryName, count]) => {
       insertRule.run(pattern, categoryMap[categoryName], count);
+    });
+
+    accountLinks.forEach(([left, right, relationType]) => {
+      insertAccountLink.run(left, right, relationType);
     });
   });
 

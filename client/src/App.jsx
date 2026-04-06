@@ -9,6 +9,7 @@ const Savings = lazy(() => import("./pages/Savings"));
 const Accounts = lazy(() => import("./pages/Accounts"));
 const Installments = lazy(() => import("./pages/Installments"));
 const Rules = lazy(() => import("./pages/Rules"));
+const Assistant = lazy(() => import("./pages/Assistant"));
 
 const tabs = [
   { id: "dashboard", label: "Dashboard" },
@@ -16,22 +17,40 @@ const tabs = [
   { id: "savings", label: "Ahorro" },
   { id: "accounts", label: "Cuentas" },
   { id: "installments", label: "Cuotas" },
-  { id: "rules", label: "Reglas" }
+  { id: "rules", label: "Reglas" },
+  { id: "assistant", label: "Asistente" }
 ];
 
 export default function App() {
   const [tab, setTab] = useState("dashboard");
-  const [month, setMonth] = useState(isoMonth(new Date("2026-03-23")));
+  const [month, setMonth] = useState("");
   const [settings, setSettings] = useState({});
+  const [dataVersion, setDataVersion] = useState(0);
+  const [bootstrapped, setBootstrapped] = useState(false);
 
   async function refreshSettings() {
-    const nextSettings = await api.getSettings();
-    setSettings(nextSettings);
+    try {
+      const nextSettings = await api.getSettings();
+      setSettings(nextSettings);
+      setMonth((current) => current || nextSettings.default_month || isoMonth(new Date()));
+    } catch (error) {
+      setMonth((current) => current || isoMonth(new Date()));
+    } finally {
+      setBootstrapped(true);
+    }
+  }
+
+  function invalidateData() {
+    setDataVersion((current) => current + 1);
   }
 
   useEffect(() => {
     refreshSettings();
   }, []);
+
+  if (!bootstrapped || !month) {
+    return <div className="mx-auto min-h-screen max-w-7xl px-4 py-8 md:px-6 lg:px-8"><div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel">Cargando app...</div></div>;
+  }
 
   return (
     <div className="mx-auto min-h-screen max-w-7xl px-4 py-8 md:px-6 lg:px-8">
@@ -41,7 +60,7 @@ export default function App() {
             <p className="text-xs uppercase tracking-[0.32em] text-neutral-400">SmartFinance</p>
             <h1 className="mt-2 font-display text-5xl text-finance-ink">Tu mapa financiero mensual</h1>
             <p className="mt-3 max-w-2xl text-sm text-neutral-500">
-              PDFs, deduplicación, reglas aprendidas y una vista clara del mes para decidir rápido.
+              PDFs, deduplicacion, reglas aprendidas y una vista clara del mes para decidir rapido.
             </p>
           </div>
           <PeriodSelector month={month} onChange={setMonth} />
@@ -61,13 +80,14 @@ export default function App() {
         </nav>
       </header>
 
-      <Suspense fallback={<div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel">Cargando vista…</div>}>
-        {tab === "dashboard" ? <Dashboard month={month} settings={settings} /> : null}
-        {tab === "upload" ? <Upload month={month} /> : null}
-        {tab === "savings" ? <Savings month={month} settings={settings} refreshSettings={refreshSettings} /> : null}
-        {tab === "accounts" ? <Accounts settings={settings} refreshSettings={refreshSettings} /> : null}
-        {tab === "installments" ? <Installments month={month} /> : null}
-        {tab === "rules" ? <Rules /> : null}
+      <Suspense fallback={<div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel">Cargando vista...</div>}>
+        {tab === "dashboard" ? <Dashboard month={month} settings={settings} dataVersion={dataVersion} /> : null}
+        {tab === "upload" ? <Upload month={month} dataVersion={dataVersion} invalidateData={invalidateData} /> : null}
+        {tab === "savings" ? <Savings month={month} settings={settings} refreshSettings={refreshSettings} dataVersion={dataVersion} /> : null}
+        {tab === "accounts" ? <Accounts settings={settings} refreshSettings={refreshSettings} dataVersion={dataVersion} invalidateData={invalidateData} /> : null}
+        {tab === "installments" ? <Installments month={month} dataVersion={dataVersion} invalidateData={invalidateData} /> : null}
+        {tab === "rules" ? <Rules dataVersion={dataVersion} invalidateData={invalidateData} /> : null}
+        {tab === "assistant" ? <Assistant month={month} dataVersion={dataVersion} /> : null}
       </Suspense>
     </div>
   );

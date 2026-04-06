@@ -13,6 +13,9 @@ const savingsRouter = require("./routes/savings");
 const settingsRouter = require("./routes/settings");
 const uploadRouter = require("./routes/upload");
 const exportRouter = require("./routes/export");
+const dashboardRouter = require("./routes/dashboard");
+const accountLinksRouter = require("./routes/account-links");
+const assistantRouter = require("./routes/assistant");
 
 const app = express();
 const PORT = 3001;
@@ -33,12 +36,15 @@ app.get("/api/health", (req, res) => {
 });
 
 app.use("/api/transactions", transactionsRouter);
+app.use("/api/dashboard", dashboardRouter);
 app.use("/api/categories", categoriesRouter);
 app.use("/api/accounts", accountsRouter);
+app.use("/api/account-links", accountLinksRouter);
 app.use("/api/rules", rulesRouter);
 app.use("/api/installments", installmentsRouter);
 app.use("/api/savings", savingsRouter);
 app.use("/api", savingsRouter);
+app.use("/api/assistant", assistantRouter);
 app.use("/api/settings", settingsRouter);
 app.use("/api/upload", uploadRouter);
 app.use("/api/export", exportRouter);

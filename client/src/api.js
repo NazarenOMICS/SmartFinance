@@ -20,6 +20,7 @@ async function request(url, options = {}) {
 }
 
 export const api = {
+  getDashboard: (month) => request(`/api/dashboard?month=${month}`),
   getSummary: (month) => request(`/api/transactions/summary?month=${month}`),
   getTransactions: (month) => request(`/api/transactions?month=${month}`),
   updateTransaction: (id, body) =>
@@ -56,6 +57,23 @@ export const api = {
       body: JSON.stringify(body)
     }),
   getConsolidatedAccounts: () => request("/api/accounts/consolidated"),
+  getAccountLinks: () => request("/api/account-links"),
+  createAccountLink: (body) =>
+    request("/api/account-links", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }),
+  reconcileAccountLink: (id, body = {}) =>
+    request(`/api/account-links/${id}/reconcile`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }),
+  deleteAccountLink: (id) =>
+    request(`/api/account-links/${id}`, {
+      method: "DELETE"
+    }),
   getRules: () => request("/api/rules"),
   createRule: (body) =>
     request("/api/rules", {
@@ -99,5 +117,11 @@ export const api = {
     request("/api/upload", {
       method: "POST",
       body: formData
+    }),
+  assistantChat: (body) =>
+    request("/api/assistant/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
     })
 };

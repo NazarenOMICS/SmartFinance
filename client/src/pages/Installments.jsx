@@ -3,7 +3,7 @@ import { api } from "../api";
 import MetricCard from "../components/MetricCard";
 import { fmtMoney } from "../utils";
 
-export default function Installments({ month }) {
+export default function Installments({ month, dataVersion, invalidateData }) {
   const [state, setState] = useState({ loading: true, error: "", installments: [], commitments: [] });
   const [accounts, setAccounts] = useState([]);
   const [form, setForm] = useState({ descripcion: "", monto_total: "", cantidad_cuotas: "", account_id: "", start_month: month });
@@ -26,7 +26,7 @@ export default function Installments({ month }) {
   useEffect(() => {
     setForm((prev) => ({ ...prev, start_month: month }));
     load();
-  }, [month]);
+  }, [month, dataVersion]);
 
   async function handleCreate(event) {
     event.preventDefault();
@@ -36,16 +36,19 @@ export default function Installments({ month }) {
       cantidad_cuotas: Number(form.cantidad_cuotas)
     });
     setForm({ descripcion: "", monto_total: "", cantidad_cuotas: "", account_id: "", start_month: month });
+    invalidateData();
     await load();
   }
 
   async function handleDelete(id) {
     await api.deleteInstallment(id);
+    invalidateData();
     await load();
   }
 
   async function handleUpdate(id, cuotaActual) {
     await api.updateInstallment(id, { cuota_actual: Number(cuotaActual) });
+    invalidateData();
     await load();
   }
 
