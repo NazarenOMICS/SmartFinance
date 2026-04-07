@@ -52,6 +52,7 @@ export default function Dashboard({
   const [showAllCategories, setShowAllCategories] = useState(false);
   const [hoveredCatIndex, setHoveredCatIndex] = useState(null);
   const [includeSavings, setIncludeSavings] = useState(true);
+  const [consolidated, setConsolidated] = useState(null);
   const loadRequestIdRef = useRef(0);
   const transactionsSectionRef = useRef(null);
 
@@ -67,13 +68,14 @@ export default function Dashboard({
       const prevYear = monthIndex === 1 ? year - 1 : year;
       const prevMonth = `${prevYear}-${String(prevMonthIndex).padStart(2, "0")}`;
 
-      const [summary, transactions, categories, evolution, rawTrend, prevSummary] = await Promise.all([
+      const [summary, transactions, categories, evolution, rawTrend, prevSummary, consolidatedData] = await Promise.all([
         api.getSummary(month),
         api.getTransactions(month),
         api.getCategories(),
         api.getEvolution(month, 6),
         api.getCategoryTrend(month, 4),
         api.getSummary(prevMonth).catch(() => null),
+        api.getConsolidatedAccounts().catch(() => null),
       ]);
 
       const trend = {};
@@ -96,6 +98,7 @@ export default function Dashboard({
         trend,
         prevSummary,
       });
+      if (consolidatedData) setConsolidated(consolidatedData);
       onPendingChange?.(summary.pending_count || 0);
     } catch (error) {
       if (loadRequestIdRef.current !== requestId) return;
@@ -390,7 +393,14 @@ export default function Dashboard({
         const resultTone = isPositive ? "text-finance-teal" : "text-finance-red";
         const label = includeSavings && savingsTarget > 0 ? "Resultado tras ahorro" : "Margen del mes";
         return (
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-4">
+            <div className="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-panel dark:border-white/10 dark:bg-neutral-900/85">
+              <p className="text-xs uppercase tracking-[0.22em] text-neutral-400">Saldo total</p>
+              <p className="mt-3 font-display text-3xl text-finance-ink dark:text-neutral-100">
+                {consolidated ? fmtMoney(consolidated.total, consolidated.currency) : "—"}
+              </p>
+              <p className="mt-1 text-xs text-neutral-400">En todas tus cuentas</p>
+            </div>
             <div className="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-panel dark:border-white/10 dark:bg-neutral-900/85">
               <div className="flex items-start justify-between gap-2">
                 <p className="text-xs uppercase tracking-[0.22em] text-neutral-400">{label}</p>
