@@ -408,7 +408,7 @@ export default function Upload({
 
   const [selectedAccount, setSelectedAccount] = useState("");
   const [uploadForm, setUploadForm] = useState({ file: null, period: month });
-  const [manualForm, setManualForm] = useState({ fecha: `${month}-01`, desc_banco: "", monto: "", moneda: "UYU" });
+  const [manualForm, setManualForm] = useState({ entry_type: "expense", fecha: `${month}-01`, desc_banco: "", monto: "", moneda: "UYU", target_account_id: "", target_amount: "", fee_amount: "" });
   // ColumnMapper state — shown when server returns needs_mapping:true for a CSV
   const [columnMapper, setColumnMapper] = useState(null); // null | { columns, sample, formatKey }
   const [reviewGroups, setReviewGroups] = useState([]);
@@ -645,10 +645,22 @@ export default function Upload({
     if (!selectedAccount) { addToast("warning", "Primero elegí la cuenta de origen."); return; }
     if (!manualForm.desc_banco.trim()) { addToast("warning", "Ingresá una descripción."); return; }
     if (!manualForm.monto) { addToast("warning", "Ingresá un monto."); return; }
+    if (manualForm.entry_type === "internal_transfer" && !manualForm.target_account_id) {
+      addToast("warning", "Para transferencia interna, elegí la cuenta destino."); return;
+    }
     try {
-      await api.createTransaction({ ...manualForm, monto: Number(manualForm.monto), account_id: selectedAccount });
-      setManualForm((prev) => ({ ...prev, desc_banco: "", monto: "" }));
+      const payload = {
+        ...manualForm,
+        monto: Number(manualForm.monto),
+        account_id: selectedAccount,
+        target_account_id: manualForm.target_account_id || undefined,
+        target_amount: manualForm.target_amount ? Number(manualForm.target_amount) : undefined,
+        fee_amount: manualForm.fee_amount ? Number(manualForm.fee_amount) : undefined,
+      };
+      await api.createTransaction(payload);
+      setManualForm((prev) => ({ ...prev, desc_banco: "", monto: "", target_account_id: "", target_amount: "", fee_amount: "" }));
       addToast("success", "Transacción guardada correctamente.");
+      invalidateData?.();
       await load();
     } catch (e) {
       addToast("error", e.message);
@@ -1012,8 +1024,17 @@ export default function Upload({
             Paso 2b — Carga manual
             {selectedAccountData ? <span className="ml-2 font-semibold text-finance-purple">({selectedAccountData.name})</span> : null}
           </p>
-          <h2 className="font-display text-3xl text-finance-ink">Cargar gasto/ingreso</h2>
+          <h2 className="font-display text-3xl text-finance-ink">Cargar movimiento</h2>
           <div className="mt-6 grid gap-4">
+            <select
+              value={manualForm.entry_type}
+              onChange={(e) => setManualForm((p) => ({ ...p, entry_type: e.target.value, target_account_id: "", target_amount: "", fee_amount: "" }))}
+              className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+            >
+              <option value="expense">Gasto</option>
+              <option value="income">Ingreso</option>
+              <option value="internal_transfer">Transferencia interna (compra/venta de moneda)</option>
+            </select>
             <input
               type="date"
               value={manualForm.fecha}
@@ -1023,7 +1044,7 @@ export default function Upload({
             />
             <input
               type="text"
-              placeholder="Descripción (obligatoria)"
+              placeholder={manualForm.entry_type === "internal_transfer" ? "Descripción (ej: Compra dólares)" : "Descripción (obligatoria)"}
               value={manualForm.desc_banco}
               onChange={(e) => setManualForm((p) => ({ ...p, desc_banco: e.target.value }))}
               className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
@@ -1032,7 +1053,7 @@ export default function Upload({
             <div className="grid grid-cols-2 gap-3">
               <input
                 type="number"
-                placeholder="Monto (negativo = gasto)"
+                placeholder={manualForm.entry_type === "income" ? "Monto ingresado" : "Monto"}
                 value={manualForm.monto}
                 onChange={(e) => setManualForm((p) => ({ ...p, monto: e.target.value }))}
                 className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
@@ -1050,6 +1071,40 @@ export default function Upload({
                 ))}
               </select>
             </div>
+            {manualForm.entry_type === "internal_transfer" && (() => {
+              const linkedOptions = selectedAccountData?.linked_accounts || [];
+              return (
+                <>
+                  <select
+                    value={manualForm.target_account_id}
+                    onChange={(e) => setManualForm((p) => ({ ...p, target_account_id: e.target.value }))}
+                    className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                  >
+                    <option value="">Cuenta destino</option>
+                    {linkedOptions.map((a) => (
+                      <option key={a.account_id} value={a.account_id}>{a.account_name} ({a.currency})</option>
+                    ))}
+                  </select>
+                  {selectedAccount && linkedOptions.length === 0 && (
+                    <p className="text-sm text-amber-600">La cuenta origen no tiene cuentas vinculadas. Vinculalas primero en la sección de accounts.</p>
+                  )}
+                  <input
+                    type="number"
+                    placeholder="Monto acreditado en destino (opcional si igual)"
+                    value={manualForm.target_amount}
+                    onChange={(e) => setManualForm((p) => ({ ...p, target_amount: e.target.value }))}
+                    className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                  />
+                  <input
+                    type="number"
+                    placeholder="Comisión bancaria (opcional)"
+                    value={manualForm.fee_amount}
+                    onChange={(e) => setManualForm((p) => ({ ...p, fee_amount: e.target.value }))}
+                    className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                  />
+                </>
+              );
+            })()}
             <button className="rounded-full bg-finance-ink px-5 py-3 font-semibold text-white transition hover:opacity-90 dark:bg-white dark:text-finance-ink">
               Guardar transacción
             </button>

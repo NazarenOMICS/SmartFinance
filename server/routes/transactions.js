@@ -303,108 +303,165 @@ router.get("/", (req, res) => {
   res.json(rows.map((tx) => suggestSync(tx, rules, categories)));
 });
 
+function normalizeEntryType(entryType, amount) {
+  if (["expense", "income", "internal_transfer"].includes(entryType)) return entryType;
+  return Number(amount) >= 0 ? "income" : "expense";
+}
+
+function getIncomeCategoryId() {
+  return db.prepare("SELECT id FROM categories WHERE slug = 'ingreso' LIMIT 1").get()?.id || null;
+}
+
+function createTransferLeg({ fecha, desc_banco, desc_usuario, monto, moneda, account_id, transfer_group_id, dedup_desc_banco, linked_transaction_id = null }) {
+  const signedAmount = Number(monto);
+  const dedupHash = buildDedupHash({ fecha, monto: signedAmount, desc_banco: dedup_desc_banco || desc_banco });
+  const dup = db.prepare("SELECT id FROM transactions WHERE dedup_hash = ? AND substr(fecha,1,7) = substr(?,1,7) LIMIT 1").get(dedupHash, fecha);
+  if (dup) {
+    const err = new Error("transaction already exists for this month"); err.statusCode = 409; throw err;
+  }
+  const row = db.prepare(
+    `INSERT INTO transactions (fecha, desc_banco, desc_usuario, monto, moneda, category_id, account_id,
+      es_cuota, installment_id, upload_id, dedup_hash, entry_type, movement_type,
+      transfer_group_id, linked_transaction_id, categorization_status, movement_kind)
+     VALUES (?, ?, ?, ?, ?, NULL, ?, 0, NULL, NULL, ?, 'internal_transfer', 'internal_transfer', ?, ?, 'categorized', 'internal_transfer')`
+  ).run(fecha, desc_banco, desc_usuario, signedAmount, moneda, account_id, dedupHash, transfer_group_id, linked_transaction_id);
+  return fetchTransactionRow(row.lastInsertRowid);
+}
+
+function createInternalTransfer(body) {
+  const { fecha, desc_banco, desc_usuario = null, account_id, target_account_id, monto, target_amount, fee_amount = 0, fee_description = null } = body;
+  if (!fecha || !account_id || !target_account_id || typeof monto !== "number") {
+    const err = new Error("fecha, account_id, target_account_id and monto are required"); err.statusCode = 400; throw err;
+  }
+  if (account_id === target_account_id) {
+    const err = new Error("source and target account must be different"); err.statusCode = 400; throw err;
+  }
+  const sourceAccount = db.prepare("SELECT * FROM accounts WHERE id = ?").get(account_id);
+  const targetAccount = db.prepare("SELECT * FROM accounts WHERE id = ?").get(target_account_id);
+  if (!sourceAccount || !targetAccount) {
+    const err = new Error("linked account not found"); err.statusCode = 404; throw err;
+  }
+  if (!areAccountsLinked(db, account_id, target_account_id, "fx_pair")) {
+    const err = new Error("accounts must be linked before creating an internal transfer"); err.statusCode = 409; throw err;
+  }
+  const transferGroupId = crypto.randomUUID();
+  const sourceAmount = Math.abs(Number(monto));
+  const destinationAmount = Math.abs(Number(target_amount ?? monto));
+  const baseDescription = desc_banco || "Transferencia interna";
+
+  return db.transaction(() => {
+    const sourceTx = createTransferLeg({ fecha, desc_banco: baseDescription, desc_usuario, monto: -sourceAmount, moneda: sourceAccount.currency, account_id, transfer_group_id: transferGroupId, dedup_desc_banco: `${baseDescription}|${transferGroupId}|out` });
+    const targetTx = createTransferLeg({ fecha, desc_banco: baseDescription, desc_usuario, monto: destinationAmount, moneda: targetAccount.currency, account_id: target_account_id, transfer_group_id: transferGroupId, dedup_desc_banco: `${baseDescription}|${transferGroupId}|in` });
+    db.prepare("UPDATE transactions SET linked_transaction_id = ? WHERE id = ?").run(targetTx.id, sourceTx.id);
+    db.prepare("UPDATE transactions SET linked_transaction_id = ? WHERE id = ?").run(sourceTx.id, targetTx.id);
+    let feeTx = null;
+    if (Number(fee_amount || 0) > 0) {
+      const feeDesc = fee_description || `${baseDescription} - comisión`;
+      const feeHash = buildDedupHash({ fecha, monto: -Math.abs(Number(fee_amount)), desc_banco: `${baseDescription}|${transferGroupId}|fee` });
+      const feeDup = db.prepare("SELECT id FROM transactions WHERE dedup_hash = ? AND substr(fecha,1,7)=substr(?,1,7) LIMIT 1").get(feeHash, fecha);
+      if (!feeDup) {
+        const feeRow = db.prepare(
+          `INSERT INTO transactions (fecha, desc_banco, monto, moneda, account_id, dedup_hash, entry_type, movement_type,
+            transfer_group_id, categorization_status, movement_kind)
+           VALUES (?, ?, ?, ?, ?, ?, 'expense', 'standard', ?, 'uncategorized', 'normal')`
+        ).run(fecha, feeDesc, -Math.abs(Number(fee_amount)), sourceAccount.currency, account_id, feeHash, transferGroupId);
+        feeTx = fetchTransactionRow(feeRow.lastInsertRowid);
+      }
+    }
+    return { transactions: [fetchTransactionRow(sourceTx.id), fetchTransactionRow(targetTx.id)], fee_transaction: feeTx };
+  })();
+}
+
 router.post("/", (req, res) => {
-  const {
-    fecha,
-    desc_banco,
-    desc_usuario = null,
-    monto,
-    moneda = "UYU",
-    category_id = null,
-    account_id = null,
-    es_cuota = 0,
-    installment_id = null
-  } = req.body;
-  const normalizedDescBanco = String(desc_banco || "").trim();
-  const normalizedDescUsuario = desc_usuario == null ? null : String(desc_usuario).trim() || null;
+  try {
+    const rawEntryType = req.body.entry_type;
+    const entryType = normalizeEntryType(rawEntryType, req.body.monto);
 
-  if (!fecha || !normalizedDescBanco || typeof monto !== "number") {
-    return res.status(400).json({ error: "fecha, desc_banco and monto are required" });
-  }
-  if (!isValidISODate(fecha)) {
-    return res.status(400).json({ error: "fecha must be in YYYY-MM-DD format" });
-  }
-  if (!Number.isFinite(monto)) {
-    return res.status(400).json({ error: "monto must be a finite number" });
-  }
-  if (!SUPPORTED_CURRENCIES.has(moneda)) {
-    return res.status(400).json({ error: `moneda must be one of ${SUPPORTED_CURRENCY_LIST.join(", ")}` });
-  }
-  if (account_id) {
-    const account = db.prepare("SELECT id FROM accounts WHERE id = ?").get(account_id);
-    if (!account) {
-      return res.status(404).json({ error: "account not found" });
+    if (entryType === "internal_transfer") {
+      return res.status(201).json(createInternalTransfer(req.body));
     }
-  }
-  if (category_id != null) {
-    const category = db.prepare("SELECT id FROM categories WHERE id = ?").get(Number(category_id));
-    if (!category) {
-      return res.status(404).json({ error: "category not found" });
+
+    const {
+      fecha,
+      desc_banco,
+      desc_usuario = null,
+      monto,
+      moneda = "UYU",
+      category_id = null,
+      account_id = null,
+      es_cuota = 0,
+      installment_id = null
+    } = req.body;
+    const normalizedDescBanco = String(desc_banco || "").trim();
+    const normalizedDescUsuario = desc_usuario == null ? null : String(desc_usuario).trim() || null;
+
+    if (!fecha || !normalizedDescBanco || typeof monto !== "number") {
+      return res.status(400).json({ error: "fecha, desc_banco and monto are required" });
     }
-  }
-  if (installment_id != null) {
-    const installment = db.prepare("SELECT id FROM installments WHERE id = ?").get(Number(installment_id));
-    if (!installment) {
-      return res.status(404).json({ error: "installment not found" });
+    if (!isValidISODate(fecha)) {
+      return res.status(400).json({ error: "fecha must be in YYYY-MM-DD format" });
     }
-  }
+    if (!Number.isFinite(monto)) {
+      return res.status(400).json({ error: "monto must be a finite number" });
+    }
+    if (!SUPPORTED_CURRENCIES.has(moneda)) {
+      return res.status(400).json({ error: `moneda must be one of ${SUPPORTED_CURRENCY_LIST.join(", ")}` });
+    }
+    if (account_id) {
+      const account = db.prepare("SELECT id FROM accounts WHERE id = ?").get(account_id);
+      if (!account) return res.status(404).json({ error: "account not found" });
+    }
+    if (category_id != null) {
+      const category = db.prepare("SELECT id FROM categories WHERE id = ?").get(Number(category_id));
+      if (!category) return res.status(404).json({ error: "category not found" });
+    }
+    if (installment_id != null) {
+      const installment = db.prepare("SELECT id FROM installments WHERE id = ?").get(Number(installment_id));
+      if (!installment) return res.status(404).json({ error: "installment not found" });
+    }
 
-  const classification = resolveTransactionClassification(db, normalizedDescBanco, Number(monto), moneda, category_id, {
-    fecha,
-    account_id,
-  });
+    // Normalize sign based on entry_type
+    let signedMonto = Number(monto);
+    if (entryType === "expense") signedMonto = -Math.abs(signedMonto);
+    else if (entryType === "income") signedMonto = Math.abs(signedMonto);
 
-  const dedupHash = buildDedupHash({ fecha, monto, desc_banco: normalizedDescBanco });
-  const duplicate = db
-    .prepare(
-      `
-      SELECT id
-      FROM transactions
-      WHERE dedup_hash = ? AND substr(fecha, 1, 7) = substr(?, 1, 7)
-      LIMIT 1
-    `
-    )
-    .get(dedupHash, fecha);
+    // Auto-assign income category for income transactions
+    let resolvedCategoryId = category_id != null ? Number(category_id) : null;
+    if (entryType === "income" && !resolvedCategoryId) {
+      resolvedCategoryId = getIncomeCategoryId();
+    }
 
-  if (duplicate) {
-    return res.status(409).json({ error: "transaction already exists for this month" });
-  }
+    const classification = resolveTransactionClassification(db, normalizedDescBanco, signedMonto, moneda, resolvedCategoryId, { fecha, account_id });
 
-  const result = db
-    .prepare(
-      `
-      INSERT INTO transactions (
+    const dedupHash = buildDedupHash({ fecha, monto: signedMonto, desc_banco: normalizedDescBanco });
+    const duplicate = db.prepare("SELECT id FROM transactions WHERE dedup_hash = ? AND substr(fecha,1,7) = substr(?,1,7) LIMIT 1").get(dedupHash, fecha);
+    if (duplicate) {
+      return res.status(409).json({ error: "transaction already exists for this month" });
+    }
+
+    const result = db.prepare(
+      `INSERT INTO transactions (
         fecha, desc_banco, desc_usuario, monto, moneda, category_id, account_id, es_cuota, installment_id, dedup_hash,
+        entry_type, movement_type,
         categorization_status, category_source, category_confidence, category_rule_id,
         movement_kind, internal_operation_id, counterparty_account_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
-      `
-    )
-    .run(
-      fecha,
-      normalizedDescBanco,
-      normalizedDescUsuario,
-      monto,
-      moneda,
-      classification.categoryId,
-      account_id,
-      es_cuota ? 1 : 0,
-      installment_id,
-      dedupHash,
-      classification.categorizationStatus,
-      classification.categorySource,
-      classification.categoryConfidence,
-      classification.categoryRuleId,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'standard', ?, ?, ?, ?, ?, NULL, NULL)`
+    ).run(
+      fecha, normalizedDescBanco, normalizedDescUsuario, signedMonto, moneda,
+      classification.categoryId, account_id, es_cuota ? 1 : 0, installment_id, dedupHash,
+      entryType,
+      classification.categorizationStatus, classification.categorySource,
+      classification.categoryConfidence, classification.categoryRuleId,
       classification.movementKind || "normal"
     );
 
-  if (classification.internalOperation) {
-    upsertInternalOperationSuggestion(db, {
-      ...classification.internalOperation,
-      source_transaction_id: Number(result.lastInsertRowid),
-    });
+    if (classification.internalOperation) {
+      upsertInternalOperationSuggestion(db, { ...classification.internalOperation, source_transaction_id: Number(result.lastInsertRowid) });
+    }
+    res.status(201).json(fetchTransactionRow(result.lastInsertRowid));
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message });
   }
-  res.status(201).json(fetchTransactionRow(result.lastInsertRowid));
 });
 
 router.put("/:id", (req, res) => {

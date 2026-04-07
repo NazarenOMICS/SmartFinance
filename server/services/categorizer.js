@@ -1,4 +1,4 @@
-const { buildSeedRules, normalizePatternValue } = require("./taxonomy");
+const { buildSeedRules, normalizePatternValue, matchCanonicalCategory } = require("./taxonomy");
 
 const REINTEGRO_KEYWORDS = [
   "devolucion", "devol", "reintegro", "reversa", "reverso",
