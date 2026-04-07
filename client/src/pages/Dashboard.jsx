@@ -51,6 +51,7 @@ export default function Dashboard({
   const [categoryCandidates, setCategoryCandidates] = useState(null); // { pattern, category_id, category_name }
   const [showAllCategories, setShowAllCategories] = useState(false);
   const [hoveredCatIndex, setHoveredCatIndex] = useState(null);
+  const [includeSavings, setIncludeSavings] = useState(true);
   const loadRequestIdRef = useRef(0);
   const transactionsSectionRef = useRef(null);
 
@@ -368,43 +369,59 @@ export default function Dashboard({
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Saldo actual" value={fmtMoney(summary.totals.saldo, summary.currency)} tone="text-finance-purple" />
-        <MetricCard
-          label="Ingresos del mes"
-          value={money(summary.totals.income)}
-          delta={summary.deltas.income}
-          tone="text-finance-teal"
-          positiveIsGood
-          onClick={() => setDrilldownFilter((prev) => (prev === "income" ? null : "income"))}
-        />
-        <MetricCard
-          label="Gastos del mes"
-          value={money(summary.totals.expenses)}
-          delta={summary.deltas.expenses}
-          tone="text-finance-red"
-          onClick={() => setDrilldownFilter((prev) => (prev === "expenses" ? null : "expenses"))}
-        />
-        <MetricCard
-          label="Margen disponible"
-          value={money(summary.totals.margin)}
-          tone={summary.totals.margin >= 0 ? "text-finance-green" : "text-finance-red"}
-          badge={
-            summary.totals.margin <= 0
-              ? "Pasado este mes"
-              : (summary.totals.savings_monthly_target > 0 && summary.totals.margin < summary.totals.savings_monthly_target)
-                ? "Ajustado este mes"
-                : "Ahorrando este mes"
-          }
-          badgeTone={
-            summary.totals.margin <= 0
-              ? "text-finance-red"
-              : (summary.totals.savings_monthly_target > 0 && summary.totals.margin < summary.totals.savings_monthly_target)
-                ? "text-finance-amber"
-                : "text-finance-teal"
-          }
-        />
-      </div>
+      {(() => {
+        const savingsTarget = summary.totals.savings_monthly_target || 0;
+        const netResult = summary.totals.margin - (includeSavings && savingsTarget > 0 ? savingsTarget : 0);
+        const isPositive = netResult >= 0;
+        const resultTone = isPositive ? "text-finance-teal" : "text-finance-red";
+        const label = includeSavings && savingsTarget > 0 ? "Resultado tras ahorro" : "Margen del mes";
+        return (
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-panel dark:border-white/10 dark:bg-neutral-900/85">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-xs uppercase tracking-[0.22em] text-neutral-400">{label}</p>
+                {savingsTarget > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setIncludeSavings((prev) => !prev)}
+                    className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold transition ${
+                      includeSavings
+                        ? "bg-finance-purple/10 text-finance-purple dark:bg-purple-900/30 dark:text-purple-300"
+                        : "bg-neutral-100 text-neutral-400 dark:bg-neutral-800"
+                    }`}
+                    title={includeSavings ? "Descontar ahorro mensual del margen" : "Ver margen sin descontar ahorro"}
+                  >
+                    {includeSavings ? `− ${money(savingsTarget)} ahorro` : "Sin ahorro"}
+                  </button>
+                )}
+              </div>
+              <p className={`mt-3 font-display text-3xl ${resultTone}`}>{money(netResult)}</p>
+              {includeSavings && savingsTarget > 0 && (
+                <p className={`mt-2 text-xs font-semibold ${isPositive ? "text-finance-teal" : "text-finance-red"}`}>
+                  {isPositive
+                    ? `Ahorrando ${money(summary.totals.margin)} − ${money(savingsTarget)} objetivo`
+                    : `${money(Math.abs(netResult))} por debajo del objetivo de ahorro`}
+                </p>
+              )}
+            </div>
+            <MetricCard
+              label="Ingresos del mes"
+              value={money(summary.totals.income)}
+              delta={summary.deltas.income}
+              tone="text-finance-teal"
+              positiveIsGood
+              onClick={() => setDrilldownFilter((prev) => (prev === "income" ? null : "income"))}
+            />
+            <MetricCard
+              label="Gastos del mes"
+              value={money(summary.totals.expenses)}
+              delta={summary.deltas.expenses}
+              tone="text-finance-red"
+              onClick={() => setDrilldownFilter((prev) => (prev === "expenses" ? null : "expenses"))}
+            />
+          </div>
+        );
+      })()}
 
       <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
