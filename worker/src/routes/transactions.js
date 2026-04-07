@@ -485,6 +485,11 @@ router.post("/", async (c) => {
   }
   if (!isValidISODate(fecha)) return c.json({ error: "fecha must be in YYYY-MM-DD format" }, 400);
   if (!Number.isFinite(Number(monto))) return c.json({ error: "monto must be a finite number" }, 400);
+  // Normalize sign based on entry_type (mirrors local server behavior)
+  const entryType = body.entry_type || null;
+  let signedMonto = Number(monto);
+  if (entryType === "expense") signedMonto = -Math.abs(signedMonto);
+  else if (entryType === "income") signedMonto = Math.abs(signedMonto);
   if (!SUPPORTED_CURRENCIES.has(moneda)) return c.json({ error: `moneda must be one of ${SUPPORTED_CURRENCY_LIST.join(", ")}` }, 400);
 
   const db = getDb(c.env);
@@ -507,7 +512,7 @@ router.post("/", async (c) => {
     if (!installment) return c.json({ error: "installment not found" }, 404);
   }
 
-  const hash = await buildDedupHash({ fecha, monto, desc_banco: normalizedDescBanco });
+  const hash = await buildDedupHash({ fecha, monto: signedMonto, desc_banco: normalizedDescBanco });
   const dup = await db.prepare(
     "SELECT id FROM transactions WHERE dedup_hash = ? AND user_id = ? AND substr(fecha, 1, 7) = substr(?, 1, 7)"
   ).get(hash, userId, fecha);
@@ -525,7 +530,7 @@ router.post("/", async (c) => {
     const settings = await getSettingsObject(c.env, userId);
     const classification = await classifyTransaction(db, c.env, {
       desc_banco: normalizedDescBanco,
-      monto: Number(monto),
+      monto: signedMonto,
       moneda,
       account_id,
     }, userId, { settings });
@@ -555,7 +560,7 @@ router.post("/", async (c) => {
     fecha,
     normalizedDescBanco,
     normalizedDescUsuario,
-    Number(monto),
+    signedMonto,
     moneda,
     resolvedCategoryId,
     account_id,
