@@ -21,7 +21,8 @@ router.get("/consolidated", async (c) => {
   const exchangeRates = getExchangeRateMap(settings);
   const db   = getDb(c.env);
   const rows = await db.prepare(
-    `SELECT a.*, COALESCE(a.opening_balance, a.balance, 0) + COALESCE(SUM(t.monto), 0) AS live_balance
+    `SELECT a.id, a.currency,
+            a.balance + COALESCE(SUM(t.monto), 0) AS live_balance
      FROM accounts a
      LEFT JOIN transactions t ON t.account_id = a.id AND t.user_id = a.user_id
      WHERE a.user_id = ?
