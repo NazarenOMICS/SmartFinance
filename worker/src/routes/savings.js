@@ -26,7 +26,8 @@ async function monthNet(db, month, userId, targetCurrency, exchangeRates) {
      FROM transactions t
      LEFT JOIN categories c ON c.id = t.category_id AND c.user_id = t.user_id
      WHERE t.fecha >= ? AND t.fecha < ? AND t.user_id = ?
-       AND (c.type IS NULL OR c.type != 'transferencia')`
+       AND (c.type IS NULL OR c.type != 'transferencia')
+       AND (t.movement_kind IS NULL OR t.movement_kind NOT IN ('internal_transfer', 'fx_exchange'))`
   ).all(start, end, userId);
   return rows.reduce(
     (sum, row) => sum + convertAmount(row.monto, row.moneda, targetCurrency, exchangeRates),
@@ -103,13 +104,15 @@ router.get("/insights", async (c) => {
       `SELECT t.*,c.name AS category_name,c.type AS category_type,c.budget FROM transactions t
        LEFT JOIN categories c ON c.id=t.category_id AND c.user_id=t.user_id
        WHERE t.fecha>=? AND t.fecha<? AND t.user_id=?
-         AND (c.type IS NULL OR c.type != 'transferencia')`
+         AND (c.type IS NULL OR c.type != 'transferencia')
+         AND (t.movement_kind IS NULL OR t.movement_kind NOT IN ('internal_transfer', 'fx_exchange'))`
      ).all(start, end, userId),
     db.prepare(
       `SELECT t.*,c.name AS category_name,c.type AS category_type FROM transactions t
        LEFT JOIN categories c ON c.id=t.category_id AND c.user_id=t.user_id
        WHERE t.fecha>=? AND t.fecha<? AND t.user_id=?
-         AND (c.type IS NULL OR c.type != 'transferencia')`
+         AND (c.type IS NULL OR c.type != 'transferencia')
+         AND (t.movement_kind IS NULL OR t.movement_kind NOT IN ('internal_transfer', 'fx_exchange'))`
      ).all(prevWindow.start, prevWindow.end, userId)
   ]);
 

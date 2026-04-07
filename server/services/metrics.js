@@ -280,10 +280,9 @@ function computeInsights(db, month) {
   const daysLeft = Math.max(0, daysInMonth - activeDay);
   const remainingBudget = totalBudget - totalExpenses;
 
-  const commitments = computeFutureCommitments(db, month, 6);
+  const commitments = computeFutureCommitments(db, month, 6, { currency: displayCurrency, exchangeRates });
   const lastSixMonths = getMonthSeries(6, month);
   const avgSavings = lastSixMonths.reduce((sum, item) => sum + computeMonthNet(db, item), 0) / Math.max(1, lastSixMonths.length);
-  const settings = getSettingsObject();
   const currentSaved = Number(settings.savings_initial || 0) + lastSixMonths.reduce((sum, item) => sum + computeMonthNet(db, item), 0);
   const avgNet = avgSavings - (commitments[0]?.total || 0);
   const remainingGoal = Number(settings.savings_goal || 0) - currentSaved;

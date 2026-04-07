@@ -153,12 +153,7 @@ export async function computeFutureCommitments(db, startMonth, months, userId, o
      WHERE i.user_id = ?`
   ).all(userId);
   const targetCurrency = options.currency || null;
-  const exchangeRates = options.exchangeRates || {
-    UYU: 1,
-    USD: Number(options.exchangeRateUsd || 42.5),
-    EUR: Number(options.exchangeRateEur || 46.5),
-    ARS: Number(options.exchangeRateArs || 0.045),
-  };
+  const exchangeRates = options.exchangeRates || {};
   const [startYear, startMonthNum] = startMonth.split("-").map(Number);
   const fallbackInstallmentStart = [startYear, startMonthNum];
   const result = [];
