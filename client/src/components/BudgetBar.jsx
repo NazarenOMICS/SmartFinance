@@ -1,7 +1,8 @@
 import { Line, LineChart, ResponsiveContainer, Tooltip } from "recharts";
 import { fmtMoney } from "../utils";
 
-export default function BudgetBar({ label, spent, budget, type, color, trend }) {
+export default function BudgetBar({ label, spent, budget, type, color, trend, currency }) {
+  const fm = (v) => fm(v, currency);
   const progress = budget > 0 ? Math.round((spent / budget) * 100) : 0;
   const overrun  = progress >= 100;
   const warning  = !overrun && progress >= 80;
@@ -27,10 +28,10 @@ export default function BudgetBar({ label, spent, budget, type, color, trend }) 
               </div>
             </div>
             <div className="shrink-0 text-right">
-              <p className="text-xs font-semibold text-finance-ink">{fmtMoney(spent)}</p>
+              <p className="text-xs font-semibold text-finance-ink">{fm(spent)}</p>
               {budget > 0 && (
                 <p className={`text-[10px] ${overrun ? "text-finance-red font-bold" : "text-neutral-400"}`}>
-                  {overrun ? `+${fmtMoney(spent - budget)} excedido` : `de ${fmtMoney(budget)}`}
+                  {overrun ? `+${fm(spent - budget)} excedido` : `de ${fm(budget)}`}
                 </p>
               )}
             </div>
@@ -47,7 +48,7 @@ export default function BudgetBar({ label, spent, budget, type, color, trend }) 
               </div>
               <div className="mt-1 flex items-center justify-between">
                 <span className="text-[10px] text-neutral-400">
-                  {fmtMoney(Math.max(0, budget - spent))} restante
+                  {fm(Math.max(0, budget - spent))} restante
                 </span>
                 <span className={`text-[10px] font-bold ${
                   overrun  ? "text-finance-red" :
@@ -92,7 +93,7 @@ export default function BudgetBar({ label, spent, budget, type, color, trend }) 
                   activeDot={{ r: 3, fill: barColor }}
                 />
                 <Tooltip
-                  formatter={(v) => [fmtMoney(v), "Gasto"]}
+                  formatter={(v) => [fm(v), "Gasto"]}
                   labelFormatter={(l) => l}
                   contentStyle={{
                     fontSize: 11,

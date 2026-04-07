@@ -17,6 +17,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
   const [state, setState] = useState({ loading: true, error: "", summary: null, transactions: [], categories: [], evolution: [], trend: null, prevSummary: null });
   const [clickedCategory, setClickedCategory]         = useState(null);
   const [dismissedBudgetAlert, setDismissedBudgetAlert] = useState(false);
+  const [showUSD, setShowUSD] = useState(false);
 
   async function load() {
     setState((prev) => ({ ...prev, loading: true, error: "" }));
@@ -132,6 +133,14 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
 
   const overBudget = summary.budgets.filter((b) => b.budget > 0 && b.spent > b.budget);
 
+  const tc = parseFloat(settings.exchange_rate_usd_uyu) || 42.5;
+  const cvt = (amount) => showUSD ? amount / tc : amount;
+  const dispCurrency = showUSD ? "USD" : (settings.display_currency || "UYU");
+  const fmt = (amount) => fmtMoney(cvt(amount), dispCurrency);
+  const evolutionData = showUSD
+    ? state.evolution.map((d) => ({ ...d, ingresos: d.ingresos / tc, gastos: d.gastos / tc }))
+    : state.evolution;
+
   return (
     <div className="space-y-6">
       {/* Budget overrun banner */}
@@ -146,7 +155,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
                   : `${overBudget.length} categorías superaron su presupuesto mensual`}
               </p>
               <p className="mt-1 text-sm text-finance-red/80 dark:text-red-400">
-                {overBudget.map((b) => `${b.name} (${fmtMoney(b.spent)} / ${fmtMoney(b.budget)})`).join(" · ")}
+                {overBudget.map((b) => `${b.name} (${fmt(b.spent)} / ${fmt(b.budget)})`).join(" · ")}
               </p>
             </div>
           </div>
@@ -159,11 +168,25 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
         </div>
       )}
 
+      <div className="flex items-center justify-end">
+        <button
+          onClick={() => setShowUSD((v) => !v)}
+          className={`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition ${
+            showUSD
+              ? "border-finance-blue bg-finance-blue text-white"
+              : "border-neutral-200 bg-white text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
+          }`}
+        >
+          <span className={`h-2 w-2 rounded-full ${showUSD ? "bg-white" : "bg-neutral-300 dark:bg-neutral-600"}`} />
+          Ver en USD {showUSD ? `(TC ${tc})` : ""}
+        </button>
+      </div>
+
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Patrimonio total" value={fmtMoney(summary.totals.patrimonio, summary.currency)} tone="text-finance-purple" />
-        <MetricCard label="Ingresos del mes" value={fmtMoney(summary.totals.income)} delta={summary.deltas.income} tone="text-finance-teal" />
-        <MetricCard label="Gastos del mes" value={fmtMoney(summary.totals.expenses)} delta={summary.deltas.expenses} tone="text-finance-red" />
-        <MetricCard label="Margen disponible" value={fmtMoney(summary.totals.margin)} tone={summary.totals.margin >= 0 ? "text-finance-green" : "text-finance-red"} />
+        <MetricCard label="Patrimonio total" value={fmt(summary.totals.patrimonio)} tone="text-finance-purple" />
+        <MetricCard label="Ingresos del mes" value={fmt(summary.totals.income)} delta={summary.deltas.income} tone="text-finance-teal" />
+        <MetricCard label="Gastos del mes" value={fmt(summary.totals.expenses)} delta={summary.deltas.expenses} tone="text-finance-red" />
+        <MetricCard label="Margen disponible" value={fmt(summary.totals.margin)} tone={summary.totals.margin >= 0 ? "text-finance-green" : "text-finance-red"} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
@@ -217,7 +240,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
                       />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(value) => fmtMoney(value)} />
+                  <Tooltip formatter={(value) => fmt(value)} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -250,7 +273,7 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
                       <p className="text-xs uppercase tracking-[0.16em] text-neutral-400">{category.type}</p>
                     </div>
                   </div>
-                  <p className="font-semibold text-finance-ink">{fmtMoney(category.spent)}</p>
+                  <p className="font-semibold text-finance-ink">{fmt(category.spent)}</p>
                 </button>
               ))}
             </div>
@@ -272,10 +295,10 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
           </div>
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={state.evolution}>
+              <BarChart data={evolutionData}>
                 <XAxis dataKey="month" tick={{ fill: "#737373", fontSize: 12 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: "#737373", fontSize: 12 }} axisLine={false} tickLine={false} />
-                <Tooltip formatter={(value) => fmtMoney(value)} />
+                <Tooltip formatter={(value) => fmt(value)} />
                 <Bar dataKey="ingresos" fill="#1D9E75" radius={[10, 10, 0, 0]} name="Ingresos" />
                 <Bar dataKey="gastos" fill="#534AB7" radius={[10, 10, 0, 0]} name="Gastos" />
               </BarChart>
@@ -285,9 +308,9 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <MetricCard label="Gastos fijos" value={fmtMoney(summary.byType.fijo)} tone="text-finance-coral" />
-        <MetricCard label="Gastos variables" value={fmtMoney(summary.byType.variable)} tone="text-finance-blue" />
-        <MetricCard label="Cuotas del mes" value={fmtMoney(summary.totals.installments)} tone="text-finance-amber" />
+        <MetricCard label="Gastos fijos" value={fmt(summary.byType.fijo)} tone="text-finance-coral" />
+        <MetricCard label="Gastos variables" value={fmt(summary.byType.variable)} tone="text-finance-blue" />
+        <MetricCard label="Cuotas del mes" value={fmt(summary.totals.installments)} tone="text-finance-amber" />
       </div>
 
       <div className="space-y-3">
@@ -297,11 +320,12 @@ export default function Dashboard({ month, settings, refreshSettings, onNavigate
             <BudgetBar
               key={item.id}
               label={item.name}
-              spent={item.spent}
-              budget={item.budget}
+              spent={cvt(item.spent)}
+              budget={cvt(item.budget)}
               type={item.type}
               color={item.color}
               trend={catTrend?.series}
+              currency={dispCurrency}
             />
           );
         })}

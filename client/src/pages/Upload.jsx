@@ -293,7 +293,7 @@ export default function Upload({ month, onDone }) {
 
   const [selectedAccount, setSelectedAccount] = useState("");
   const [uploadForm, setUploadForm] = useState({ file: null, period: month });
-  const [manualForm, setManualForm] = useState({ fecha: `${month}-01`, desc_banco: "", monto: "", moneda: "UYU" });
+  const [manualForm, setManualForm] = useState({ fecha: `${month}-01`, desc_banco: "", monto: "", moneda: "UYU", tipo: "gasto" });
   // ColumnMapper state — shown when server returns needs_mapping:true for a CSV
   const [columnMapper, setColumnMapper] = useState(null); // null | { columns, sample, formatKey }
 
@@ -408,7 +408,9 @@ export default function Upload({ month, onDone }) {
     if (!manualForm.desc_banco.trim()) { addToast("warning", "Ingresá una descripción."); return; }
     if (!manualForm.monto) { addToast("warning", "Ingresá un monto."); return; }
     try {
-      await api.createTransaction({ ...manualForm, monto: Number(manualForm.monto), account_id: selectedAccount });
+      const montoNum = Math.abs(Number(manualForm.monto));
+      const montoFinal = manualForm.tipo === "gasto" ? -montoNum : montoNum;
+      await api.createTransaction({ ...manualForm, monto: montoFinal, account_id: selectedAccount });
       setManualForm((prev) => ({ ...prev, desc_banco: "", monto: "" }));
       addToast("success", "Transacción guardada correctamente.");
       await load();
@@ -585,9 +587,25 @@ export default function Upload({ month, onDone }) {
               required
             />
             <div className="grid grid-cols-2 gap-3">
+              <div className="flex rounded-2xl border border-neutral-200 overflow-hidden dark:border-neutral-700">
+                <button
+                  type="button"
+                  onClick={() => setManualForm((p) => ({ ...p, tipo: "gasto" }))}
+                  className={`flex-1 py-3 text-sm font-semibold transition ${manualForm.tipo === "gasto" ? "bg-finance-red text-white" : "bg-white text-neutral-500 hover:bg-neutral-50 dark:bg-neutral-800 dark:hover:bg-neutral-700 dark:text-neutral-400"}`}
+                >
+                  Gasto
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setManualForm((p) => ({ ...p, tipo: "ingreso" }))}
+                  className={`flex-1 py-3 text-sm font-semibold transition ${manualForm.tipo === "ingreso" ? "bg-finance-teal text-white" : "bg-white text-neutral-500 hover:bg-neutral-50 dark:bg-neutral-800 dark:hover:bg-neutral-700 dark:text-neutral-400"}`}
+                >
+                  Ingreso
+                </button>
+              </div>
               <input
                 type="number"
-                placeholder="Monto (negativo = gasto)"
+                placeholder="Monto"
                 value={manualForm.monto}
                 onChange={(e) => setManualForm((p) => ({ ...p, monto: e.target.value }))}
                 className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
