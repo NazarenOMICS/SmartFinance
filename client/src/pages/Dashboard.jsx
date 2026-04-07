@@ -49,6 +49,7 @@ export default function Dashboard({
   const [drilldownFilter, setDrilldownFilter] = useState(null);
   const [showCatManager, setShowCatManager] = useState(false);
   const [categoryCandidates, setCategoryCandidates] = useState(null); // { pattern, category_id, category_name }
+  const [showAllCategories, setShowAllCategories] = useState(false);
   const loadRequestIdRef = useRef(0);
   const transactionsSectionRef = useRef(null);
 
@@ -289,6 +290,7 @@ export default function Dashboard({
 
   const { summary } = state;
   const money = (value) => fmtMoney(value, summary.currency);
+  const hiddenCategories = Math.max(0, (summary.byCategory?.length || 0) - 5);
   const displayCurrency = settings.display_currency || "UYU";
   const exchangeRateValue = Number(getExchangeRateMap(settings)[displayCurrency] || 1);
   const exchangeRateDecimals = exchangeRateValue < 1 ? 3 : 1;
