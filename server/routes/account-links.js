@@ -9,7 +9,7 @@ router.get("/", (req, res) => {
 });
 
 router.post("/", (req, res) => {
-  const { account_a_id, account_b_id, relation_type = "fx_pair" } = req.body;
+  const { account_a_id, account_b_id, relation_type = "fx_pair", preferred_currency = null } = req.body;
 
   if (!account_a_id || !account_b_id) {
     return res.status(400).json({ error: "account_a_id and account_b_id are required" });
@@ -32,10 +32,10 @@ router.post("/", (req, res) => {
   }
 
   const result = db
-    .prepare("INSERT INTO account_links (account_a_id, account_b_id, relation_type) VALUES (?, ?, ?)");
+    .prepare("INSERT INTO account_links (account_a_id, account_b_id, relation_type, preferred_currency) VALUES (?, ?, ?, ?)");
 
   try {
-    const insertResult = result.run(leftId, rightId, relation_type);
+    const insertResult = result.run(leftId, rightId, relation_type, preferred_currency || null);
     const created = getAccountLinks(db).find((item) => item.id === insertResult.lastInsertRowid);
     return res.status(201).json(created);
   } catch (error) {

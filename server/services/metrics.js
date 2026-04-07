@@ -1,5 +1,6 @@
 const { convertAmount, getExchangeRateMap, getSettingsObject, monthWindow } = require("../db");
 const { isLikelyTransfer } = require("./categorizer");
+const { getAccountsWithBalances } = require("./accounts");
 
 function isInternalTransfer(tx) {
   return (tx.movement_type || "standard") === "internal_transfer" ||
@@ -127,10 +128,13 @@ function computeSummary(db, month) {
     spent: byCategoryMap[category.name] || 0,
   }));
 
-  const accounts = db.prepare("SELECT * FROM accounts").all();
+  const accounts = getAccountsWithBalances(db);
   const consolidated = accounts.reduce((sum, account) => {
-    return sum + convertAmount(account.balance, account.currency, displayCurrency, exchangeRates);
+    return sum + convertAmount(account.live_balance, account.currency, displayCurrency, exchangeRates);
   }, 0);
+  const savingsMonthlyTarget = Number(settings.savings_goal || 0) > 0
+    ? Math.round(Number(settings.savings_goal) / 12)
+    : 0;
 
   const installmentsMonth = current
     .filter((tx) => tx.es_cuota)
@@ -141,11 +145,12 @@ function computeSummary(db, month) {
   return {
     month,
     totals: {
-      patrimonio: consolidated,
+      saldo: consolidated,
       income: currentIncome,
       expenses: currentExpenses,
       margin: currentIncome - currentExpenses,
       installments: installmentsMonth,
+      savings_monthly_target: savingsMonthlyTarget,
     },
     deltas: {
       income: pctDelta(currentIncome, previousIncome),

@@ -1,6 +1,6 @@
 import { fmtPct } from "../utils";
 
-export default function MetricCard({ label, value, delta, tone = "text-finance-ink", onClick, positiveIsGood = false }) {
+export default function MetricCard({ label, value, delta, tone = "text-finance-ink", onClick, positiveIsGood = false, badge, badgeTone }) {
   const Tag = onClick ? "button" : "div";
   // positiveIsGood=true: green when delta>0 (e.g. income increased)
   // positiveIsGood=false (default): red when delta>0 (e.g. spending increased)
@@ -21,6 +21,9 @@ export default function MetricCard({ label, value, delta, tone = "text-finance-i
           </span>
         ) : null}
       </div>
+      {badge && (
+        <p className={`mt-2 text-xs font-semibold ${badgeTone || "text-neutral-400"}`}>{badge}</p>
+      )}
       {onClick && (
         <p className="mt-2 text-[10px] uppercase tracking-[0.18em] text-neutral-300 dark:text-neutral-600">Ver detalle →</p>
       )}

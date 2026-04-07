@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Bar, BarChart, Cell, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
@@ -13,6 +14,17 @@ import { fmtMoney } from "../utils";
  *   loading  - boolean
  */
 export default function MonthComparison({ current = [], previous = [], loading, currency = "UYU" }) {
+  const [hiddenCats, setHiddenCats] = useState(new Set());
+
+  function toggleCat(name) {
+    setHiddenCats((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }
+
   if (loading) {
     return (
       <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
@@ -51,7 +63,7 @@ export default function MonthComparison({ current = [], previous = [], loading, 
     .sort((a, b) => b.actual - a.actual);
 
   const MAX_ITEMS = 8;
-  const rows = data.slice(0, MAX_ITEMS);
+  const rows = data.slice(0, MAX_ITEMS).filter((d) => !hiddenCats.has(d.name));
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null;
@@ -100,6 +112,26 @@ export default function MonthComparison({ current = [], previous = [], loading, 
               <span className="text-finance-teal/70">{topSaving.delta}% vs mes ant.</span>
             </div>
           )}
+        </div>
+      )}
+
+      {data.length > 0 && (
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {data.slice(0, MAX_ITEMS).map((cat) => (
+            <button
+              key={cat.name}
+              type="button"
+              onClick={() => toggleCat(cat.name)}
+              className="rounded-full border px-2.5 py-1 text-xs font-medium transition"
+              style={{
+                color: cat.color,
+                borderColor: `${cat.color}55`,
+                opacity: hiddenCats.has(cat.name) ? 0.3 : 1,
+              }}
+            >
+              {cat.name}
+            </button>
+          ))}
         </div>
       )}
 

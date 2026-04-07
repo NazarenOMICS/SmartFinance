@@ -265,37 +265,31 @@ function reconcileAccountLinkTransactions(db, linkId, options = {}) {
   considerPairing(accountATxs, accountBTxs);
   considerPairing(accountBTxs, accountATxs);
 
+  const preferredCurrency = link.preferred_currency || null;
+
   const updatedTransactions = db.transaction(() => {
     const updated = [];
 
     pairs.forEach(([leftTx, rightTx]) => {
       const transferGroupId = crypto.randomUUID();
 
-      db.prepare(
-        `
-        UPDATE transactions
-        SET
-          category_id = NULL,
-          entry_type = 'internal_transfer',
-          movement_type = 'internal_transfer',
-          transfer_group_id = ?,
-          linked_transaction_id = ?
-        WHERE id = ?
-      `
-      ).run(transferGroupId, rightTx.id, leftTx.id);
-
-      db.prepare(
-        `
-        UPDATE transactions
-        SET
-          category_id = NULL,
-          entry_type = 'internal_transfer',
-          movement_type = 'internal_transfer',
-          transfer_group_id = ?,
-          linked_transaction_id = ?
-        WHERE id = ?
-      `
-      ).run(transferGroupId, leftTx.id, rightTx.id);
+      [leftTx, rightTx].forEach((tx, idx) => {
+        const other = idx === 0 ? rightTx : leftTx;
+        if (!preferredCurrency || tx.moneda !== preferredCurrency) {
+          db.prepare(
+            `UPDATE transactions
+             SET category_id = NULL, entry_type = 'internal_transfer',
+                 movement_type = 'internal_transfer',
+                 transfer_group_id = ?, linked_transaction_id = ?
+             WHERE id = ?`
+          ).run(transferGroupId, other.id, tx.id);
+        } else {
+          // Preferred leg: keep original classification, just link it
+          db.prepare(
+            `UPDATE transactions SET transfer_group_id = ?, linked_transaction_id = ? WHERE id = ?`
+          ).run(transferGroupId, other.id, tx.id);
+        }
+      });
 
       updated.push(leftTx.id, rightTx.id);
     });

@@ -50,6 +50,7 @@ export default function Dashboard({
   const [showCatManager, setShowCatManager] = useState(false);
   const [categoryCandidates, setCategoryCandidates] = useState(null); // { pattern, category_id, category_name }
   const [showAllCategories, setShowAllCategories] = useState(false);
+  const [hoveredCatIndex, setHoveredCatIndex] = useState(null);
   const loadRequestIdRef = useRef(0);
   const transactionsSectionRef = useRef(null);
 
@@ -290,7 +291,10 @@ export default function Dashboard({
 
   const { summary } = state;
   const money = (value) => fmtMoney(value, summary.currency);
+  const top5 = (summary.byCategory || []).slice(0, 5);
+  const donutData = [...top5].reverse(); // smallest→largest arc order
   const hiddenCategories = Math.max(0, (summary.byCategory?.length || 0) - 5);
+  const displayedCategories = showAllCategories ? (summary.byCategory || []) : top5;
   const displayCurrency = settings.display_currency || "UYU";
   const exchangeRateValue = Number(getExchangeRateMap(settings)[displayCurrency] || 1);
   const exchangeRateDecimals = exchangeRateValue < 1 ? 3 : 1;
@@ -361,25 +365,39 @@ export default function Dashboard({
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Patrimonio total" value={fmtMoney(summary.totals.patrimonio, summary.currency)} tone="text-finance-purple" />
-        <MetricCard
-          label="Ingresos del mes"
-          value={money(summary.totals.income)}
-          delta={summary.deltas.income}
-          tone="text-finance-teal"
-          positiveIsGood
-          onClick={() => setDrilldownFilter((prev) => (prev === "income" ? null : "income"))}
-        />
-        <MetricCard
-          label="Gastos del mes"
-          value={money(summary.totals.expenses)}
-          delta={summary.deltas.expenses}
-          tone="text-finance-red"
-          onClick={() => setDrilldownFilter((prev) => (prev === "expenses" ? null : "expenses"))}
-        />
-        <MetricCard label="Margen disponible" value={money(summary.totals.margin)} tone={summary.totals.margin >= 0 ? "text-finance-green" : "text-finance-red"} />
-      </div>
+      {(() => {
+        const margin = summary.totals.margin;
+        const target = summary.totals.savings_monthly_target || 0;
+        const savingStatus = margin <= 0 ? "Pasado este mes" : (target > 0 && margin < target) ? "Ajustado este mes" : "Ahorrando este mes";
+        const savingTone = margin <= 0 ? "text-finance-red" : (target > 0 && margin < target) ? "text-finance-amber" : "text-finance-teal";
+        return (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard label="Saldo actual" value={fmtMoney(summary.totals.saldo, summary.currency)} tone="text-finance-purple" />
+            <MetricCard
+              label="Ingresos del mes"
+              value={money(summary.totals.income)}
+              delta={summary.deltas.income}
+              tone="text-finance-teal"
+              positiveIsGood
+              onClick={() => setDrilldownFilter((prev) => (prev === "income" ? null : "income"))}
+            />
+            <MetricCard
+              label="Gastos del mes"
+              value={money(summary.totals.expenses)}
+              delta={summary.deltas.expenses}
+              tone="text-finance-red"
+              onClick={() => setDrilldownFilter((prev) => (prev === "expenses" ? null : "expenses"))}
+            />
+            <MetricCard
+              label="Margen disponible"
+              value={money(margin)}
+              tone={margin >= 0 ? "text-finance-green" : "text-finance-red"}
+              badge={savingStatus}
+              badgeTone={savingTone}
+            />
+          </div>
+        );
+      })()}
 
       <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
@@ -413,7 +431,7 @@ export default function Dashboard({
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={summary.byCategory}
+                    data={donutData}
                     dataKey="spent"
                     nameKey="name"
                     innerRadius={72}
@@ -421,12 +439,19 @@ export default function Dashboard({
                     paddingAngle={2}
                     onClick={(entry) => toggleCategory(entry.name)}
                   >
-                    {summary.byCategory.map((entry, index) => (
+                    {donutData.map((entry, index) => (
                       <Cell
                         key={entry.id}
                         fill={entry.color || chartColors[index % chartColors.length]}
-                        opacity={clickedCategory && clickedCategory !== entry.name ? 0.3 : 1}
+                        opacity={
+                          (hoveredCatIndex !== null && hoveredCatIndex !== index) ||
+                          (clickedCategory && clickedCategory !== entry.name)
+                            ? 0.3
+                            : 1
+                        }
                         style={{ cursor: "pointer", transition: "opacity 0.2s" }}
+                        onMouseEnter={() => setHoveredCatIndex(index)}
+                        onMouseLeave={() => setHoveredCatIndex(null)}
                       />
                     ))}
                   </Pie>
@@ -451,7 +476,7 @@ export default function Dashboard({
                   <span>x limpiar</span>
                 </button>
               )}
-              {summary.byCategory.map((category) => (
+              {displayedCategories.map((category) => (
                 <button
                   key={category.id}
                   onClick={() => toggleCategory(category.name)}

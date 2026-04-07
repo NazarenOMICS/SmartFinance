@@ -318,6 +318,9 @@ function migrate() {
   if (!txColumns.has("internal_operation_id")) db.exec("ALTER TABLE transactions ADD COLUMN internal_operation_id INTEGER");
   if (!txColumns.has("counterparty_account_id")) db.exec("ALTER TABLE transactions ADD COLUMN counterparty_account_id TEXT");
 
+  const linkColumns = new Set(db.prepare("PRAGMA table_info(account_links)").all().map((column) => column.name));
+  if (!linkColumns.has("preferred_currency")) db.exec("ALTER TABLE account_links ADD COLUMN preferred_currency TEXT DEFAULT NULL");
+
   db.exec(`
     UPDATE transactions
     SET category_id = NULL

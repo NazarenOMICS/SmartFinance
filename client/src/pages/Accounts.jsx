@@ -29,7 +29,7 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
     exchange_rate_ars_uyu: settings.manual_exchange_rate_ars_uyu || settings.exchange_rate_ars_uyu || "0.045",
   });
   const [newAccount, setNewAccount] = useState({ name: "", currency: "UYU", balance: "" });
-  const [linkForm, setLinkForm] = useState({ account_a_id: "", account_b_id: "" });
+  const [linkForm, setLinkForm] = useState({ account_a_id: "", account_b_id: "", preferred_currency: "" });
   const [linkMessage, setLinkMessage] = useState("");
   const [deleteError, setDeleteError] = useState(null);
   const [refreshingRates, setRefreshingRates] = useState(false);
@@ -190,7 +190,7 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
     event.preventDefault();
     try {
       await api.createAccountLink(linkForm);
-      setLinkForm({ account_a_id: "", account_b_id: "" });
+      setLinkForm({ account_a_id: "", account_b_id: "", preferred_currency: "" });
       setLinkMessage("Cuentas vinculadas correctamente.");
       await load({ silent: true });
     } catch (error) {
@@ -203,7 +203,7 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
     try {
       const created = await api.createAccountLink(linkForm);
       const reconciliation = await api.reconcileAccountLink(created.id);
-      setLinkForm({ account_a_id: "", account_b_id: "" });
+      setLinkForm({ account_a_id: "", account_b_id: "", preferred_currency: "" });
       setLinkMessage(`Cuentas vinculadas y conciliadas. ${reconciliation.reconciled_pairs} pares historicos pasaron a transferencia interna.`);
       await load({ silent: true });
     } catch (error) {
@@ -539,6 +539,22 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
                 ))}
             </select>
           </div>
+          <div className="mt-3">
+            <select
+              className="w-full rounded-2xl border border-neutral-200 px-4 py-3 text-sm text-finance-ink dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+              value={linkForm.preferred_currency}
+              onChange={(event) => setLinkForm((prev) => ({ ...prev, preferred_currency: event.target.value }))}
+            >
+              <option value="">Excluir ambas piernas de ingresos/gastos (defecto)</option>
+              {[...new Set(
+                state.accounts
+                  .filter((a) => a.id === linkForm.account_a_id || a.id === linkForm.account_b_id)
+                  .map((a) => a.currency)
+              )].map((cur) => (
+                <option key={cur} value={cur}>Contar {cur} como ingreso/gasto real</option>
+              ))}
+            </select>
+          </div>
           <div className="mt-4 flex flex-wrap gap-3">
             <button className="rounded-full bg-finance-purple px-5 py-3 font-semibold text-white">Linkear</button>
             <button type="button" onClick={handleCreateLinkAndReconcile} className="rounded-full border border-finance-purple/30 px-5 py-3 font-semibold text-finance-purple">
@@ -557,7 +573,10 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
                   <p className="font-semibold text-finance-ink">
                     {link.account_a_name} ({link.account_a_currency}) {"<->"} {link.account_b_name} ({link.account_b_currency})
                   </p>
-                  <p className="text-sm text-neutral-500">{link.relation_type}</p>
+                  <p className="text-sm text-neutral-500">
+                    {link.relation_type}
+                    {link.preferred_currency ? ` · ${link.preferred_currency} cuenta en métricas` : ""}
+                  </p>
                 </div>
                 <div className="flex flex-wrap gap-3">
                   <button type="button" onClick={() => handleReconcileLink(link.id)} className="rounded-full border border-finance-ink/10 px-3 py-1 text-xs font-semibold text-finance-ink">
