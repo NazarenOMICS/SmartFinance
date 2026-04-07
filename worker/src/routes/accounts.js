@@ -21,10 +21,15 @@ router.get("/consolidated", async (c) => {
   const exchangeRates = getExchangeRateMap(settings);
   const db   = getDb(c.env);
   const rows = await db.prepare(
-    "SELECT * FROM accounts WHERE user_id = ? ORDER BY created_at ASC"
+    `SELECT a.*, COALESCE(a.opening_balance, a.balance, 0) + COALESCE(SUM(t.monto), 0) AS live_balance
+     FROM accounts a
+     LEFT JOIN transactions t ON t.account_id = a.id AND t.user_id = a.user_id
+     WHERE a.user_id = ?
+     GROUP BY a.id
+     ORDER BY a.created_at ASC`
   ).all(userId);
   const toDisplay = (balance, currency) => convertAmount(balance, currency, displayCurrency, exchangeRates);
-  const total = rows.reduce((sum, acc) => sum + toDisplay(acc.balance, acc.currency), 0);
+  const total = rows.reduce((sum, acc) => sum + toDisplay(acc.live_balance, acc.currency), 0);
   return c.json({ total, currency: displayCurrency, exchange_rate: exchangeRates[displayCurrency] || 1 });
 });
 

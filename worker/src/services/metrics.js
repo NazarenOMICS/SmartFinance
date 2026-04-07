@@ -114,7 +114,7 @@ export async function computeSummary(db, env, month, userId) {
     byCategory: budgets.filter((item) => item.spent > 0).sort((a, b) => b.spent - a.spent),
     byType,
     budgets,
-    pending_count: current.filter((tx) => tx.categorization_status !== "categorized" && !isLikelyTransfer(tx.desc_banco)).length,
+    pending_count: current.filter((tx) => tx.categorization_status !== "categorized" && !isLikelyTransfer(tx.desc_banco) && tx.movement_kind !== "internal_transfer" && tx.movement_kind !== "fx_exchange").length,
     currency: displayCurrency,
   };
 }

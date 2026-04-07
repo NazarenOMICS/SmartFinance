@@ -159,7 +159,7 @@ function computeSummary(db, month) {
     byCategory,
     byType,
     budgets,
-    pending_count: current.filter((tx) => tx.categorization_status !== "categorized" && !isLikelyTransfer(tx.desc_banco)).length,
+    pending_count: current.filter((tx) => tx.categorization_status !== "categorized" && !isLikelyTransfer(tx.desc_banco) && tx.movement_kind !== "internal_transfer" && tx.movement_kind !== "fx_exchange").length,
     currency: displayCurrency,
   };
 }
