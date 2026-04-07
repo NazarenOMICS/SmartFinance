@@ -178,7 +178,7 @@ function findMatchingRule(db, descBanco) {
     if (!best) best = rule;
   }
 
-  if (suppressedByDisabledRule) return null;
+  if (suppressedByDisabledRule && !best) return null;
   return best;
 }
 

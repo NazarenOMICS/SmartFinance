@@ -57,7 +57,7 @@ export default function Savings({ month, settings, refreshSettings }) {
   }
 
   const { projection, insights } = state;
-  const historicalPoints = projection.series.filter((p) => p.real != null);
+  const historicalPoints = (projection.series || []).filter((p) => p.real != null);
   const currentSavings = historicalPoints.length > 0
     ? historicalPoints[historicalPoints.length - 1].real
     : Number(form.savings_initial);
@@ -164,7 +164,7 @@ export default function Savings({ month, settings, refreshSettings }) {
         </div>
         <div className="mt-4 h-80">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={projection.series}>
+            <ComposedChart data={projection.series || []}>
               <XAxis dataKey="month" tick={{ fill: "#737373", fontSize: 12 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: "#737373", fontSize: 12 }} axisLine={false} tickLine={false} />
               <Tooltip formatter={(value) => fmtMoney(value, projection.currency)} />
@@ -182,7 +182,7 @@ export default function Savings({ month, settings, refreshSettings }) {
           <h2 className="font-display text-3xl text-finance-ink">Compromisos próximos</h2>
           <div className="mt-6 h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={projection.commitments}>
+              <BarChart data={projection.commitments || []}>
                 <XAxis dataKey="month" tick={{ fill: "#737373", fontSize: 12 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: "#737373", fontSize: 12 }} axisLine={false} tickLine={false} />
                 <Tooltip formatter={(value) => fmtMoney(value, projection.currency)} />

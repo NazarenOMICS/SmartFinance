@@ -2,7 +2,7 @@ const express = require("express");
 const crypto = require("crypto");
 const { db, getSettingsObject, isValidMonthString, SUPPORTED_CURRENCY_LIST } = require("../db");
 const { buildDedupHash } = require("../services/dedup");
-const { ensureRuleForManualCategorization, getCandidatesForPattern } = require("../services/categorizer");
+const { ensureRuleForManualCategorization, findMatchingRule, getCandidatesForPattern, rejectRuleForDescription } = require("../services/categorizer");
 const { computeMonthlyEvolution, computeSummary, getTransactionsForMonth } = require("../services/metrics");
 const { suggestSync } = require("../services/suggester");
 const {
@@ -524,43 +524,44 @@ router.put("/:id", (req, res) => {
   const nextInternalOperationId = req.body.category_id !== undefined ? null : (current.internal_operation_id ?? null);
   const nextCounterpartyAccountId = req.body.category_id !== undefined ? null : (current.counterparty_account_id ?? null);
 
-  db.prepare(
-    `UPDATE transactions
-     SET category_id = ?, desc_usuario = ?, account_id = ?, fecha = ?, monto = ?, dedup_hash = ?,
-         categorization_status = ?, category_source = ?, category_confidence = ?, category_rule_id = ?,
-         movement_kind = ?, internal_operation_id = ?, counterparty_account_id = ?
-     WHERE id = ?`
-  ).run(
-    next.category_id,
-    next.desc_usuario,
-    next.account_id,
-    next.fecha,
-    next.monto,
-    nextDedupHash,
-    nextStatus,
-    nextSource,
-    nextConfidence,
-    nextRuleId,
-    nextMovementKind,
-    nextInternalOperationId,
-    nextCounterpartyAccountId,
-    id
-  );
-
   let ruleStatus = null;
-  let rejectedRule = null;
-  if (
-    req.body.category_id &&
-    req.body.category_id !== current.category_id &&
-    (current.movement_type || "standard") !== "internal_transfer"
-  ) {
-    const matchingRule = findMatchingRule(db, current.desc_banco);
-    if (matchingRule && matchingRule.category_id !== Number(req.body.category_id)) {
-      rejectedRule = rejectRuleForDescription(db, matchingRule.id, current.desc_banco);
+  db.transaction(() => {
+    db.prepare(
+      `UPDATE transactions
+       SET category_id = ?, desc_usuario = ?, account_id = ?, fecha = ?, monto = ?, dedup_hash = ?,
+           categorization_status = ?, category_source = ?, category_confidence = ?, category_rule_id = ?,
+           movement_kind = ?, internal_operation_id = ?, counterparty_account_id = ?
+       WHERE id = ?`
+    ).run(
+      next.category_id,
+      next.desc_usuario,
+      next.account_id,
+      next.fecha,
+      next.monto,
+      nextDedupHash,
+      nextStatus,
+      nextSource,
+      nextConfidence,
+      nextRuleId,
+      nextMovementKind,
+      nextInternalOperationId,
+      nextCounterpartyAccountId,
+      id
+    );
+
+    if (
+      req.body.category_id &&
+      req.body.category_id !== current.category_id &&
+      (current.movement_type || "standard") !== "internal_transfer"
+    ) {
+      const matchingRule = findMatchingRule(db, current.desc_banco);
+      if (matchingRule && matchingRule.category_id !== Number(req.body.category_id)) {
+        rejectRuleForDescription(db, matchingRule.id, current.desc_banco);
+      }
+      ruleStatus = ensureRuleForManualCategorization(db, current.desc_banco, req.body.category_id);
+      recordGlobalPatternLearning(db, "local-user", current.desc_banco, req.body.category_id, "confirm");
     }
-    ruleStatus = ensureRuleForManualCategorization(db, current.desc_banco, req.body.category_id);
-    recordGlobalPatternLearning(db, "local-user", current.desc_banco, req.body.category_id, "confirm");
-  }
+  })();
 
   res.json({ transaction: fetchTransactionRow(id), rule: ruleStatus });
 });
@@ -672,11 +673,18 @@ router.post("/undo-confirm-category", (req, res) => {
 
 router.delete("/:id", (req, res) => {
   const id = Number(req.params.id);
-  const existing = db.prepare("SELECT id FROM transactions WHERE id = ?").get(id);
+  const existing = db.prepare("SELECT id, linked_transaction_id FROM transactions WHERE id = ?").get(id);
   if (!existing) {
     return res.status(404).json({ error: "transaction not found" });
   }
-  db.prepare("DELETE FROM transactions WHERE id = ?").run(id);
+  db.transaction(() => {
+    db.prepare("DELETE FROM rule_exclusions WHERE transaction_id = ?").run(id);
+    if (existing.linked_transaction_id) {
+      db.prepare("UPDATE transactions SET linked_transaction_id = NULL, transfer_group_id = NULL WHERE id = ?")
+        .run(existing.linked_transaction_id);
+    }
+    db.prepare("DELETE FROM transactions WHERE id = ?").run(id);
+  })();
   res.status(204).send();
 });
 

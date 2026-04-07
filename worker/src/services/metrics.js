@@ -111,7 +111,7 @@ export async function computeSummary(db, env, month, userId) {
       income: pctDelta(currentIncome, previousIncome),
       expenses: pctDelta(currentExpenses, previousExpenses),
     },
-    byCategory: budgets.filter((item) => item.spent > 0),
+    byCategory: budgets.filter((item) => item.spent > 0).sort((a, b) => b.spent - a.spent),
     byType,
     budgets,
     pending_count: current.filter((tx) => tx.categorization_status !== "categorized" && !isLikelyTransfer(tx.desc_banco)).length,
