@@ -618,7 +618,6 @@ export default function Upload({
       setFeedback(result);
       applyImportReviewState(result);
       setUploadForm((prev) => ({ ...prev, file: null }));
-      invalidateData();
       await load();
       if (result.new_transactions > 0) {
         addToast("success", `${result.new_transactions} transacciones nuevas importadas.`);
@@ -660,7 +659,6 @@ export default function Upload({
       await api.createTransaction(payload);
       setManualForm((prev) => ({ ...prev, desc_banco: "", monto: "", target_account_id: "", target_amount: "", fee_amount: "" }));
       addToast("success", "Transacción guardada correctamente.");
-      invalidateData?.();
       await load();
     } catch (e) {
       addToast("error", e.message);

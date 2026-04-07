@@ -294,7 +294,10 @@ export default function Dashboard({
   const top5 = (summary.byCategory || []).slice(0, 5);
   const donutData = [...top5].reverse(); // smallest→largest arc order
   const hiddenCategories = Math.max(0, (summary.byCategory?.length || 0) - 5);
-  const displayedCategories = showAllCategories ? (summary.byCategory || []) : top5;
+  // List also smallest→largest to match donut visual order
+  const displayedCategories = showAllCategories
+    ? [...(summary.byCategory || [])].reverse()
+    : [...top5].reverse();
   const displayCurrency = settings.display_currency || "UYU";
   const exchangeRateValue = Number(getExchangeRateMap(settings)[displayCurrency] || 1);
   const exchangeRateDecimals = exchangeRateValue < 1 ? 3 : 1;
@@ -365,39 +368,43 @@ export default function Dashboard({
         </div>
       )}
 
-      {(() => {
-        const margin = summary.totals.margin;
-        const target = summary.totals.savings_monthly_target || 0;
-        const savingStatus = margin <= 0 ? "Pasado este mes" : (target > 0 && margin < target) ? "Ajustado este mes" : "Ahorrando este mes";
-        const savingTone = margin <= 0 ? "text-finance-red" : (target > 0 && margin < target) ? "text-finance-amber" : "text-finance-teal";
-        return (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <MetricCard label="Saldo actual" value={fmtMoney(summary.totals.saldo, summary.currency)} tone="text-finance-purple" />
-            <MetricCard
-              label="Ingresos del mes"
-              value={money(summary.totals.income)}
-              delta={summary.deltas.income}
-              tone="text-finance-teal"
-              positiveIsGood
-              onClick={() => setDrilldownFilter((prev) => (prev === "income" ? null : "income"))}
-            />
-            <MetricCard
-              label="Gastos del mes"
-              value={money(summary.totals.expenses)}
-              delta={summary.deltas.expenses}
-              tone="text-finance-red"
-              onClick={() => setDrilldownFilter((prev) => (prev === "expenses" ? null : "expenses"))}
-            />
-            <MetricCard
-              label="Margen disponible"
-              value={money(margin)}
-              tone={margin >= 0 ? "text-finance-green" : "text-finance-red"}
-              badge={savingStatus}
-              badgeTone={savingTone}
-            />
-          </div>
-        );
-      })()}
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="Saldo actual" value={fmtMoney(summary.totals.saldo, summary.currency)} tone="text-finance-purple" />
+        <MetricCard
+          label="Ingresos del mes"
+          value={money(summary.totals.income)}
+          delta={summary.deltas.income}
+          tone="text-finance-teal"
+          positiveIsGood
+          onClick={() => setDrilldownFilter((prev) => (prev === "income" ? null : "income"))}
+        />
+        <MetricCard
+          label="Gastos del mes"
+          value={money(summary.totals.expenses)}
+          delta={summary.deltas.expenses}
+          tone="text-finance-red"
+          onClick={() => setDrilldownFilter((prev) => (prev === "expenses" ? null : "expenses"))}
+        />
+        <MetricCard
+          label="Margen disponible"
+          value={money(summary.totals.margin)}
+          tone={summary.totals.margin >= 0 ? "text-finance-green" : "text-finance-red"}
+          badge={
+            summary.totals.margin <= 0
+              ? "Pasado este mes"
+              : (summary.totals.savings_monthly_target > 0 && summary.totals.margin < summary.totals.savings_monthly_target)
+                ? "Ajustado este mes"
+                : "Ahorrando este mes"
+          }
+          badgeTone={
+            summary.totals.margin <= 0
+              ? "text-finance-red"
+              : (summary.totals.savings_monthly_target > 0 && summary.totals.margin < summary.totals.savings_monthly_target)
+                ? "text-finance-amber"
+                : "text-finance-teal"
+          }
+        />
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">

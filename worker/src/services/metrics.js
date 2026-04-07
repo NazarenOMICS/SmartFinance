@@ -84,11 +84,14 @@ export async function computeSummary(db, env, month, userId) {
     spent: byCategoryMap[cat.name] || 0,
   }));
 
-  const accounts = await db.prepare("SELECT * FROM accounts WHERE user_id = ?").all(userId);
-  const consolidated = accounts.reduce(
+  const accountRows = await db.prepare("SELECT * FROM accounts WHERE user_id = ?").all(userId);
+  const consolidated = accountRows.reduce(
     (sum, account) => sum + convertAmount(account.balance, account.currency, displayCurrency, exchangeRates),
     0
   );
+  const savingsMonthlyTarget = Number(settings.savings_goal || 0) > 0
+    ? Math.round(Number(settings.savings_goal) / 12)
+    : 0;
 
   const installmentsMonth = current
     .filter((tx) => tx.es_cuota)
@@ -97,11 +100,12 @@ export async function computeSummary(db, env, month, userId) {
   return {
     month,
     totals: {
-      patrimonio: consolidated,
+      saldo: consolidated,
       income: currentIncome,
       expenses: currentExpenses,
       margin: currentIncome - currentExpenses,
       installments: installmentsMonth,
+      savings_monthly_target: savingsMonthlyTarget,
     },
     deltas: {
       income: pctDelta(currentIncome, previousIncome),

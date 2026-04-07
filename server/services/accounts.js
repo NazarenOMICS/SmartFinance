@@ -284,10 +284,12 @@ function reconcileAccountLinkTransactions(db, linkId, options = {}) {
              WHERE id = ?`
           ).run(transferGroupId, other.id, tx.id);
         } else {
-          // Preferred leg: keep original classification, just link it
+          // Preferred leg: keep in cashflow metrics, set entry_type from monto sign, just link it
+          const prefEntryType = Number(tx.monto) >= 0 ? "income" : "expense";
           db.prepare(
-            `UPDATE transactions SET transfer_group_id = ?, linked_transaction_id = ? WHERE id = ?`
-          ).run(transferGroupId, other.id, tx.id);
+            `UPDATE transactions SET entry_type = ?, movement_type = 'standard',
+             transfer_group_id = ?, linked_transaction_id = ? WHERE id = ?`
+          ).run(prefEntryType, transferGroupId, other.id, tx.id);
         }
       });
 

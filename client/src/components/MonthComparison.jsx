@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Bar, BarChart, Cell, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
@@ -15,6 +15,10 @@ import { fmtMoney } from "../utils";
  */
 export default function MonthComparison({ current = [], previous = [], loading, currency = "UYU" }) {
   const [hiddenCats, setHiddenCats] = useState(new Set());
+
+  useEffect(() => {
+    setHiddenCats(new Set());
+  }, [current, previous]);
 
   function toggleCat(name) {
     setHiddenCats((prev) => {
@@ -63,7 +67,7 @@ export default function MonthComparison({ current = [], previous = [], loading, 
     .sort((a, b) => b.actual - a.actual);
 
   const MAX_ITEMS = 8;
-  const rows = data.slice(0, MAX_ITEMS).filter((d) => !hiddenCats.has(d.name));
+  const rows = data.filter((d) => !hiddenCats.has(d.name)).slice(0, MAX_ITEMS);
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null;
@@ -117,7 +121,7 @@ export default function MonthComparison({ current = [], previous = [], loading, 
 
       {data.length > 0 && (
         <div className="mb-3 flex flex-wrap gap-1.5">
-          {data.slice(0, MAX_ITEMS).map((cat) => (
+          {data.map((cat) => (
             <button
               key={cat.name}
               type="button"
