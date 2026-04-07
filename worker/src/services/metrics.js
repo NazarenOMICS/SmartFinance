@@ -89,9 +89,9 @@ export async function computeSummary(db, env, month, userId) {
     (sum, account) => sum + convertAmount(account.balance, account.currency, displayCurrency, exchangeRates),
     0
   );
-  const savingsMonthlyTarget = Number(settings.savings_goal || 0) > 0
-    ? Math.round(Number(settings.savings_goal) / 12)
-    : 0;
+  const savingsMonthlyTarget = Number(settings.savings_monthly || 0) > 0
+    ? Math.round(Number(settings.savings_monthly))
+    : (Number(settings.savings_goal || 0) > 0 ? Math.round(Number(settings.savings_goal) / 12) : 0);
 
   const installmentsMonth = current
     .filter((tx) => tx.es_cuota)

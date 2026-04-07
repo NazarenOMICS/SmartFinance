@@ -11,7 +11,8 @@ export default function Savings({ month, settings, refreshSettings }) {
   const loadRequestIdRef = useRef(0);
   const [form, setForm] = useState({
     savings_initial: settings.savings_initial || "0",
-    savings_goal: settings.savings_goal || "200000",
+    savings_monthly: settings.savings_monthly || "0",
+    savings_goal: settings.savings_goal || "0",
     savings_currency: settings.savings_currency || "UYU"
   });
 
@@ -31,7 +32,8 @@ export default function Savings({ month, settings, refreshSettings }) {
   useEffect(() => {
     setForm({
       savings_initial: settings.savings_initial || "0",
-      savings_goal: settings.savings_goal || "200000",
+      savings_monthly: settings.savings_monthly || "0",
+      savings_goal: settings.savings_goal || "0",
       savings_currency: settings.savings_currency || "UYU"
     });
   }, [settings]);
@@ -68,7 +70,7 @@ export default function Savings({ month, settings, refreshSettings }) {
   return (
     <div className="space-y-6">
       <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <label className="flex flex-col gap-1">
             <span className="text-xs uppercase tracking-[0.18em] text-neutral-400">Capital inicial</span>
             <input
@@ -79,10 +81,21 @@ export default function Savings({ month, settings, refreshSettings }) {
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-xs uppercase tracking-[0.18em] text-neutral-400">Objetivo</span>
+            <span className="text-xs uppercase tracking-[0.18em] text-neutral-400">Ahorro mensual</span>
             <input
               className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
               type="number"
+              min="0"
+              value={form.savings_monthly}
+              onChange={(e) => setForm((prev) => ({ ...prev, savings_monthly: e.target.value }))}
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs uppercase tracking-[0.18em] text-neutral-400">Objetivo total (opcional)</span>
+            <input
+              className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+              type="number"
+              min="0"
               value={form.savings_goal}
               onChange={(e) => setForm((prev) => ({ ...prev, savings_goal: e.target.value }))}
             />
