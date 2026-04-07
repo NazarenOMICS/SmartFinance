@@ -1,0 +1,70 @@
+name: Reset D1
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_reset:
+        description: "Escribe RESET para borrar toda la base D1 remota y recrearla"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CLOUDFARE_WORKERS }}
+  CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFARE_ACCOUNT_ID }}
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CLOUDFARE_WORKERS }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFARE_ACCOUNT_ID }}
+
+jobs:
+  reset-d1:
+    runs-on: ubuntu-latest
+    name: Reset remote D1 database
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate confirmation and credentials
+        run: |
+          if [ "${{ github.event.inputs.confirm_reset }}" != "RESET" ]; then
+            echo "Abortado: debes escribir RESET para ejecutar este workflow."
+            exit 1
+          fi
+          if [ -z "${CF_API_TOKEN}" ]; then
+            echo "Missing Cloudflare API token. Set CLOUDFLARE_API_TOKEN or CLOUDFARE_WORKERS in GitHub Secrets."
+            exit 1
+          fi
+          if [ -z "${CF_ACCOUNT_ID}" ]; then
+            echo "Missing Cloudflare account ID. Set CLOUDFLARE_ACCOUNT_ID in GitHub Secrets."
+            exit 1
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install worker dependencies
+        run: cd worker && npm ci
+
+      - name: Drop existing D1 schema
+        run: |
+          npx --prefix worker wrangler d1 execute smartfinance --remote --config wrangler.toml --command "
+          PRAGMA foreign_keys=OFF;
+          DROP TABLE IF EXISTS rule_exclusions;
+          DROP TABLE IF EXISTS categorization_events;
+          DROP TABLE IF EXISTS transactions;
+          DROP TABLE IF EXISTS installments;
+          DROP TABLE IF EXISTS uploads;
+          DROP TABLE IF EXISTS rules;
+          DROP TABLE IF EXISTS categories;
+          DROP TABLE IF EXISTS accounts;
+          DROP TABLE IF EXISTS settings;
+          DROP TABLE IF EXISTS bank_formats;
+          DROP TABLE IF EXISTS system_meta;
+          DROP TABLE IF EXISTS d1_migrations;
+          PRAGMA foreign_keys=ON;
+          "
+
+      - name: Re-apply migrations
+        run: npx --prefix worker wrangler d1 migrations apply smartfinance --remote --config wrangler.toml

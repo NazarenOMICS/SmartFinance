@@ -3,18 +3,37 @@
 @tailwind utilities;
 
 :root {
-  color: #1b1b28;
-  background:
-    radial-gradient(circle at top left, rgba(83, 74, 183, 0.14), transparent 28%),
-    radial-gradient(circle at top right, rgba(29, 158, 117, 0.1), transparent 26%),
-    linear-gradient(180deg, #fffdf8 0%, #f7f4ed 100%);
+  /* RGB channels for Tailwind opacity modifiers (bg-finance-ink/40 etc.) */
+  --finance-ink-rgb: 27 27 40;
+  --finance-cream-rgb: 247 244 237;
+  color: rgb(var(--finance-ink-rgb));
   font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+}
+
+.dark {
+  --finance-ink-rgb: 226 224 240;
+  --finance-cream-rgb: 19 19 31;
+  color: rgb(var(--finance-ink-rgb));
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(83, 74, 183, 0.14), transparent 28%),
+    radial-gradient(circle at top right, rgba(29, 158, 117, 0.1), transparent 26%),
+    linear-gradient(180deg, #fffdf8 0%, #f7f4ed 100%);
+  background-attachment: fixed;
+}
+
+.dark body,
+html.dark body {
+  background:
+    radial-gradient(circle at top left, rgba(83, 74, 183, 0.22), transparent 30%),
+    radial-gradient(circle at top right, rgba(29, 158, 117, 0.12), transparent 28%),
+    linear-gradient(180deg, #0e0e1a 0%, #131320 100%);
+  background-attachment: fixed;
 }
 
 * {
@@ -25,5 +44,45 @@ button,
 input,
 select {
   font: inherit;
+}
+
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0)   scale(1);    }
+}
+.toast-enter {
+  animation: toast-in 0.18s ease-out;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-in {
+  animation: fade-in 0.22s ease-out;
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+.animate-slide-in-right {
+  animation: slide-in-right 0.25s ease-out;
+}
+
+/* Pulse animation for skeleton loaders — extend Tailwind's */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
+}
+.animate-pulse {
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
 }
 

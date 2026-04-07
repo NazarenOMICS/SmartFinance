@@ -1,16 +1,13 @@
-const { getSettingsObject, monthWindow } = require("../db");
-const { getConsolidatedSnapshot } = require("./accounts");
+const { convertAmount, getExchangeRateMap, getSettingsObject, monthWindow } = require("../db");
+const { isLikelyTransfer } = require("./categorizer");
 
 function isInternalTransfer(tx) {
-  return (tx.movement_type || "standard") === "internal_transfer";
+  return (tx.movement_type || "standard") === "internal_transfer" ||
+    tx.movement_kind === "internal_transfer" || tx.movement_kind === "fx_exchange";
 }
 
 function isCashflowTransaction(tx) {
-  return !isInternalTransfer(tx);
-}
-
-function isPendingReview(tx) {
-  return isCashflowTransaction(tx) && tx.entry_type !== "income" && !tx.category_id;
+  return !isInternalTransfer(tx) && tx.category_type !== "transferencia";
 }
 
 function previousMonth(month) {
@@ -50,12 +47,15 @@ function getTransactionsForMonth(db, month, extraWhere = "", params = []) {
         c.type AS category_type,
         a.name AS account_name,
         lt.account_id AS linked_account_id,
-        la.name AS linked_account_name
+        la.name AS linked_account_name,
+        io.status AS internal_operation_status,
+        io.kind AS internal_operation_kind
       FROM transactions t
       LEFT JOIN categories c ON c.id = t.category_id
       LEFT JOIN accounts a ON a.id = t.account_id
       LEFT JOIN transactions lt ON lt.id = t.linked_transaction_id
       LEFT JOIN accounts la ON la.id = lt.account_id
+      LEFT JOIN internal_operations io ON io.id = t.internal_operation_id
       WHERE t.fecha >= ? AND t.fecha < ?
       ${extraWhere}
       ORDER BY t.fecha ASC, t.id ASC
@@ -75,28 +75,42 @@ function computeSummary(db, month) {
   const current = getTransactionsForMonth(db, month);
   const previous = getTransactionsForMonth(db, previousMonth(month));
   const categories = db.prepare("SELECT * FROM categories ORDER BY sort_order, id").all();
-  const currentCashflow = current.filter(isCashflowTransaction);
-  const previousCashflow = previous.filter(isCashflowTransaction);
-  const consolidated = getConsolidatedSnapshot(db);
+  const settings = getSettingsObject();
+  const displayCurrency = settings.display_currency || "UYU";
+  const exchangeRates = getExchangeRateMap(settings);
 
-  const currentIncome = currentCashflow.filter((tx) => tx.monto > 0).reduce((sum, tx) => sum + tx.monto, 0);
-  const currentExpenses = currentCashflow.filter((tx) => tx.monto < 0).reduce((sum, tx) => sum + Math.abs(tx.monto), 0);
-  const previousIncome = previousCashflow.filter((tx) => tx.monto > 0).reduce((sum, tx) => sum + tx.monto, 0);
-  const previousExpenses = previousCashflow.filter((tx) => tx.monto < 0).reduce((sum, tx) => sum + Math.abs(tx.monto), 0);
+  const isTransfer = (tx) => tx.category_type === "transferencia";
+  const isInternalMovement = (tx) => tx.movement_kind === "internal_transfer" || tx.movement_kind === "fx_exchange";
+  const financialCurrent = current.filter((tx) => !isTransfer(tx) && !isInternalMovement(tx));
+  const financialPrevious = previous.filter((tx) => !isTransfer(tx) && !isInternalMovement(tx));
+  const toDisplayAmount = (tx) => convertAmount(tx.monto, tx.moneda, displayCurrency, exchangeRates);
 
-  const byCategoryMap = currentCashflow
+  const currentIncome = financialCurrent
+    .filter((tx) => tx.monto > 0)
+    .reduce((sum, tx) => sum + toDisplayAmount(tx), 0);
+  const currentExpenses = financialCurrent
+    .filter((tx) => tx.monto < 0)
+    .reduce((sum, tx) => sum + Math.abs(toDisplayAmount(tx)), 0);
+  const previousIncome = financialPrevious
+    .filter((tx) => tx.monto > 0)
+    .reduce((sum, tx) => sum + convertAmount(tx.monto, tx.moneda, displayCurrency, exchangeRates), 0);
+  const previousExpenses = financialPrevious
+    .filter((tx) => tx.monto < 0)
+    .reduce((sum, tx) => sum + Math.abs(convertAmount(tx.monto, tx.moneda, displayCurrency, exchangeRates)), 0);
+
+  const byCategoryMap = financialCurrent
     .filter((tx) => tx.monto < 0 && tx.category_name)
     .reduce((acc, tx) => {
-      acc[tx.category_name] = (acc[tx.category_name] || 0) + Math.abs(tx.monto);
+      acc[tx.category_name] = (acc[tx.category_name] || 0) + Math.abs(toDisplayAmount(tx));
       return acc;
     }, {});
 
-  const byType = currentCashflow
+  const byType = financialCurrent
     .filter((tx) => tx.monto < 0)
     .reduce(
       (acc, tx) => {
         const type = tx.category_type || "variable";
-        acc[type] = (acc[type] || 0) + Math.abs(tx.monto);
+        acc[type] = (acc[type] || 0) + Math.abs(toDisplayAmount(tx));
         return acc;
       },
       { fijo: 0, variable: 0 }
@@ -106,36 +120,49 @@ function computeSummary(db, month) {
     id: category.id,
     name: category.name,
     type: category.type,
-    budget: category.budget,
+    budget: category.type === "fijo"
+      ? (byCategoryMap[category.name] || 0)
+      : convertAmount(category.budget, "UYU", displayCurrency, exchangeRates),
     color: category.color,
-    spent: byCategoryMap[category.name] || 0
+    spent: byCategoryMap[category.name] || 0,
   }));
 
-  const installmentsMonth = currentCashflow.filter((tx) => tx.es_cuota).reduce((sum, tx) => sum + Math.abs(tx.monto), 0);
+  const accounts = db.prepare("SELECT * FROM accounts").all();
+  const consolidated = accounts.reduce((sum, account) => {
+    return sum + convertAmount(account.balance, account.currency, displayCurrency, exchangeRates);
+  }, 0);
+
+  const installmentsMonth = current
+    .filter((tx) => tx.es_cuota)
+    .reduce((sum, tx) => sum + Math.abs(toDisplayAmount(tx)), 0);
+
   const byCategory = budgets.filter((item) => item.spent > 0).sort((left, right) => right.spent - left.spent);
 
   return {
     month,
     totals: {
-      patrimonio: consolidated.total,
+      patrimonio: consolidated,
       income: currentIncome,
       expenses: currentExpenses,
       margin: currentIncome - currentExpenses,
-      installments: installmentsMonth
+      installments: installmentsMonth,
     },
     deltas: {
       income: pctDelta(currentIncome, previousIncome),
-      expenses: pctDelta(currentExpenses, previousExpenses)
+      expenses: pctDelta(currentExpenses, previousExpenses),
     },
     byCategory,
     byType,
     budgets,
-    pending_count: current.filter(isPendingReview).length,
-    currency: consolidated.currency
+    pending_count: current.filter((tx) => tx.categorization_status !== "categorized" && !isLikelyTransfer(tx.desc_banco)).length,
+    currency: displayCurrency,
   };
 }
 
 function computeMonthlyEvolution(db, endMonth, months) {
+  const settings = getSettingsObject();
+  const displayCurrency = settings.display_currency || "UYU";
+  const exchangeRates = getExchangeRateMap(settings);
   const [endYear, endMonthNum] = endMonth.split("-").map(Number);
   const series = [];
 
@@ -146,10 +173,15 @@ function computeMonthlyEvolution(db, endMonth, months) {
     const month = `${year}-${String(monthIndex).padStart(2, "0")}`;
     const tx = getTransactionsForMonth(db, month).filter(isCashflowTransaction);
 
+    const financial = tx.filter((item) => item.category_type !== "transferencia" && item.movement_kind !== "internal_transfer" && item.movement_kind !== "fx_exchange");
     series.push({
       month,
-      ingresos: tx.filter((item) => item.monto > 0).reduce((sum, item) => sum + item.monto, 0),
-      gastos: tx.filter((item) => item.monto < 0).reduce((sum, item) => sum + Math.abs(item.monto), 0)
+      ingresos: financial
+        .filter((item) => item.monto > 0)
+        .reduce((sum, item) => sum + convertAmount(item.monto, item.moneda, displayCurrency, exchangeRates), 0),
+      gastos: financial
+        .filter((item) => item.monto < 0)
+        .reduce((sum, item) => sum + Math.abs(convertAmount(item.monto, item.moneda, displayCurrency, exchangeRates)), 0),
     });
   }
 
@@ -162,9 +194,21 @@ function computeMonthNet(db, month) {
     .reduce((sum, row) => sum + row.monto, 0);
 }
 
-function computeFutureCommitments(db, startMonth, months) {
-  const installments = db.prepare("SELECT * FROM installments").all();
+function computeFutureCommitments(db, startMonth, months, options = {}) {
+  const installments = db.prepare(
+    `SELECT i.*, a.currency AS account_currency
+     FROM installments i
+     LEFT JOIN accounts a ON a.id = i.account_id`
+  ).all();
+  const targetCurrency = options.currency || null;
+  const exchangeRates = options.exchangeRates || {
+    UYU: 1,
+    USD: Number(options.exchangeRateUsd || 42.5),
+    EUR: Number(options.exchangeRateEur || 46.5),
+    ARS: Number(options.exchangeRateArs || 0.045),
+  };
   const [startYear, startMonthNum] = startMonth.split("-").map(Number);
+  const fallbackInstallmentStart = [startYear, startMonthNum];
   const result = [];
 
   for (let offset = 0; offset < months; offset += 1) {
@@ -173,7 +217,9 @@ function computeFutureCommitments(db, startMonth, months) {
     const monthIndex = (totalMonths % 12) + 1;
     const month = `${year}-${String(monthIndex).padStart(2, "0")}`;
     const total = installments.reduce((sum, installment) => {
-      const installmentStart = installment.start_month ? installment.start_month.split("-").map(Number) : [year, monthIndex];
+      const installmentStart = installment.start_month
+        ? installment.start_month.split("-").map(Number)
+        : fallbackInstallmentStart;
       const startAbsolute = installmentStart[0] * 12 + (installmentStart[1] - 1);
       const absoluteMonth = year * 12 + (monthIndex - 1);
       const installmentNumber = absoluteMonth - startAbsolute + 1;
@@ -182,7 +228,11 @@ function computeFutureCommitments(db, startMonth, months) {
         return sum;
       }
 
-      return sum + installment.monto_cuota;
+      const installmentAmount = targetCurrency
+        ? convertAmount(installment.monto_cuota, installment.account_currency || targetCurrency, targetCurrency, exchangeRates)
+        : installment.monto_cuota;
+
+      return sum + installmentAmount;
     }, 0);
 
     result.push({ month, total });
@@ -267,6 +317,5 @@ module.exports = {
   isCashflowTransaction,
   isInternalTransfer,
   nextMonth,
-  previousMonth
+  previousMonth,
 };
-

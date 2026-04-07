@@ -1,0 +1,24 @@
+name = "smartfinance"
+main = "worker/index.js"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "smartfinance"
+database_id = "713df2c2-f8fb-478d-b60e-82439e5b7662"
+migrations_dir = "worker/migrations"
+
+# Clerk JWT verification — set to your Clerk JWKS URL
+# Format: https://<your-clerk-domain>/.well-known/jwks.json
+# Find it in: Clerk Dashboard → API Keys → Advanced → JWKS URL
+[vars]
+CLERK_JWKS_URL = "https://internal-salmon-11.clerk.accounts.dev/.well-known/jwks.json"
+
+[triggers]
+crons = ["0 11 * * *"]
+
+# R2 para almacenar PDFs subidos (opcional - activar en cloudflare.com/r2 primero)
+# [[r2_buckets]]
+# binding = "UPLOADS"
+# bucket_name = "smartfinance-uploads"

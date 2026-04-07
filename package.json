@@ -6,11 +6,13 @@
     "server": "cd server && node index.js",
     "client": "cd client && npm run dev",
     "build": "cd client && npm run build",
-    "setup": "cd server && npm install && cd ../client && npm install",
-    "seed": "cd server && node seed.js"
+    "setup": "cd server && npm install && cd ../client && npm install && cd ../worker && npm install",
+    "seed": "cd server && node seed.js",
+    "worker:dev": "cd worker && npx wrangler dev",
+    "worker:deploy": "cd worker && npx wrangler deploy",
+    "deploy": "npm run build && npm run worker:deploy"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
   }
 }
-

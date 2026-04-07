@@ -9,3 +9,5 @@ uploads/*
 node-v*/
 node-portable.zip
 .DS_Store
+.env
+.wrangler/

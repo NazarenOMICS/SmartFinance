@@ -1,13 +1,123 @@
+const { buildSeedRules, normalizePatternValue } = require("./taxonomy");
+
+const REINTEGRO_KEYWORDS = [
+  "devolucion", "devol", "reintegro", "reversa", "reverso",
+  "acreditacion devol", "cashback", "contracargo", "reversal"
+];
+
+const REINTEGRO_THRESHOLDS = { UYU: 200, USD: 5, ARS: 1000 };
+
+const TRANSFER_KEYWORDS = [
+  "supernet tc",
+  "compra de dolares",
+  "venta de dolares",
+  "compra dolares",
+  "venta dolares",
+  "compra divisa",
+  "venta divisa",
+  "compra moneda extranjera",
+  "venta moneda extranjera",
+  "cambio divisas",
+  "cambio de moneda",
+  "operacion tc",
+  "operacion de cambio",
+  "tc compra",
+  "tc venta",
+  "transferencia propia",
+  "transferencia entre cuentas",
+  "transferencia interna",
+  "movimiento entre cuentas",
+  "debito transferencia interna",
+  "transferencia inmediata",
+  "transferencia realizada",
+  "transf recibida",
+  "debito debin",
+  "credito debin",
+];
+
+const PERSON_TRANSFER_KEYWORDS = [
+  "transferencia enviada",
+  "transferencia inmediata a ",
+  "transferencia realizada a ",
+  "transf recibida ",
+  "trf plaza",
+  "trf. plaza",
+  "t--/",
+  "tregalo",
+  "tesitore fernandez",
+];
+
+const SUPERNET_INCOME_KEYWORDS = [
+  "credito por operacion en supernet p--/",
+  "credito por operacion en supernet p ",
+  "credito por operacion en supernet p-/",
+];
+
+const EDUCATION_HINTS = [
+  "educuniversida",
+  "educacion universitaria",
+  "cuota ort",
+  "ort centro",
+  " universidad ",
+  " facultad ",
+];
+
+const CARD_PURCHASE_HINTS = [
+  "compra con tarjeta",
+  "compra tarjeta",
+  "compra con debito",
+  "compra con credito",
+  "compra internacional",
+  "dlo.",
+];
+
+function hasCommercePurchaseContext(descBanco) {
+  const normalized = normalizePatternValue(descBanco);
+  if (CARD_PURCHASE_HINTS.some((item) => normalized.includes(normalizePatternValue(item)))) {
+    return true;
+  }
+  const canonicalMatch = matchCanonicalCategory(descBanco);
+  return Boolean(
+    canonicalMatch &&
+    !["transferencia", "ingreso", "reintegro", "otros"].includes(canonicalMatch.category.slug)
+  );
+}
+
+const GENERIC_PATTERN_TOKENS = new Set([
+  "con", "tarjeta", "compra", "debito", "deb", "credito", "visa", "master", "mastercard",
+  "pago", "cuota", "cuotas", "consumo", "local", "comercio", "pos", "web", "online",
+  "internacional", "internac", "nacional", "uy", "uru", "cta", "caja", "ahorro",
+  "movimiento", "compraweb", "punto", "venta", "servicio", "tc", "titular",
+  "mercado", "trip", "one", "viaje", "operacion", "supernet", "sms", "comision"
+]);
+
+function extractMeaningfulPatternTokens(descBanco) {
+  const cleaned = normalizePatternValue(descBanco).replace(/\b\d{4,}\b/g, " ");
+  return cleaned
+    .split(" ")
+    .filter((item) => item.length >= 3 && !GENERIC_PATTERN_TOKENS.has(item));
+}
+
+function isGenericRulePattern(pattern) {
+  const tokens = normalizePatternValue(pattern).split(" ").filter(Boolean);
+  if (tokens.length === 0) return true;
+  return tokens.every((token) => token.length < 3 || GENERIC_PATTERN_TOKENS.has(token));
+}
+
 function getRules(db) {
-  return db
-    .prepare(
-      `
-      SELECT id, pattern, category_id, match_count
-      FROM rules
-      ORDER BY match_count DESC, id ASC
-    `
-    )
-    .all();
+  return db.prepare(
+    `SELECT id, pattern, normalized_pattern, category_id, match_count, mode, confidence, source,
+            account_id, currency, direction, merchant_key
+     FROM rules
+     ORDER BY LENGTH(normalized_pattern) DESC, confidence DESC, match_count DESC, id ASC`
+  ).all();
+}
+
+function matchesRule(descBanco, rule) {
+  const normalizedDesc = normalizePatternValue(descBanco);
+  const pattern = rule.normalized_pattern || normalizePatternValue(rule.pattern);
+  if (isGenericRulePattern(pattern)) return false;
+  return Boolean(pattern) && normalizedDesc.includes(pattern);
 }
 
 function normalizeDescription(descBanco) {
@@ -55,57 +165,109 @@ function isRuleRejectedForDescription(db, ruleId, descBanco) {
 }
 
 function findMatchingRule(db, descBanco) {
-  const normalized = String(descBanco || "").toLowerCase();
-  return (
-    getRules(db).find((rule) => normalized.includes(rule.pattern.toLowerCase()) && !isRuleRejectedForDescription(db, rule.id, descBanco)) || null
-  );
+  const rules = getRules(db);
+  let best = null;
+  let suppressedByDisabledRule = false;
+
+  for (const rule of rules) {
+    if (!matchesRule(descBanco, rule)) continue;
+    if (rule.mode === "disabled") {
+      suppressedByDisabledRule = true;
+      continue;
+    }
+    if (!best) best = rule;
+  }
+
+  if (suppressedByDisabledRule) return null;
+  return best;
+}
+
+function isLikelyReintegro(db, descBanco, monto, moneda) {
+  if (monto <= 0) return false;
+  const normalized = normalizePatternValue(descBanco);
+  if (REINTEGRO_KEYWORDS.some((kw) => normalized.includes(kw))) return true;
+
+  const threshold = REINTEGRO_THRESHOLDS[moneda] ?? REINTEGRO_THRESHOLDS.UYU;
+  if (monto < threshold) {
+    const rule = findMatchingRule(db, descBanco);
+    if (rule) {
+      const cat = db.prepare("SELECT name FROM categories WHERE id = ?").get(rule.category_id);
+      if (cat?.name === "Ingreso") return false;
+    }
+    return true;
+  }
+
+  return false;
+}
+
+function isLikelyTransfer(descBanco) {
+  const normalized = normalizePatternValue(descBanco);
+  if (hasCommercePurchaseContext(descBanco)) return false;
+  return TRANSFER_KEYWORDS.some((kw) => normalized.includes(kw));
+}
+
+function isLikelyPersonTransfer(descBanco) {
+  const normalized = normalizePatternValue(descBanco);
+  if (hasCommercePurchaseContext(descBanco)) return false;
+  if (normalized.includes("credito por operacion en supernet")) return false;
+  return PERSON_TRANSFER_KEYWORDS.some((kw) => normalized.includes(normalizePatternValue(kw)));
+}
+
+function isLikelySupernetIncome(descBanco, monto) {
+  if (Number(monto) <= 0) return false;
+  const normalized = normalizePatternValue(descBanco);
+  if (!normalized.includes("credito por operacion en supernet")) return false;
+  return SUPERNET_INCOME_KEYWORDS.some((kw) => normalized.includes(normalizePatternValue(kw)));
+}
+
+function isLikelyEducation(descBanco) {
+  const normalized = ` ${normalizePatternValue(descBanco)} `;
+  return EDUCATION_HINTS.some((kw) => normalized.includes(normalizePatternValue(kw)));
 }
 
 function bumpRule(db, ruleId) {
-  db.prepare("UPDATE rules SET match_count = match_count + 1 WHERE id = ?").run(ruleId);
+  db.prepare(
+    "UPDATE rules SET match_count = match_count + 1, last_matched_at = datetime('now') WHERE id = ?"
+  ).run(ruleId);
 }
 
 function buildPatternFromDescription(descBanco) {
-  const stopwords = new Set([
-    "pos",
-    "compra",
-    "debito",
-    "deb",
-    "automatico",
-    "transferencia",
-    "recibida",
-    "pago",
-    "cuota",
-    "trip"
-  ]);
+  const tokens = extractMeaningfulPatternTokens(descBanco);
+  return normalizePatternValue(tokens.slice(0, 2).join(" ").trim());
+}
 
-  const cleaned = String(descBanco || "")
-    .replace(/[*#]/g, " ")
-    .replace(/\b\d+\b/g, " ")
-    .replace(/[^\p{L}\s]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+function findCandidatesForRule(db, pattern) {
+  const normalizedPattern = normalizePatternValue(pattern);
+  return db.prepare(
+    `SELECT t.id, t.fecha, t.desc_banco, t.monto, t.moneda, a.name AS account_name
+     FROM transactions t
+     LEFT JOIN accounts a ON a.id = t.account_id
+     WHERE t.categorization_status != 'categorized'
+       AND LOWER(t.desc_banco) LIKE '%' || ? || '%'
+     ORDER BY t.fecha DESC
+     LIMIT 50`
+  ).all(normalizedPattern);
+}
 
-  const tokens = cleaned
-    .split(" ")
-    .map((token) => token.toLowerCase())
-    .filter((token) => token && !stopwords.has(token));
-
-  return tokens.slice(0, 2).join(" ").trim() || cleaned.split(" ").slice(0, 2).join(" ").trim();
+function getCandidatesForPattern(db, pattern) {
+  return findCandidatesForRule(db, pattern);
 }
 
 function ensureRuleForManualCategorization(db, descBanco, categoryId) {
-  const existing = db
-    .prepare(
-      `
-      SELECT id, pattern, category_id
-      FROM rules
-      WHERE ? LIKE '%' || pattern || '%'
-         OR LOWER(?) LIKE '%' || LOWER(pattern) || '%'
-      LIMIT 1
-    `
-    )
-    .get(descBanco, descBanco);
+  const normalizedPattern = buildPatternFromDescription(descBanco);
+  if (!normalizedPattern || isGenericRulePattern(normalizedPattern)) {
+    return { created: false, conflict: false, rule: null };
+  }
+
+  const existing = db.prepare(
+    `SELECT id, pattern, normalized_pattern, category_id, mode, confidence
+     FROM rules
+     WHERE normalized_pattern = ?
+       AND COALESCE(account_id, '') = ''
+       AND COALESCE(currency, '') = ''
+       AND direction = 'any'
+     LIMIT 1`
+  ).get(normalizedPattern);
 
   if (existing) {
     if (existing.category_id !== Number(categoryId)) {
@@ -114,24 +276,82 @@ function ensureRuleForManualCategorization(db, descBanco, categoryId) {
     return { created: false, conflict: false, rule: existing };
   }
 
-  const pattern = buildPatternFromDescription(descBanco);
-  if (!pattern) {
-    return { created: false, conflict: false, rule: null };
-  }
+  const result = db.prepare(
+    `INSERT INTO rules (
+      pattern, normalized_pattern, category_id, match_count, mode, confidence, source,
+      account_id, currency, direction, merchant_key, last_matched_at
+    ) VALUES (?, ?, ?, 0, 'suggest', 0.82, 'manual', NULL, NULL, 'any', ?, NULL)`
+  ).run(normalizedPattern, normalizedPattern, Number(categoryId), normalizedPattern);
 
-  const result = db
-    .prepare("INSERT INTO rules (pattern, category_id, match_count) VALUES (?, ?, 0)")
-    .run(pattern, categoryId);
+  const candidates = findCandidatesForRule(db, normalizedPattern);
+  return {
+    created: true,
+    conflict: false,
+    candidates_count: candidates.length,
+    rule: { id: result.lastInsertRowid, pattern: normalizedPattern, normalized_pattern: normalizedPattern, category_id: Number(categoryId) }
+  };
+}
 
-  return { created: true, conflict: false, rule: { id: result.lastInsertRowid, pattern, category_id: Number(categoryId) } };
+function applyRuleRetroactively(db, pattern, categoryId) {
+  const normalizedPattern = normalizePatternValue(pattern);
+  const result = db.prepare(
+    `UPDATE transactions
+     SET category_id = ?,
+         categorization_status = 'categorized',
+         category_source = 'rule_auto',
+         category_confidence = 0.82,
+         category_rule_id = NULL
+     WHERE categorization_status != 'categorized'
+       AND LOWER(desc_banco) LIKE '%' || ? || '%'`
+  ).run(Number(categoryId), normalizedPattern);
+  return result.changes;
+}
+
+function ensureDefaultRules(db) {
+  const categories = db.prepare("SELECT id, slug FROM categories").all();
+  const bySlug = new Map(categories.map((row) => [row.slug, row.id]));
+  db.prepare("DELETE FROM rules WHERE source = 'seed'").run();
+
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO rules (
+      pattern, normalized_pattern, category_id, match_count, mode, confidence, source,
+      account_id, currency, direction, merchant_key, last_matched_at
+    ) VALUES (?, ?, ?, 0, ?, ?, 'seed', NULL, NULL, ?, ?, NULL)`
+  );
+
+  const tx = db.transaction((rules) => {
+    for (const rule of rules) {
+      const categoryId = bySlug.get(rule.slug);
+      if (!categoryId) continue;
+      insert.run(
+        rule.pattern,
+        rule.normalized_pattern,
+        categoryId,
+        rule.mode,
+        rule.confidence,
+        rule.direction,
+        rule.merchant_key
+      );
+    }
+  });
+
+  tx(buildSeedRules());
 }
 
 module.exports = {
+  applyRuleRetroactively,
   buildPatternFromDescription,
   bumpRule,
+  ensureDefaultRules,
   ensureRuleForManualCategorization,
+  findCandidatesForRule,
   findMatchingRule,
+  getCandidatesForPattern,
+  isLikelyEducation,
+  isLikelyReintegro,
+  isLikelyPersonTransfer,
+  isLikelySupernetIncome,
+  isLikelyTransfer,
   normalizeDescription,
-  rejectRuleForDescription
+  rejectRuleForDescription,
 };
-

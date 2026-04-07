@@ -1,0 +1,2 @@
+-- No sample data for Cloudflare Worker deployments.
+-- User-specific defaults are created by POST /api/onboard.

@@ -1,0 +1,87 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CLOUDFARE_WORKERS }}
+  CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFARE_ACCOUNT_ID }}
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CLOUDFARE_WORKERS }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFARE_ACCOUNT_ID }}
+
+jobs:
+  deploy-worker:
+    runs-on: ubuntu-latest
+    name: Deploy Cloudflare Worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Cloudflare credentials
+        run: |
+          if [ -z "${CF_API_TOKEN}" ]; then
+            echo "Missing Cloudflare API token. Set CLOUDFLARE_API_TOKEN or CLOUDFARE_WORKERS in GitHub Secrets."
+            exit 1
+          fi
+          if [ -z "${CF_ACCOUNT_ID}" ]; then
+            echo "Missing Cloudflare account ID. Set CLOUDFLARE_ACCOUNT_ID in GitHub Secrets."
+            exit 1
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install worker dependencies
+        run: cd worker && npm ci
+
+      - name: Apply D1 migrations
+        run: npx --prefix worker wrangler d1 migrations apply smartfinance --remote --config wrangler.toml
+
+      - name: Deploy Worker
+        run: npx --prefix worker wrangler deploy --config wrangler.toml
+
+  deploy-pages:
+    runs-on: ubuntu-latest
+    name: Deploy Cloudflare Pages
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Cloudflare credentials
+        run: |
+          if [ -z "${CF_API_TOKEN}" ]; then
+            echo "Missing Cloudflare API token. Set CLOUDFLARE_API_TOKEN or CLOUDFARE_WORKERS in GitHub Secrets."
+            exit 1
+          fi
+          if [ -z "${CF_ACCOUNT_ID}" ]; then
+            echo "Missing Cloudflare account ID. Set CLOUDFLARE_ACCOUNT_ID in GitHub Secrets."
+            exit 1
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install client dependencies
+        run: cd client && npm ci
+
+      - name: Build client
+        run: cd client && npm run build
+        env:
+          VITE_CLERK_PUBLISHABLE_KEY: pk_test_aW50ZXJuYWwtc2FsbW9uLTExLmNsZXJrLmFjY291bnRzLmRldiQ
+
+      - name: Install worker dependencies
+        run: cd worker && npm ci
+
+      - name: Deploy to Cloudflare Pages
+        run: npx --prefix worker wrangler pages deploy client/dist --project-name=smartfinance-app
