@@ -347,20 +347,6 @@ router.post("/", (req, res) => {
     if (!installment) {
       return res.status(404).json({ error: "installment not found" });
     }
-
-    const { fecha, desc_banco, monto } = req.body;
-    if (!fecha || !desc_banco || typeof monto !== "number") {
-      return res.status(400).json({ error: "fecha, desc_banco and monto are required" });
-    }
-
-    const transaction = createStandardTransaction({
-      ...req.body,
-      entry_type: entryType
-    });
-
-    res.status(201).json({ transactions: [transaction] });
-  } catch (error) {
-    res.status(error.statusCode || 500).json({ error: error.message });
   }
 
   const classification = resolveTransactionClassification(db, normalizedDescBanco, Number(monto), moneda, category_id, {
