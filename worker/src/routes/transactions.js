@@ -540,7 +540,7 @@ router.post("/", async (c) => {
     if (classification.action === "auto" && classification.categoryId) {
       resolvedCategoryId = classification.categoryId;
       if (classification.rule?.id) {
-        await bumpRule(db, classification.rule.id);
+        await bumpRule(db, classification.rule.id, userId);
       }
     }
   }
@@ -664,7 +664,7 @@ router.post("/batch", async (c) => {
       if (classification.action === "auto" && classification.categoryId) {
         resolvedCategoryId = classification.categoryId;
         if (classification.rule?.id) {
-          await bumpRule(db, classification.rule.id);
+          await bumpRule(db, classification.rule.id, userId);
         }
       }
 

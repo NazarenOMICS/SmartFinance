@@ -205,13 +205,9 @@ function computeFutureCommitments(db, startMonth, months, options = {}) {
      FROM installments i
      LEFT JOIN accounts a ON a.id = i.account_id`
   ).all();
-  const targetCurrency = options.currency || null;
-  const exchangeRates = options.exchangeRates || {
-    UYU: 1,
-    USD: Number(options.exchangeRateUsd || 42.5),
-    EUR: Number(options.exchangeRateEur || 46.5),
-    ARS: Number(options.exchangeRateArs || 0.045),
-  };
+  const settings = getSettingsObject();
+  const targetCurrency = options.currency || settings.display_currency || "UYU";
+  const exchangeRates = options.exchangeRates || getExchangeRateMap(settings);
   const [startYear, startMonthNum] = startMonth.split("-").map(Number);
   const fallbackInstallmentStart = [startYear, startMonthNum];
   const result = [];
@@ -249,10 +245,13 @@ function computeFutureCommitments(db, startMonth, months, options = {}) {
 function computeInsights(db, month) {
   const current = getTransactionsForMonth(db, month).filter(isCashflowTransaction);
   const previous = getTransactionsForMonth(db, previousMonth(month)).filter(isCashflowTransaction);
+  const settings = getSettingsObject();
+  const displayCurrency = settings.display_currency || "UYU";
+  const exchangeRates = getExchangeRateMap(settings);
 
   const byCategory = (rows) =>
     rows.filter((tx) => tx.monto < 0 && tx.category_name).reduce((acc, tx) => {
-      acc[tx.category_name] = (acc[tx.category_name] || 0) + Math.abs(tx.monto);
+      acc[tx.category_name] = (acc[tx.category_name] || 0) + Math.abs(convertAmount(tx.monto, tx.moneda, displayCurrency, exchangeRates));
       return acc;
     }, {});
 
@@ -271,7 +270,7 @@ function computeInsights(db, month) {
     }
   });
 
-  const totalExpenses = current.filter((tx) => tx.monto < 0).reduce((sum, tx) => sum + Math.abs(tx.monto), 0);
+  const totalExpenses = current.filter((tx) => tx.monto < 0).reduce((sum, tx) => sum + Math.abs(convertAmount(tx.monto, tx.moneda, displayCurrency, exchangeRates)), 0);
   const totalBudget = db.prepare("SELECT COALESCE(SUM(budget), 0) AS total FROM categories").get().total;
   const today = new Date();
   const [year, monthNum] = month.split("-").map(Number);

@@ -330,7 +330,7 @@ router.post("/", async (c) => {
         categoryId = classification.categoryId;
         autoCategorized++;
         if (classification.rule?.id) {
-          await bumpRule(db, classification.rule.id);
+          await bumpRule(db, classification.rule.id, userId);
         }
       } else {
         pendingReview++;

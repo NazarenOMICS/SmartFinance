@@ -188,10 +188,12 @@ export async function findMatchingRule(db, descBanco, userId, tx = {}) {
   return pickBestRule(rules, { desc_banco: descBanco, ...tx, monto: tx.monto ?? -1 });
 }
 
-export async function bumpRule(db, ruleId) {
+export async function bumpRule(db, ruleId, userId) {
+  const where = userId ? "WHERE id = ? AND user_id = ?" : "WHERE id = ?";
+  const params = userId ? [ruleId, userId] : [ruleId];
   return db.prepare(
-    "UPDATE rules SET match_count = match_count + 1, last_matched_at = datetime('now') WHERE id = ?"
-  ).run(ruleId);
+    `UPDATE rules SET match_count = match_count + 1, last_matched_at = datetime('now') ${where}`
+  ).run(...params);
 }
 
 const REINTEGRO_KEYWORDS = [
