@@ -53,6 +53,7 @@ export default function Dashboard({
   const [hoveredCatIndex, setHoveredCatIndex] = useState(null);
   const [includeSavings, setIncludeSavings] = useState(true);
   const [consolidated, setConsolidated] = useState(null);
+  const [showUSD, setShowUSD] = useState(false);
   const loadRequestIdRef = useRef(0);
   const transactionsSectionRef = useRef(null);
 
@@ -309,6 +310,12 @@ export default function Dashboard({
 
   const { summary } = state;
   const money = (value) => fmtMoney(value, summary.currency);
+  const tc = Number(settings.exchange_rate_usd_uyu) || 42.5;
+  const cvt = (v) => showUSD ? v / tc : v;
+  const fmt = (v) => showUSD ? fmtMoney(v / tc, "USD") : money(v);
+  const evolutionData = showUSD
+    ? state.evolution.map((d) => ({ ...d, ingresos: d.ingresos / tc, gastos: d.gastos / tc }))
+    : state.evolution;
   const top5 = (summary.byCategory || []).slice(0, 5);
   const donutData = [...top5].reverse(); // smallest→largest arc order
   const hiddenCategories = Math.max(0, (summary.byCategory?.length || 0) - 5);
@@ -373,7 +380,7 @@ export default function Dashboard({
                   : `${overBudget.length} categorías superaron su presupuesto mensual`}
               </p>
               <p className="mt-1 text-sm text-finance-red/80 dark:text-red-400">
-                {overBudget.map((item) => `${item.name} (${money(item.spent)} / ${money(item.budget)})`).join(" | ")}
+                {overBudget.map((item) => `${item.name} (${fmt(item.spent)} / ${fmt(item.budget)})`).join(" | ")}
               </p>
             </div>
           </div>
@@ -385,6 +392,20 @@ export default function Dashboard({
           </button>
         </div>
       )}
+
+      <div className="flex items-center justify-end">
+        <button
+          onClick={() => setShowUSD((v) => !v)}
+          className={`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition ${
+            showUSD
+              ? "border-finance-blue bg-finance-blue text-white"
+              : "border-neutral-200 bg-white text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
+          }`}
+        >
+          <span className={`h-2 w-2 rounded-full ${showUSD ? "bg-white" : "bg-neutral-300 dark:bg-neutral-600"}`} />
+          Ver en USD {showUSD ? `(TC ${tc})` : ""}
+        </button>
+      </div>
 
       {(() => {
         const savingsTarget = summary.totals.savings_monthly_target || 0;
@@ -415,22 +436,22 @@ export default function Dashboard({
                     }`}
                     title={includeSavings ? "Descontar ahorro mensual del margen" : "Ver margen sin descontar ahorro"}
                   >
-                    {includeSavings ? `− ${money(savingsTarget)} ahorro` : "Sin ahorro"}
+                    {includeSavings ? `− ${fmt(savingsTarget)} ahorro` : "Sin ahorro"}
                   </button>
                 )}
               </div>
-              <p className={`mt-3 font-display text-3xl ${resultTone}`}>{money(netResult)}</p>
+              <p className={`mt-3 font-display text-3xl ${resultTone}`}>{fmt(netResult)}</p>
               {includeSavings && savingsTarget > 0 && (
                 <p className={`mt-2 text-xs font-semibold ${isPositive ? "text-finance-teal" : "text-finance-red"}`}>
                   {isPositive
-                    ? `Ahorrando ${money(summary.totals.margin)} − ${money(savingsTarget)} objetivo`
-                    : `${money(Math.abs(netResult))} por debajo del objetivo de ahorro`}
+                    ? `Ahorrando ${fmt(summary.totals.margin)} − ${fmt(savingsTarget)} objetivo`
+                    : `${fmt(Math.abs(netResult))} por debajo del objetivo de ahorro`}
                 </p>
               )}
             </div>
             <MetricCard
               label="Ingresos del mes"
-              value={money(summary.totals.income)}
+              value={fmt(summary.totals.income)}
               delta={summary.deltas.income}
               tone="text-finance-teal"
               positiveIsGood
@@ -438,7 +459,7 @@ export default function Dashboard({
             />
             <MetricCard
               label="Gastos del mes"
-              value={money(summary.totals.expenses)}
+              value={fmt(summary.totals.expenses)}
               delta={summary.deltas.expenses}
               tone="text-finance-red"
               onClick={() => setDrilldownFilter((prev) => (prev === "expenses" ? null : "expenses"))}
@@ -503,7 +524,7 @@ export default function Dashboard({
                       />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(value) => money(value)} />
+                  <Tooltip formatter={(value) => fmt(value)} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -543,7 +564,7 @@ export default function Dashboard({
                       <p className="text-xs uppercase tracking-[0.16em] text-neutral-400">{category.type}</p>
                     </div>
                   </div>
-                  <p className="font-semibold text-finance-ink">{money(category.spent)}</p>
+                  <p className="font-semibold text-finance-ink">{fmt(category.spent)}</p>
                 </button>
               ))}
               {hiddenCategories > 0 ? (
@@ -583,7 +604,7 @@ export default function Dashboard({
           </div>
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={state.evolution}>
+              <BarChart data={evolutionData}>
                 <XAxis dataKey="month" tick={{ fill: "#737373", fontSize: 12 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: "#737373", fontSize: 12 }} axisLine={false} tickLine={false} />
                 <Tooltip formatter={(value) => money(value)} />
@@ -596,9 +617,9 @@ export default function Dashboard({
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <MetricCard label="Gastos fijos" value={money(summary.byType.fijo)} tone="text-finance-coral" />
-        <MetricCard label="Gastos variables" value={money(summary.byType.variable)} tone="text-finance-blue" />
-        <MetricCard label="Cuotas del mes" value={money(summary.totals.installments)} tone="text-finance-amber" onClick={() => onNavigate?.("installments")} />
+        <MetricCard label="Gastos fijos" value={fmt(summary.byType.fijo)} tone="text-finance-coral" />
+        <MetricCard label="Gastos variables" value={fmt(summary.byType.variable)} tone="text-finance-blue" />
+        <MetricCard label="Cuotas del mes" value={fmt(summary.totals.installments)} tone="text-finance-amber" onClick={() => onNavigate?.("installments")} />
       </div>
       <MonthComparison
         current={summary.byCategory}
