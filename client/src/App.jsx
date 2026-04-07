@@ -690,10 +690,6 @@ function AppInner({ userId = "local", displayName: displayNameProp = "Naza", clo
     );
   }
 
-  if (!bootstrapped || !month) {
-    return <div className="mx-auto min-h-screen max-w-7xl px-4 py-8 md:px-6 lg:px-8"><div className="rounded-[28px] bg-white/80 p-10 text-center text-neutral-500 shadow-panel">Cargando app...</div></div>;
-  }
-
   return (
     <div className="mx-auto min-h-screen max-w-7xl px-4 py-8 md:px-6 lg:px-8">
       {showTutorial && <Tutorial onClose={() => setShowTutorial(false)} />}
