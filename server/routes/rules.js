@@ -133,8 +133,10 @@ router.delete("/:id", (req, res) => {
   const id = Number(req.params.id);
   const existing = db.prepare("SELECT id FROM rules WHERE id = ?").get(id);
   if (!existing) return res.status(404).json({ error: "rule not found" });
-  db.prepare("DELETE FROM rule_exclusions WHERE rule_id = ?").run(id);
-  db.prepare("DELETE FROM rules WHERE id = ?").run(id);
+  db.transaction(() => {
+    db.prepare("DELETE FROM rule_exclusions WHERE rule_id = ?").run(id);
+    db.prepare("DELETE FROM rules WHERE id = ?").run(id);
+  })();
   res.status(204).send();
 });
 

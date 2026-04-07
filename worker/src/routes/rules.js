@@ -154,8 +154,10 @@ router.delete("/:id", async (c) => {
   const db = getDb(c.env);
   const existing = await db.prepare("SELECT id FROM rules WHERE id = ? AND user_id = ?").get(id, userId);
   if (!existing) return c.json({ error: "rule not found" }, 404);
-  await db.prepare("DELETE FROM rule_exclusions WHERE user_id = ? AND rule_id = ?").run(userId, id);
-  await db.prepare("DELETE FROM rules WHERE id = ? AND user_id = ?").run(id, userId);
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM rule_exclusions WHERE user_id = ? AND rule_id = ?").bind(userId, id),
+    c.env.DB.prepare("DELETE FROM rules WHERE id = ? AND user_id = ?").bind(id, userId),
+  ]);
   return new Response(null, { status: 204 });
 });
 
