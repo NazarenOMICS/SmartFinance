@@ -898,12 +898,22 @@ router.delete("/:id", async (c) => {
   const id = Number(c.req.param("id"));
   const db = getDb(c.env);
   const tx = await db.prepare(
-    "SELECT id FROM transactions WHERE id = ? AND user_id = ?"
+    "SELECT id, linked_transaction_id FROM transactions WHERE id = ? AND user_id = ?"
   ).get(id, userId);
   if (!tx) return c.json({ error: "transaction not found" }, 404);
-  await db.prepare("DELETE FROM categorization_events WHERE user_id = ? AND transaction_id = ?").run(userId, id);
-  await db.prepare("DELETE FROM rule_exclusions WHERE user_id = ? AND transaction_id = ?").run(userId, id);
-  await db.prepare("DELETE FROM transactions WHERE id = ? AND user_id = ?").run(id, userId);
+  const stmts = [
+    c.env.DB.prepare("DELETE FROM categorization_events WHERE user_id = ? AND transaction_id = ?").bind(userId, id),
+    c.env.DB.prepare("DELETE FROM rule_exclusions WHERE user_id = ? AND transaction_id = ?").bind(userId, id),
+  ];
+  if (tx.linked_transaction_id) {
+    stmts.push(
+      c.env.DB.prepare(
+        "UPDATE transactions SET linked_transaction_id = NULL, transfer_group_id = NULL WHERE id = ? AND user_id = ?"
+      ).bind(tx.linked_transaction_id, userId)
+    );
+  }
+  stmts.push(c.env.DB.prepare("DELETE FROM transactions WHERE id = ? AND user_id = ?").bind(id, userId));
+  await c.env.DB.batch(stmts);
   return new Response(null, { status: 204 });
 });
 
