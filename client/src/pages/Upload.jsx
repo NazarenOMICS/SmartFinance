@@ -580,6 +580,7 @@ export default function Upload({
         const spreadsheet = await parseSpreadsheetFile(file);
         if (!spreadsheet || spreadsheet.rows.length < 2 || spreadsheet.headers.length < 2) {
           addToast("error", "No pudimos leer una tabla valida en ese Excel.");
+          setParsing(false);
           return;
         }
         setColumnMapper({
@@ -588,6 +589,7 @@ export default function Upload({
           formatKey: spreadsheet.formatKey,
         });
         addToast("info", "Excel listo. Revisa el mapeo antes de importar.");
+        setParsing(false);
         return;
       }
 
@@ -612,6 +614,7 @@ export default function Upload({
           sample:    result.sample,
           formatKey: result.format_key,
         });
+        setParsing(false);
         return; // don't show feedback or clear the file yet
       }
 
@@ -657,7 +660,7 @@ export default function Upload({
         fee_amount: manualForm.fee_amount ? Number(manualForm.fee_amount) : undefined,
       };
       await api.createTransaction(payload);
-      setManualForm((prev) => ({ ...prev, desc_banco: "", monto: "", target_account_id: "", target_amount: "", fee_amount: "" }));
+      setManualForm((prev) => ({ ...prev, entry_type: "expense", desc_banco: "", monto: "", target_account_id: "", target_amount: "", fee_amount: "" }));
       addToast("success", "Transacción guardada correctamente.");
       await load();
     } catch (e) {

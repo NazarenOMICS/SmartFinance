@@ -329,7 +329,7 @@ router.post("/", upload.single("file"), async (req, res, next) => {
       }
     }
 
-    const normalizedCurrency = String(statement_currency || account?.currency || "UYU").toUpperCase();
+    const normalizedCurrency = String(req.body.statement_currency || account?.currency || "UYU").toUpperCase();
     if (!["UYU", "USD", "ARS"].includes(normalizedCurrency)) {
       return res.status(400).json({ error: "statement_currency must be UYU, USD or ARS" });
     }

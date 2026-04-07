@@ -508,7 +508,17 @@ export default function Dashboard({
               {hiddenCategories > 0 ? (
                 <button
                   type="button"
-                  onClick={() => setShowAllCategories((current) => !current)}
+                  onClick={() => {
+                    setShowAllCategories((prev) => {
+                      const next = !prev;
+                      // If collapsing and clicked category is not in top 5, clear it
+                      if (!next && clickedCategory) {
+                        const inTop5 = top5.some((c) => c.name === clickedCategory);
+                        if (!inTop5) setClickedCategory(null);
+                      }
+                      return next;
+                    });
+                  }}
                   className="w-full rounded-2xl border border-dashed border-finance-purple/30 px-4 py-3 text-sm font-semibold text-finance-purple"
                 >
                   {showAllCategories ? "Mostrar solo top 5" : `Ver ${hiddenCategories} categorias mas`}

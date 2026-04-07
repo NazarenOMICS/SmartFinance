@@ -9,10 +9,10 @@ router.get("/consolidated", (req, res) => {
   const settings = getSettingsObject();
   const displayCurrency = settings.display_currency || "UYU";
   const exchangeRates = getExchangeRateMap(settings);
-  const rows = db.prepare("SELECT * FROM accounts ORDER BY created_at ASC").all();
+  const rows = getAccountsWithBalances(db);
 
   const total = rows.reduce((sum, account) => (
-    sum + convertAmount(account.balance, account.currency, displayCurrency, exchangeRates)
+    sum + convertAmount(account.live_balance, account.currency, displayCurrency, exchangeRates)
   ), 0);
 
   res.json({ total, currency: displayCurrency, exchange_rate: exchangeRates[displayCurrency] || 1 });
