@@ -470,7 +470,9 @@ export default function Upload({
   useEffect(() => {
     const acc = accounts.find((a) => a.id === selectedAccount);
     if (acc) setManualForm((prev) => ({ ...prev, moneda: acc.currency }));
-  }, [selectedAccount, accounts]);
+    // Close column mapper if account changes — prevents import to wrong account
+    if (columnMapper) setColumnMapper(null);
+  }, [selectedAccount]);
 
   function handleDragEnter(e) {
     e.preventDefault();
@@ -570,7 +572,7 @@ export default function Upload({
     const formData = new FormData();
     formData.append("account_id", selectedAccount);
     formData.append("period", uploadForm.period);
-    formData.append("statement_currency", uploadForm.statement_currency);
+    formData.append("statement_currency", selectedAccountData?.currency || "UYU");
 
     const file = uploadForm.file;
     setParsing(true);

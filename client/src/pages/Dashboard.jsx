@@ -604,9 +604,9 @@ export default function Dashboard({
           key={month}
           transactions={
             drilldownFilter === "income"
-              ? state.transactions.filter((item) => item.monto > 0 && item.category_type !== "transferencia")
+              ? state.transactions.filter((item) => item.monto > 0 && item.category_type !== "transferencia" && item.movement_kind !== "internal_transfer" && item.movement_kind !== "fx_exchange")
               : drilldownFilter === "expenses"
-                ? state.transactions.filter((item) => item.monto < 0 && item.category_type !== "transferencia")
+                ? state.transactions.filter((item) => item.monto < 0 && item.category_type !== "transferencia" && item.movement_kind !== "internal_transfer" && item.movement_kind !== "fx_exchange")
                 : state.transactions
           }
           categories={state.categories}
