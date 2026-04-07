@@ -162,7 +162,8 @@ router.post("/:id/reconcile", async (c) => {
         stmts.push(
           c.env.DB.prepare(
             `UPDATE transactions SET category_id = NULL,
-             movement_kind = 'internal_transfer', transfer_group_id = ?, linked_transaction_id = ?
+             movement_kind = 'internal_transfer', categorization_status = 'categorized',
+             transfer_group_id = ?, linked_transaction_id = ?
              WHERE id = ? AND user_id = ?`
           ).bind(transferGroupId, other.id, tx.id, userId)
         );

@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS = {
   display_currency: "UYU",
   savings_initial: "0",
   savings_goal: "200000",
+  savings_monthly: "0",
   savings_currency: "UYU",
   parsing_patterns: JSON.stringify(DEFAULT_PATTERNS),
   categorizer_auto_threshold: "0.88",
@@ -164,7 +165,7 @@ export function normalizeSettingValue(key, value) {
     return Number.isFinite(parsed) && parsed > 0 ? String(parsed) : getDefaultExchangeRateValueByKey(key);
   }
 
-  if (key === "savings_initial" || key === "savings_goal") {
+  if (key === "savings_initial" || key === "savings_goal" || key === "savings_monthly") {
     const parsed = Number(raw);
     return Number.isFinite(parsed) ? String(parsed) : DEFAULT_SETTINGS[key];
   }

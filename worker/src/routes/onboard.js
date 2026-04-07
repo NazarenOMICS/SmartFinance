@@ -17,6 +17,7 @@ const DEFAULT_SETTINGS = [
   { key: "display_currency", value: "UYU" },
   { key: "savings_initial", value: "0" },
   { key: "savings_goal", value: "200000" },
+  { key: "savings_monthly", value: "0" },
   { key: "savings_currency", value: "UYU" },
   { key: "parsing_patterns", value: JSON.stringify(DEFAULT_PATTERNS) },
   { key: "categorizer_auto_threshold", value: "0.88" },
