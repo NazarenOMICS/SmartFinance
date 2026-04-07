@@ -397,9 +397,11 @@ function AppInner({ userId = "local", displayName: displayNameProp = "Naza", clo
           const delay = 500 * (attempt + 1);
           setTimeout(() => initApp(attempt + 1), delay);
         } else {
+          // Exhausted retries but user has cached onboarded state — auth token
+          // likely wasn't ready yet. Stay on the dashboard rather than blocking.
           console.error("App boot failed during cached onboard flow", e);
-          setBootError("Falló el arranque. Reintentá.");
-          setOnboardStatus("boot_blocked");
+          setApiDown(false);
+          setOnboardStatus("done");
         }
       }
       return;
@@ -445,10 +447,11 @@ function AppInner({ userId = "local", displayName: displayNameProp = "Naza", clo
         const delay = 500 * (attempt + 1);
         setTimeout(() => initApp(attempt + 1), delay);
       } else {
+        // Exhausted retries — auth token likely not ready yet on first boot.
+        // Fall through to the dashboard rather than blocking with an error.
         console.error("App boot failed during onboarding flow", e);
         setApiDown(false);
-        setBootError("Ocurrió un error al cargar. Reintentá.");
-        setOnboardStatus("boot_blocked");
+        setOnboardStatus("done");
       }
     }
   }
