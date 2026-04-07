@@ -659,7 +659,7 @@ export default function Upload({
     try {
       const payload = {
         ...manualForm,
-        monto: Number(manualForm.monto),
+        monto: manualForm.entry_type === "expense" ? -Math.abs(Number(manualForm.monto)) : Math.abs(Number(manualForm.monto)),
         account_id: selectedAccount,
         target_account_id: manualForm.target_account_id || undefined,
         target_amount: manualForm.target_amount ? Number(manualForm.target_amount) : undefined,
