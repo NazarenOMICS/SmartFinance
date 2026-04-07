@@ -418,7 +418,7 @@ export default function Dashboard({
             <div className="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-panel dark:border-white/10 dark:bg-neutral-900/85">
               <p className="text-xs uppercase tracking-[0.22em] text-neutral-400">Saldo total</p>
               <p className="mt-3 font-display text-3xl text-finance-ink dark:text-neutral-100">
-                {consolidated ? fmtMoney(consolidated.total, consolidated.currency) : "—"}
+                {consolidated ? (showUSD ? fmtMoney(consolidated.total / tc, "USD") : fmtMoney(consolidated.total, consolidated.currency)) : "—"}
               </p>
               <p className="mt-1 text-xs text-neutral-400">En todas tus cuentas</p>
             </div>
