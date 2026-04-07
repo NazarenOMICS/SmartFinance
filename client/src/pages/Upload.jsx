@@ -463,6 +463,10 @@ export default function Upload({
   }
 
   useEffect(() => {
+    load();
+  }, []);
+
+  useEffect(() => {
     setUploadForm((prev) => ({ ...prev, period: month }));
     setManualForm(buildInitialManualForm(month));
   }, [month]);
