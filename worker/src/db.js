@@ -38,7 +38,7 @@ export const DEFAULT_GLOBAL_EXCHANGE_RATES = {
   exchange_rate_fetch_error: "",
 };
 const SUPPORTED_CURRENCIES = new Set(SUPPORTED_CURRENCY_LIST);
-export const SCHEMA_VERSION = "2026-04-account-links-v1";
+export const SCHEMA_VERSION = "2026-04-account-links-columns-v1";
 export const EXPECTED_SCHEMA_VERSION = SCHEMA_VERSION;
 
 export function getExchangeRateSettingKey(currency) {

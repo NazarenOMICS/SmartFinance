@@ -893,6 +893,41 @@ router.put("/:id", async (c) => {
   return c.json({ transaction: updated, rule: ruleResult });
 });
 
+router.patch("/:id/movement-kind", async (c) => {
+  const userId = c.get("userId");
+  const id = Number(c.req.param("id"));
+  const body = await c.req.json().catch(() => ({}));
+  const kind = body.kind;
+  if (kind !== "internal_transfer" && kind !== "normal") {
+    return c.json({ error: "kind must be 'internal_transfer' or 'normal'" }, 400);
+  }
+  const db = getDb(c.env);
+  const tx = await db.prepare(
+    "SELECT id FROM transactions WHERE id = ? AND user_id = ?"
+  ).get(id, userId);
+  if (!tx) return c.json({ error: "transaction not found" }, 404);
+
+  if (kind === "internal_transfer") {
+    await db.prepare(
+      `UPDATE transactions
+       SET movement_kind = 'internal_transfer', category_id = NULL,
+           categorization_status = 'categorized', category_source = 'manual',
+           category_confidence = NULL, category_rule_id = NULL
+       WHERE id = ? AND user_id = ?`
+    ).run(id, userId);
+  } else {
+    await db.prepare(
+      `UPDATE transactions
+       SET movement_kind = 'normal',
+           categorization_status = CASE WHEN category_id IS NULL THEN 'uncategorized' ELSE 'categorized' END
+       WHERE id = ? AND user_id = ?`
+    ).run(id, userId);
+  }
+
+  const updated = await fetchTransactionRow(db, userId, id);
+  return c.json({ transaction: updated });
+});
+
 router.delete("/:id", async (c) => {
   const userId = c.get("userId");
   const id = Number(c.req.param("id"));

@@ -116,8 +116,7 @@ router.post("/:id/reconcile", async (c) => {
   const usdUyuRate = Number(exchangeRates.USD || 42.5);
 
   let filterSql = `WHERE account_id IN (?, ?) AND user_id = ?
-    AND COALESCE(movement_type, 'standard') = 'standard'
-    AND COALESCE(entry_type, CASE WHEN monto >= 0 THEN 'income' ELSE 'expense' END) != 'internal_transfer'
+    AND COALESCE(movement_kind, 'normal') = 'normal'
     AND linked_transaction_id IS NULL
     AND COALESCE(es_cuota, 0) = 0`;
   const params = [link.account_a_id, link.account_b_id, userId];
@@ -127,7 +126,7 @@ router.post("/:id/reconcile", async (c) => {
   }
 
   const candidates = await db.prepare(
-    `SELECT id, fecha, desc_banco, monto, moneda, account_id, entry_type, movement_type
+    `SELECT id, fecha, desc_banco, monto, moneda, account_id, movement_kind
      FROM transactions ${filterSql}
      ORDER BY fecha ASC, ABS(monto) ASC, id ASC`
   ).all(...params);
@@ -162,19 +161,18 @@ router.post("/:id/reconcile", async (c) => {
       if (!preferredCurrency || tx.moneda !== preferredCurrency) {
         stmts.push(
           c.env.DB.prepare(
-            `UPDATE transactions SET category_id = NULL, entry_type = 'internal_transfer',
-             movement_type = 'internal_transfer', transfer_group_id = ?, linked_transaction_id = ?
+            `UPDATE transactions SET category_id = NULL,
+             movement_kind = 'internal_transfer', transfer_group_id = ?, linked_transaction_id = ?
              WHERE id = ? AND user_id = ?`
           ).bind(transferGroupId, other.id, tx.id, userId)
         );
       } else {
-        const prefEntryType = Number(tx.monto) >= 0 ? "income" : "expense";
         stmts.push(
           c.env.DB.prepare(
-            `UPDATE transactions SET entry_type = ?, movement_type = 'standard',
+            `UPDATE transactions SET movement_kind = 'normal',
              transfer_group_id = ?, linked_transaction_id = ?
              WHERE id = ? AND user_id = ?`
-          ).bind(prefEntryType, transferGroupId, other.id, tx.id, userId)
+          ).bind(transferGroupId, other.id, tx.id, userId)
         );
       }
     }

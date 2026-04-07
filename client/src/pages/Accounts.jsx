@@ -186,25 +186,21 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
     }
   }
 
-  async function handleCreateLink(event) {
-    event.preventDefault();
-    try {
-      await api.createAccountLink(linkForm);
-      setLinkForm({ account_a_id: "", account_b_id: "", preferred_currency: "" });
-      setLinkMessage("Cuentas vinculadas correctamente.");
-      await load({ silent: true });
-    } catch (error) {
-      setLinkMessage(error.message);
-    }
+  function resolveAutoPreferredCurrency(nextForm) {
+    const selected = state.accounts.filter(
+      (a) => a.id === nextForm.account_a_id || a.id === nextForm.account_b_id
+    );
+    const currencies = [...new Set(selected.map((a) => a.currency))];
+    return currencies.includes("UYU") ? "UYU" : "";
   }
 
-  async function handleCreateLinkAndReconcile(event) {
+  async function handleCreateLink(event) {
     event.preventDefault();
     try {
       const created = await api.createAccountLink(linkForm);
       const reconciliation = await api.reconcileAccountLink(created.id);
       setLinkForm({ account_a_id: "", account_b_id: "", preferred_currency: "" });
-      setLinkMessage(`Cuentas vinculadas y conciliadas. ${reconciliation.reconciled_pairs} pares historicos pasaron a transferencia interna.`);
+      setLinkMessage(`Cuentas vinculadas. ${reconciliation.reconciled_pairs} pares historicos marcados como transferencia interna.`);
       await load({ silent: true });
     } catch (error) {
       setLinkMessage(error.message);
@@ -520,7 +516,7 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
           <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Link de cuentas</p>
           {linkMessage ? <p className="mt-3 text-sm text-neutral-500">{linkMessage}</p> : null}
           <div className="mt-4 grid gap-4 md:grid-cols-[1fr_1fr]">
-            <select className="rounded-2xl border border-neutral-200 px-4 py-3" value={linkForm.account_a_id} onChange={(event) => setLinkForm((prev) => ({ ...prev, account_a_id: event.target.value }))}>
+            <select className="rounded-2xl border border-neutral-200 px-4 py-3" value={linkForm.account_a_id} onChange={(event) => setLinkForm((prev) => { const next = { ...prev, account_a_id: event.target.value }; return { ...next, preferred_currency: resolveAutoPreferredCurrency(next) }; })}>
               <option value="">Cuenta A</option>
               {state.accounts.map((account) => (
                 <option key={account.id} value={account.id}>
@@ -528,7 +524,7 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
                 </option>
               ))}
             </select>
-            <select className="rounded-2xl border border-neutral-200 px-4 py-3" value={linkForm.account_b_id} onChange={(event) => setLinkForm((prev) => ({ ...prev, account_b_id: event.target.value }))}>
+            <select className="rounded-2xl border border-neutral-200 px-4 py-3" value={linkForm.account_b_id} onChange={(event) => setLinkForm((prev) => { const next = { ...prev, account_b_id: event.target.value }; return { ...next, preferred_currency: resolveAutoPreferredCurrency(next) }; })}>
               <option value="">Cuenta B</option>
               {state.accounts
                 .filter((account) => account.id !== linkForm.account_a_id)
@@ -556,10 +552,7 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
             </select>
           </div>
           <div className="mt-4 flex flex-wrap gap-3">
-            <button className="rounded-full bg-finance-purple px-5 py-3 font-semibold text-white">Linkear</button>
-            <button type="button" onClick={handleCreateLinkAndReconcile} className="rounded-full border border-finance-purple/30 px-5 py-3 font-semibold text-finance-purple">
-              Linkear y conciliar historico
-            </button>
+            <button className="rounded-full bg-finance-purple px-5 py-3 font-semibold text-white">Linkear y conciliar</button>
           </div>
         </form>
 

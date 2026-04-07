@@ -275,6 +275,20 @@ export default function Dashboard({
     }
   }
 
+  async function handleMarkMovement(id, kind) {
+    try {
+      const { transaction } = await api.markTransactionMovement(id, kind);
+      setState((prev) => ({
+        ...prev,
+        transactions: prev.transactions.map((tx) =>
+          tx.id === id ? { ...tx, movement_kind: transaction.movement_kind, category_id: transaction.category_id, category_name: transaction.category_name, categorization_status: transaction.categorization_status } : tx
+        ),
+      }));
+    } catch (error) {
+      addToast("error", error.message);
+    }
+  }
+
   async function handleDisplayCurrencyChange(value) {
     try {
       await api.updateSetting("display_currency", value);
@@ -632,6 +646,7 @@ export default function Dashboard({
           onDelete={handleDeleteTransaction}
           onUpdateDesc={handleUpdateDesc}
           onUpdateFull={handleUpdateFull}
+          onMarkMovement={handleMarkMovement}
           externalCatFilter={clickedCategory}
           onClearExternalFilter={() => setClickedCategory(null)}
           onCategoryCreated={() => load({ silent: true })}

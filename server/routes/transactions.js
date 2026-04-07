@@ -671,6 +671,37 @@ router.post("/undo-confirm-category", (req, res) => {
   res.json({ undone: true });
 });
 
+router.patch("/:id/movement-kind", (req, res) => {
+  const id = Number(req.params.id);
+  const kind = req.body.kind;
+  if (kind !== "internal_transfer" && kind !== "normal") {
+    return res.status(400).json({ error: "kind must be 'internal_transfer' or 'normal'" });
+  }
+  const tx = db.prepare("SELECT id FROM transactions WHERE id = ?").get(id);
+  if (!tx) return res.status(404).json({ error: "transaction not found" });
+
+  if (kind === "internal_transfer") {
+    db.prepare(
+      `UPDATE transactions
+       SET movement_kind = 'internal_transfer', movement_type = 'internal_transfer',
+           entry_type = 'internal_transfer', category_id = NULL,
+           categorization_status = 'categorized', category_source = 'manual',
+           category_confidence = NULL, category_rule_id = NULL
+       WHERE id = ?`
+    ).run(id);
+  } else {
+    db.prepare(
+      `UPDATE transactions
+       SET movement_kind = 'normal', movement_type = 'standard',
+           entry_type = NULL,
+           categorization_status = CASE WHEN category_id IS NULL THEN 'uncategorized' ELSE 'categorized' END
+       WHERE id = ?`
+    ).run(id);
+  }
+
+  res.json({ transaction: fetchTransactionRow(id) });
+});
+
 router.delete("/:id", (req, res) => {
   const id = Number(req.params.id);
   const existing = db.prepare("SELECT id, linked_transaction_id FROM transactions WHERE id = ?").get(id);

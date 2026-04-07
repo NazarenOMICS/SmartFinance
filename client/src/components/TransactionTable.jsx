@@ -5,7 +5,7 @@ import { fmtMoney, shortDate } from "../utils";
 
 export default function TransactionTable({
   transactions, categories,
-  onCategorize, onBulkCategorize, onDelete, onUpdateDesc, onUpdateFull,
+  onCategorize, onBulkCategorize, onDelete, onUpdateDesc, onUpdateFull, onMarkMovement,
   externalCatFilter, onClearExternalFilter, onCategoryCreated,
   forcedQuickFilter = null, onConsumeForcedQuickFilter,
 }) {
@@ -94,8 +94,8 @@ export default function TransactionTable({
 
   // Grid template: with or without checkbox column
   const gridCls = hasBulkSelect
-    ? "grid grid-cols-[20px_90px_1.5fr_120px_130px_170px_44px] gap-3"
-    : "grid grid-cols-[90px_1.5fr_120px_130px_170px_44px] gap-3";
+    ? "grid grid-cols-[20px_90px_1.5fr_120px_130px_170px_32px_44px] gap-3"
+    : "grid grid-cols-[90px_1.5fr_120px_130px_170px_32px_44px] gap-3";
 
   async function handleDeleteClick(id) {
     if (confirmDelete === id) {
@@ -257,6 +257,7 @@ export default function TransactionTable({
         <span>Cuenta</span>
         <span>Categoría</span>
         <span />
+        <span />
       </div>
 
       {/* ── Rows ── */}
@@ -385,8 +386,19 @@ export default function TransactionTable({
                     </div>
 
                     {/* Category row */}
-                    <div className="mt-2">
-                      {categoryCellContent}
+                    <div className="mt-2 flex items-center gap-2">
+                      <div className="flex-1">{categoryCellContent}</div>
+                      <button
+                        onClick={() => onMarkMovement?.(tx.id, isTransfer ? "normal" : "internal_transfer")}
+                        title={isTransfer ? "Desmarcar movimiento interno" : "Marcar como movimiento interno"}
+                        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold transition ${
+                          isTransfer
+                            ? "bg-neutral-200 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300"
+                            : "text-neutral-300 hover:bg-neutral-100 hover:text-neutral-500"
+                        }`}
+                      >
+                        ↔
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -452,6 +464,19 @@ export default function TransactionTable({
 
                 {/* Category cell */}
                 {categoryCellContent}
+
+                {/* Internal movement toggle */}
+                <button
+                  onClick={() => onMarkMovement?.(tx.id, isTransfer ? "normal" : "internal_transfer")}
+                  title={isTransfer ? "Desmarcar como movimiento interno" : "Marcar como movimiento interno (no afecta ingresos/gastos)"}
+                  className={`flex h-8 w-8 items-center justify-center self-center rounded-full text-xs font-bold transition ${
+                    isTransfer
+                      ? "bg-neutral-200 text-neutral-600 hover:bg-finance-red hover:text-white dark:bg-neutral-700 dark:text-neutral-300"
+                      : "text-neutral-300 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800"
+                  }`}
+                >
+                  ↔
+                </button>
 
                 <button
                   onClick={() => handleDeleteClick(tx.id)}

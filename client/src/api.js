@@ -54,6 +54,8 @@ export const api = {
   getTransactions: (month) => request(`/api/transactions?month=${month}`),
   updateTransaction: (id, body) =>
     request(`/api/transactions/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  markTransactionMovement: (id, kind) =>
+    request(`/api/transactions/${id}/movement-kind`, { method: "PATCH", body: JSON.stringify({ kind }) }),
   createTransaction: (body) =>
     request("/api/transactions", { method: "POST", body: JSON.stringify(body) }),
   searchTransactions: (q, limit = 20) =>

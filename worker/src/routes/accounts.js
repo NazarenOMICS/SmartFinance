@@ -37,9 +37,17 @@ router.get("/consolidated", async (c) => {
 router.get("/", async (c) => {
   const userId = c.get("userId");
   const db = getDb(c.env);
-  return c.json(await db.prepare(
-    "SELECT * FROM accounts WHERE user_id = ? ORDER BY created_at ASC"
-  ).all(userId));
+  const rows = await db.prepare(
+    `SELECT a.id, a.user_id, a.name, a.currency, a.created_at,
+            a.balance AS opening_balance,
+            a.balance + COALESCE(SUM(t.monto), 0) AS live_balance
+     FROM accounts a
+     LEFT JOIN transactions t ON t.account_id = a.id AND t.user_id = a.user_id
+     WHERE a.user_id = ?
+     GROUP BY a.id, a.user_id
+     ORDER BY a.created_at ASC`
+  ).all(userId);
+  return c.json(rows.map((row) => ({ ...row, balance: row.live_balance })));
 });
 
 router.post("/", async (c) => {
@@ -73,7 +81,8 @@ router.post("/", async (c) => {
   await db.prepare(
     "INSERT INTO accounts (id,name,currency,balance,user_id) VALUES (?,?,?,?,?)"
   ).run(id, name, currency, balance, userId);
-  return c.json(await db.prepare("SELECT * FROM accounts WHERE id=? AND user_id=?").get(id, userId), 201);
+  const created = await db.prepare("SELECT * FROM accounts WHERE id=? AND user_id=?").get(id, userId);
+  return c.json({ ...created, opening_balance: created.balance, live_balance: created.balance }, 201);
 });
 
 router.put("/:id", async (c) => {
@@ -85,16 +94,36 @@ router.put("/:id", async (c) => {
   ).get(id, userId);
   if (!current) return c.json({ error: "account not found" }, 404);
   const body = await c.req.json();
-  const next = {
-    name: body.name !== undefined ? String(body.name).trim() : current.name,
-    balance: body.balance !== undefined ? Number(body.balance) : current.balance
-  };
-  if (!next.name) return c.json({ error: "name is required" }, 400);
-  if (!Number.isFinite(next.balance)) return c.json({ error: "balance must be a finite number" }, 400);
+  const nextName = body.name !== undefined ? String(body.name).trim() : current.name;
+  if (!nextName) return c.json({ error: "name is required" }, 400);
+
+  // body.balance represents live_balance (opening + transactions) from the frontend.
+  // We store opening_balance = live_balance - transaction_total in the balance column.
+  let nextStoredBalance = current.balance;
+  if (body.balance !== undefined) {
+    const requestedLive = Number(body.balance);
+    if (!Number.isFinite(requestedLive)) return c.json({ error: "balance must be a finite number" }, 400);
+    const txTotalRow = await db.prepare(
+      "SELECT COALESCE(SUM(monto), 0) AS total FROM transactions WHERE account_id = ? AND user_id = ?"
+    ).get(id, userId);
+    const txTotal = Number(txTotalRow?.total || 0);
+    nextStoredBalance = requestedLive - txTotal;
+  }
+
   await db.prepare(
     "UPDATE accounts SET name=?,balance=? WHERE id=? AND user_id=?"
-  ).run(next.name, next.balance, id, userId);
-  return c.json(await db.prepare("SELECT * FROM accounts WHERE id=? AND user_id=?").get(id, userId));
+  ).run(nextName, nextStoredBalance, id, userId);
+
+  const updated = await db.prepare(
+    `SELECT a.id, a.user_id, a.name, a.currency, a.created_at,
+            a.balance AS opening_balance,
+            a.balance + COALESCE(SUM(t.monto), 0) AS live_balance
+     FROM accounts a
+     LEFT JOIN transactions t ON t.account_id = a.id AND t.user_id = a.user_id
+     WHERE a.id = ? AND a.user_id = ?
+     GROUP BY a.id, a.user_id`
+  ).get(id, userId);
+  return c.json({ ...updated, balance: updated.live_balance });
 });
 
 router.delete("/:id", async (c) => {
