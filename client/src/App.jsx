@@ -128,28 +128,20 @@ function getGreeting(name) {
 
 function AuthSync() {
   const { getToken } = useAuth();
-
   useEffect(() => {
     setTokenGetter(() => getToken());
   }, [getToken]);
-
   return null;
 }
 
 function AuthScreen() {
   const isDark = localStorage.getItem("sf_dark") === "true";
-
   return (
-    <div
-      className={`min-h-screen bg-finance-cream px-4 py-8 dark:bg-neutral-950 ${
-        isDark ? "dark" : ""
-      }`}
-    >
+    <div className={`min-h-screen bg-finance-cream px-4 py-8 dark:bg-neutral-950 ${isDark ? "dark" : ""}`}>
       <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-6xl overflow-hidden rounded-[40px] border border-white/70 bg-white/78 shadow-[0_35px_90px_rgba(22,25,51,0.14)] backdrop-blur dark:border-white/10 dark:bg-neutral-900/80">
         <div className="relative flex flex-1 flex-col justify-between overflow-hidden bg-[linear-gradient(150deg,_rgba(83,74,183,0.12),_rgba(29,158,117,0.08)_56%,_rgba(255,255,255,0.84))] p-8 dark:bg-[linear-gradient(150deg,_rgba(83,74,183,0.22),_rgba(29,158,117,0.14)_56%,_rgba(18,18,30,0.92))] md:p-10">
           <div className="absolute -right-20 top-0 h-56 w-56 rounded-full bg-finance-purple/12 blur-3xl" />
           <div className="absolute -left-16 bottom-0 h-52 w-52 rounded-full bg-finance-teal/12 blur-3xl" />
-
           <div className="relative">
             <div className="inline-flex items-center gap-3 rounded-full border border-white/80 bg-white/90 px-3 py-2 shadow-sm dark:border-white/10 dark:bg-neutral-800/80">
               <BrandMark size="sm" />
@@ -158,7 +150,6 @@ function AuthScreen() {
                 <p className="text-sm font-semibold text-finance-ink dark:text-neutral-100">Importá, categorizá, controlá</p>
               </div>
             </div>
-
             <h1 className="mt-8 max-w-xl font-display text-5xl leading-tight text-finance-ink dark:text-neutral-100 md:text-6xl">
               Tus finanzas en orden, mes a mes.
             </h1>
@@ -166,57 +157,34 @@ function AuthScreen() {
               Importá tus extractos bancarios, categorizá gastos y controlá presupuestos mes a mes.
             </p>
           </div>
-
           <div className="relative mt-10 grid gap-4 md:grid-cols-3">
             {[
-              {
-                title: "Subí desde donde ya estás",
-                body: "PDF, CSV, TXT o carga manual. Sin rehacer nada.",
-              },
-              {
-                title: "Categorización automática",
-                body: "Cada categoría que asignás se convierte en regla para el mes siguiente.",
-              },
-              {
-                title: "Todo el mes en una vista",
-                body: "Gastos, ingresos, cuotas y ahorro en un solo lugar.",
-              },
+              { title: "Subí desde donde ya estás", body: "PDF, CSV, TXT o carga manual. Sin rehacer nada." },
+              { title: "Categorización automática", body: "Cada categoría que asignás se convierte en regla para el mes siguiente." },
+              { title: "Todo el mes en una vista", body: "Gastos, ingresos, cuotas y ahorro en un solo lugar." },
             ].map((item) => (
-              <div
-                key={item.title}
-                className="rounded-[28px] border border-white/70 bg-white/78 p-4 shadow-sm dark:border-white/10 dark:bg-neutral-900/70"
-              >
+              <div key={item.title} className="rounded-[28px] border border-white/70 bg-white/78 p-4 shadow-sm dark:border-white/10 dark:bg-neutral-900/70">
                 <p className="font-semibold text-finance-ink dark:text-neutral-100">{item.title}</p>
                 <p className="mt-2 text-sm leading-6 text-neutral-500 dark:text-neutral-300">{item.body}</p>
               </div>
             ))}
           </div>
         </div>
-
         <div className="flex w-full items-center justify-center bg-white/88 p-6 dark:bg-neutral-950/72 md:max-w-[460px] md:p-10">
           <div className="w-full">
             <div className="mb-6 text-center md:text-left">
               <p className="text-xs uppercase tracking-[0.32em] text-neutral-400">Acceso</p>
-              <h2 className="mt-2 font-display text-3xl text-finance-ink dark:text-neutral-100">
-                Iniciá sesión para continuar
-              </h2>
+              <h2 className="mt-2 font-display text-3xl text-finance-ink dark:text-neutral-100">Iniciá sesión para continuar</h2>
             </div>
-            <SignIn
-              appearance={{
-                elements: {
-                  card: "rounded-[30px] border border-white/80 bg-white/95 shadow-panel dark:border-white/10 dark:bg-neutral-900/95",
-                  headerTitle: "font-display text-2xl text-finance-ink dark:text-neutral-100",
-                  headerSubtitle: "text-neutral-500 dark:text-neutral-300",
-                  socialButtonsBlockButton:
-                    "rounded-2xl border border-neutral-200 bg-white hover:bg-finance-purpleSoft dark:border-neutral-700 dark:bg-neutral-800",
-                  formFieldInput:
-                    "rounded-2xl border border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-800",
-                  formButtonPrimary:
-                    "rounded-full bg-finance-purple font-semibold hover:opacity-90 focus:shadow-none",
-                  footer: "hidden",
-                },
-              }}
-            />
+            <SignIn appearance={{ elements: {
+              card: "rounded-[30px] border border-white/80 bg-white/95 shadow-panel dark:border-white/10 dark:bg-neutral-900/95",
+              headerTitle: "font-display text-2xl text-finance-ink dark:text-neutral-100",
+              headerSubtitle: "text-neutral-500 dark:text-neutral-300",
+              socialButtonsBlockButton: "rounded-2xl border border-neutral-200 bg-white hover:bg-finance-purpleSoft dark:border-neutral-700 dark:bg-neutral-800",
+              formFieldInput: "rounded-2xl border border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-800",
+              formButtonPrimary: "rounded-full bg-finance-purple font-semibold hover:opacity-90 focus:shadow-none",
+              footer: "hidden",
+            }}} />
           </div>
         </div>
       </div>
@@ -224,9 +192,23 @@ function AuthScreen() {
   );
 }
 
-function AppInner() {
+function CloudApp() {
   const { isLoaded, isSignedIn, userId } = useAuth();
   const { user } = useUser();
+  if (!isLoaded) return null;
+  if (!isSignedIn) return <AuthScreen />;
+  const displayName = user?.firstName || user?.fullName?.split(" ")[0] || "Naza";
+  return (
+    <>
+      <AuthSync />
+      <AppInner userId={userId} displayName={displayName} cloudMode />
+    </>
+  );
+}
+
+function AppInner({ userId = "local", displayName: displayNameProp = "Naza", cloudMode = false }) {
+  const isLoaded = true;
+  const isSignedIn = true;
   const [tab, setTab] = useState("dashboard");
   const [month, setMonth] = useState(isoMonth());
   const [settings, setSettings] = useState({});
@@ -248,7 +230,7 @@ function AppInner() {
   const [dashboardQuickFilter, setDashboardQuickFilter] = useState(null);
   const settingsRequestIdRef = useRef(0);
   const pendingRequestIdRef = useRef(0);
-  const displayName = user?.firstName || user?.fullName?.split(" ")[0] || "Naza";
+  const displayName = displayNameProp;
   const greeting = getGreeting(displayName);
 
   function markDone() {
@@ -825,13 +807,10 @@ function AppInner() {
 
             <PeriodSelector month={month} onChange={setMonth} />
 
-            <UserButton
-              appearance={{
-                elements: {
-                  avatarBox: "h-10 w-10 rounded-full border border-neutral-200 dark:border-neutral-700",
-                },
-              }}
-            />
+            {cloudMode && (
+              <UserButton appearance={{ elements: { avatarBox: "h-10 w-10 rounded-full border border-neutral-200 dark:border-neutral-700" } }} />
+            )}
+
           </div>
         </div>
 
@@ -952,52 +931,25 @@ const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
 export default function App() {
   if (!PUBLISHABLE_KEY) {
+    // Modo local: sin auth, single-tenant
     return (
-      <div className="flex min-h-screen items-center justify-center bg-finance-cream px-4">
-        <div className="max-w-md rounded-[32px] border border-finance-red/30 bg-finance-redSoft p-8 text-center">
-          <p className="text-2xl font-bold text-finance-red">Configuración pendiente</p>
-          <p className="mt-3 text-sm text-finance-red/80">
-            Falta <code className="rounded bg-finance-red/10 px-1">VITE_CLERK_PUBLISHABLE_KEY</code> en
-            el archivo <code>.env</code>.
-          </p>
-          <p className="mt-2 text-xs text-neutral-500">
-            Copiá tu Publishable Key desde Clerk y agregala en <code>client/.env</code>.
-          </p>
-        </div>
-      </div>
+      <ToastProvider>
+        <AppInner />
+      </ToastProvider>
     );
   }
 
+  // Modo cloud: multi-usuario con Clerk
   return (
     <ClerkProvider
       publishableKey={PUBLISHABLE_KEY}
       localization={{
-        signIn: {
-          start: {
-            title: "SmartFinance",
-            subtitle: "Iniciá sesión para continuar",
-          },
-        },
-        signUp: {
-          start: {
-            title: "SmartFinance",
-            subtitle: "Creá tu cuenta para empezar",
-          },
-        },
+        signIn: { start: { title: "SmartFinance", subtitle: "Iniciá sesión para continuar" } },
+        signUp: { start: { title: "SmartFinance", subtitle: "Creá tu cuenta para empezar" } },
       }}
     >
       <ToastProvider>
-        <SignedIn>
-          <AuthSync />
-        </SignedIn>
-
-        <SignedOut>
-          <AuthScreen />
-        </SignedOut>
-
-        <SignedIn>
-          <AppInner />
-        </SignedIn>
+        <CloudApp />
       </ToastProvider>
     </ClerkProvider>
   );
