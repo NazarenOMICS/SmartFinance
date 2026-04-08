@@ -1,0 +1,19 @@
+{
+  "name": "smartfinance-saas",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev:web": "corepack pnpm --filter @smartfinance/web dev",
+    "dev:api": "corepack pnpm --filter @smartfinance/api dev",
+    "build": "corepack pnpm --filter @smartfinance/web build",
+    "typecheck": "corepack pnpm -r --if-present typecheck",
+    "test": "vitest run",
+    "check": "corepack pnpm typecheck && corepack pnpm test && corepack pnpm build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.1",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

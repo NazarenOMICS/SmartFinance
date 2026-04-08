@@ -1,0 +1,16 @@
+{
+  "name": "@smartfinance/client-sdk",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@smartfinance/contracts": "workspace:*",
+    "zod": "^3.24.1"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}
