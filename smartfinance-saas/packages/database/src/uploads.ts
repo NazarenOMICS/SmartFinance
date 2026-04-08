@@ -6,7 +6,9 @@ type UploadRow = {
   id: number;
   period: string;
   account_id: string | null;
+  account_name?: string | null;
   original_filename: string;
+  filename?: string;
   storage_key: string;
   mime_type: string;
   size_bytes: number;
@@ -33,12 +35,57 @@ export async function listUploadsByMonth(db: D1DatabaseLike, userId: string, mon
   return allRows<UploadRow>(
     db,
     `
-      SELECT id, period, account_id, original_filename, storage_key, mime_type, size_bytes, tx_count, source, status, created_at
+      SELECT
+        uploads.id,
+        uploads.period,
+        uploads.account_id,
+        accounts.name AS account_name,
+        uploads.original_filename,
+        uploads.original_filename AS filename,
+        uploads.storage_key,
+        uploads.mime_type,
+        uploads.size_bytes,
+        uploads.tx_count,
+        uploads.source,
+        uploads.status,
+        uploads.created_at
       FROM uploads
-      WHERE user_id = ? AND period = ?
-      ORDER BY created_at DESC, id DESC
+      LEFT JOIN accounts
+        ON accounts.user_id = uploads.user_id
+       AND accounts.id = uploads.account_id
+      WHERE uploads.user_id = ? AND uploads.period = ?
+      ORDER BY uploads.created_at DESC, uploads.id DESC
     `,
     [userId, month],
+  );
+}
+
+export async function listUploads(db: D1DatabaseLike, userId: string) {
+  return allRows<UploadRow>(
+    db,
+    `
+      SELECT
+        uploads.id,
+        uploads.period,
+        uploads.account_id,
+        accounts.name AS account_name,
+        uploads.original_filename,
+        uploads.original_filename AS filename,
+        uploads.storage_key,
+        uploads.mime_type,
+        uploads.size_bytes,
+        uploads.tx_count,
+        uploads.source,
+        uploads.status,
+        uploads.created_at
+      FROM uploads
+      LEFT JOIN accounts
+        ON accounts.user_id = uploads.user_id
+       AND accounts.id = uploads.account_id
+      WHERE uploads.user_id = ?
+      ORDER BY uploads.created_at DESC, uploads.id DESC
+    `,
+    [userId],
   );
 }
 

@@ -27,5 +27,28 @@ settingsRouter.put("/", async (c) => {
   );
 });
 
-export default settingsRouter;
+settingsRouter.post("/refresh-rates", async (c) => {
+  const auth = c.get("auth");
+  const settings = await getSettingsObject(c.env.DB, auth.userId);
 
+  const nextSettings = {
+    effective_exchange_rate_usd_uyu: settings.manual_exchange_rate_usd_uyu || settings.exchange_rate_usd_uyu || "42.5",
+    effective_exchange_rate_eur_uyu: settings.manual_exchange_rate_eur_uyu || settings.exchange_rate_eur_uyu || "46.5",
+    effective_exchange_rate_ars_uyu: settings.manual_exchange_rate_ars_uyu || settings.exchange_rate_ars_uyu || "0.045",
+    exchange_rate_source: settings.exchange_rate_mode === "manual" ? "manual_override" : "manual_refresh",
+    exchange_rate_updated_at: new Date().toISOString(),
+    exchange_rate_fetch_error: "",
+  };
+
+  for (const [key, value] of Object.entries(nextSettings)) {
+    await upsertSetting(c.env.DB, auth.userId, key, value);
+  }
+
+  return c.json({
+    ok: true,
+    source: nextSettings.exchange_rate_source,
+    settings: await getSettingsObject(c.env.DB, auth.userId),
+  });
+});
+
+export default settingsRouter;

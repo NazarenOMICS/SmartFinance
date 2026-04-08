@@ -1,6 +1,8 @@
 import type { CreateTransactionInput, UpdateTransactionInput } from "@smartfinance/contracts";
+import { deriveRulePattern } from "@smartfinance/domain";
 import { allRows, firstRow, runStatement, type D1DatabaseLike } from "./client";
-import { classifyTransactionByRules, incrementRuleMatchCount, rejectRuleForDescription } from "./rules";
+import { classifyTransactionByRules, findMatchingRule, getRuleById, incrementRuleMatchCount, rejectRuleForDescription, syncRuleFromCategorizedDescription } from "./rules";
+import { getSettingsObject } from "./settings";
 
 function toPeriod(fecha: string) {
   return fecha.slice(0, 7);
@@ -21,16 +23,70 @@ function buildDedupHash(input: { fecha: string; monto: number; desc_banco: strin
   return `tx_${Math.abs(hash)}`;
 }
 
+const TRANSACTION_SELECT = `
+  SELECT
+    transactions.id,
+    transactions.period,
+    transactions.fecha,
+    transactions.desc_banco,
+    transactions.desc_usuario,
+    transactions.monto,
+    transactions.moneda,
+    transactions.category_id,
+    transactions.account_id,
+    transactions.entry_type,
+    transactions.movement_kind,
+    transactions.categorization_status,
+    transactions.category_source,
+    transactions.category_confidence,
+    transactions.category_rule_id,
+    transactions.created_at,
+    transactions.paired_transaction_id,
+    transactions.account_link_id,
+    transactions.internal_group_id,
+    categories.name AS category_name,
+    categories.type AS category_type,
+    categories.color AS category_color,
+    accounts.name AS account_name,
+    CASE WHEN installments.id IS NULL THEN 0 ELSE 1 END AS es_cuota,
+    installments.id AS installment_id
+  FROM transactions
+  LEFT JOIN categories
+    ON categories.user_id = transactions.user_id
+   AND categories.id = transactions.category_id
+  LEFT JOIN accounts
+    ON accounts.user_id = transactions.user_id
+   AND accounts.id = transactions.account_id
+  LEFT JOIN installments
+    ON installments.user_id = transactions.user_id
+   AND installments.id = transactions.installment_id
+`;
+
+function normalizeReviewPattern(value: string) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\b\d+\b/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildSuggestionReason(transaction: Record<string, unknown>) {
+  if (transaction.category_name) {
+    return `Sugerido por el motor para "${transaction.category_name}".`;
+  }
+  return "Todavia no hay suficiente contexto para aprender esta transaccion.";
+}
+
 export async function listTransactionsByMonth(db: D1DatabaseLike, userId: string, month: string) {
   return allRows(
     db,
     `
-      SELECT
-        id, period, fecha, desc_banco, desc_usuario, monto, moneda, category_id, account_id, entry_type, movement_kind,
-        categorization_status, category_source, category_confidence, category_rule_id, created_at
-      FROM transactions
-      WHERE user_id = ? AND period = ?
-      ORDER BY fecha DESC, id DESC
+      ${TRANSACTION_SELECT}
+      WHERE transactions.user_id = ? AND transactions.period = ?
+      ORDER BY transactions.fecha DESC, transactions.id DESC
     `,
     [userId, month],
   );
@@ -40,12 +96,9 @@ export async function listPendingTransactionsByMonth(db: D1DatabaseLike, userId:
   return allRows(
     db,
     `
-      SELECT
-        id, period, fecha, desc_banco, desc_usuario, monto, moneda, category_id, account_id, entry_type, movement_kind,
-        categorization_status, category_source, category_confidence, category_rule_id, created_at
-      FROM transactions
-      WHERE user_id = ? AND period = ? AND categorization_status != 'categorized'
-      ORDER BY fecha DESC, id DESC
+      ${TRANSACTION_SELECT}
+      WHERE transactions.user_id = ? AND transactions.period = ? AND transactions.categorization_status != 'categorized'
+      ORDER BY transactions.fecha DESC, transactions.id DESC
     `,
     [userId, month],
   );
@@ -55,15 +108,87 @@ export async function getTransactionById(db: D1DatabaseLike, userId: string, tra
   return firstRow(
     db,
     `
-      SELECT
-        id, period, fecha, desc_banco, desc_usuario, monto, moneda, category_id, account_id, entry_type, movement_kind,
-        categorization_status, category_source, category_confidence, category_rule_id, created_at
-      FROM transactions
-      WHERE user_id = ? AND id = ?
+      ${TRANSACTION_SELECT}
+      WHERE transactions.user_id = ? AND transactions.id = ?
       LIMIT 1
     `,
     [userId, transactionId],
   );
+}
+
+export async function getTransactionsByIds(db: D1DatabaseLike, userId: string, transactionIds: number[]) {
+  if (transactionIds.length === 0) return [];
+  const placeholders = transactionIds.map(() => "?").join(", ");
+  return allRows(
+    db,
+    `
+      ${TRANSACTION_SELECT}
+      WHERE transactions.user_id = ? AND transactions.id IN (${placeholders})
+      ORDER BY transactions.fecha DESC, transactions.id DESC
+    `,
+    [userId, ...transactionIds],
+  );
+}
+
+async function enrichTransactionForReview(db: D1DatabaseLike, userId: string, transaction: Record<string, unknown>) {
+  const linked = await firstRow<{
+    id: number;
+    account_a_id: string;
+    account_b_id: string;
+    preferred_currency: string | null;
+    account_a_name: string | null;
+    account_b_name: string | null;
+    account_a_currency: string | null;
+    account_b_currency: string | null;
+  }>(
+    db,
+    `
+      SELECT
+        links.id,
+        links.account_a_id,
+        links.account_b_id,
+        links.preferred_currency,
+        account_a.name AS account_a_name,
+        account_b.name AS account_b_name,
+        account_a.currency AS account_a_currency,
+        account_b.currency AS account_b_currency
+      FROM account_links links
+      LEFT JOIN accounts account_a
+        ON account_a.user_id = links.user_id
+       AND account_a.id = links.account_a_id
+      LEFT JOIN accounts account_b
+        ON account_b.user_id = links.user_id
+       AND account_b.id = links.account_b_id
+      WHERE links.user_id = ?
+        AND (links.account_a_id = ? OR links.account_b_id = ?)
+      ORDER BY links.created_at DESC, links.id DESC
+      LIMIT 1
+    `,
+    [userId, String(transaction.account_id || ""), String(transaction.account_id || "")],
+  );
+
+  const isAccountA = linked?.account_a_id === transaction.account_id;
+  const counterpartAccountId = linked ? (isAccountA ? linked.account_b_id : linked.account_a_id) : null;
+  const counterpartName = linked ? (isAccountA ? linked.account_b_name : linked.account_a_name) : null;
+  const counterpartCurrency = linked ? (isAccountA ? linked.account_b_currency : linked.account_a_currency) : null;
+  const currentCurrency = linked ? (isAccountA ? linked.account_a_currency : linked.account_b_currency) : transaction.moneda;
+
+  return {
+    ...transaction,
+    suggested_category_id: transaction.category_id ?? null,
+    suggested_category_name: transaction.category_name ?? null,
+    suggestion_source: transaction.category_source || (transaction.category_id ? "rule_suggest" : "manual_review"),
+    suggestion_reason: buildSuggestionReason(transaction),
+    internal_operation_kind: linked ? (currentCurrency === counterpartCurrency ? "internal_transfer" : "fx_exchange") : null,
+    internal_operation_target_transaction_id: null,
+    internal_operation_from_account_id: transaction.account_id ?? null,
+    internal_operation_from_account_name: transaction.account_name ?? null,
+    internal_operation_from_currency: currentCurrency ?? transaction.moneda ?? null,
+    internal_operation_to_account_id: counterpartAccountId,
+    internal_operation_to_account_name: counterpartName,
+    internal_operation_to_currency: counterpartCurrency,
+    internal_operation_effective_rate: null,
+  };
 }
 
 export async function acceptSuggestedTransaction(db: D1DatabaseLike, userId: string, transactionId: number) {
@@ -163,12 +288,13 @@ export async function createTransaction(
 ) {
   const signedAmount = input.entry_type === "expense" ? -Math.abs(input.monto) : Math.abs(input.monto);
   const period = toPeriod(input.fecha);
+  const classificationEntryType = input.entry_type === "internal_transfer" ? "expense" : input.entry_type;
   const classification = await classifyTransactionByRules(db, userId, {
     descBanco: input.desc_banco,
     amount: signedAmount,
     currency: input.moneda,
     accountId: input.account_id ?? null,
-    entryType: input.entry_type,
+    entryType: classificationEntryType,
     categoryId: input.category_id ?? null,
   });
   const dedupHash = buildDedupHash({
@@ -268,8 +394,8 @@ export async function updateTransaction(db: D1DatabaseLike, userId: string, tran
   if (input.category_id !== undefined) {
     if (input.category_id === null) {
       nextCategoryId = null;
-      nextStatus = "uncategorized";
-      nextSource = null;
+      nextStatus = String(current.movement_kind) === "normal" ? "uncategorized" : "categorized";
+      nextSource = String(current.movement_kind) === "normal" ? null : "movement_kind";
       nextConfidence = null;
       nextRuleId = null;
     } else {
@@ -334,21 +460,85 @@ export async function deleteTransaction(db: D1DatabaseLike, userId: string, tran
 }
 
 export async function getTransactionSummary(db: D1DatabaseLike, userId: string, month: string) {
-  const rows = await allRows<{ monto: number }>(
-    db,
-    "SELECT monto FROM transactions WHERE user_id = ? AND period = ?",
-    [userId, month],
-  );
+  const [settings, transactions, previousTransactions, categories] = await Promise.all([
+    getSettingsObject(db, userId),
+    listTransactionsByMonth(db, userId, month),
+    listTransactionsByMonth(db, userId, shiftMonth(month, -1)),
+    allRows<{ id: number; slug: string | null; name: string; type: string | null; budget: number; color: string | null }>(
+      db,
+      "SELECT id, slug, name, type, budget, color FROM categories WHERE user_id = ?",
+      [userId],
+    ),
+  ]);
 
-  const income = rows.filter((row) => Number(row.monto) > 0).reduce((sum, row) => sum + Number(row.monto), 0);
-  const expenses = rows.filter((row) => Number(row.monto) < 0).reduce((sum, row) => sum + Math.abs(Number(row.monto)), 0);
+  const expenseTransactions = transactions.filter((row) => Number(row.monto) < 0 && row.movement_kind !== "internal_transfer" && row.movement_kind !== "fx_exchange");
+  const incomeTransactions = transactions.filter((row) => Number(row.monto) > 0 && row.movement_kind !== "internal_transfer" && row.movement_kind !== "fx_exchange");
+  const previousExpenses = previousTransactions.filter((row) => Number(row.monto) < 0 && row.movement_kind !== "internal_transfer" && row.movement_kind !== "fx_exchange");
+  const previousIncome = previousTransactions.filter((row) => Number(row.monto) > 0 && row.movement_kind !== "internal_transfer" && row.movement_kind !== "fx_exchange");
+
+  const income = incomeTransactions.reduce((sum, row) => sum + Number(row.monto), 0);
+  const expenses = expenseTransactions.reduce((sum, row) => sum + Math.abs(Number(row.monto)), 0);
+  const previousIncomeTotal = previousIncome.reduce((sum, row) => sum + Number(row.monto), 0);
+  const previousExpensesTotal = previousExpenses.reduce((sum, row) => sum + Math.abs(Number(row.monto)), 0);
+
+  const byCategory = categories.map((category) => {
+    const spent = expenseTransactions
+      .filter((transaction) => Number(transaction.category_id) === Number(category.id))
+      .reduce((sum, transaction) => sum + Math.abs(Number(transaction.monto)), 0);
+    return {
+      id: category.id,
+      name: category.name,
+      slug: category.slug,
+      spent,
+      budget: Number(category.budget || 0),
+      color: category.color,
+      type: category.type,
+    };
+  }).filter((item) => item.spent > 0 || item.budget > 0 || item.name === "Ingreso")
+    .sort((left, right) => right.spent - left.spent);
+
+  const fixedSpent = byCategory.filter((item) => item.type === "fijo").reduce((sum, item) => sum + item.spent, 0);
+  const variableSpent = byCategory.filter((item) => item.type !== "fijo" && item.name !== "Ingreso").reduce((sum, item) => sum + item.spent, 0);
+
+  const calculateDeltaPercent = (current: number, previous: number) => {
+    if (!previous) return current ? 100 : 0;
+    return ((current - previous) / Math.abs(previous)) * 100;
+  };
 
   return {
     month,
+    currency: settings.display_currency || "UYU",
+    pending_count: transactions.filter((transaction) => String(transaction.categorization_status || "") !== "categorized").length,
+    totals: {
+      income,
+      expenses,
+      net: income - expenses,
+      margin: income - expenses,
+      installments: transactions.filter((transaction) => Number(transaction.es_cuota || 0) > 0).reduce((sum, transaction) => sum + Math.abs(Number(transaction.monto)), 0),
+      savings_monthly_target: Number(settings.savings_monthly || 0),
+    },
+    deltas: {
+      income: calculateDeltaPercent(income, previousIncomeTotal),
+      expenses: calculateDeltaPercent(expenses, previousExpensesTotal),
+    },
+    byCategory,
+    byType: {
+      fijo: fixedSpent,
+      variable: variableSpent,
+    },
+    budgets: byCategory.map((item) => ({
+      id: item.id,
+      category_id: item.id,
+      name: item.name,
+      spent: item.spent,
+      budget: item.budget,
+      color: item.color,
+      type: item.type,
+    })),
     income,
     expenses,
     net: income - expenses,
-    transaction_count: rows.length,
+    transaction_count: transactions.length,
   };
 }
 
@@ -362,7 +552,7 @@ export async function getTransactionMonthlyEvolution(
   const rows = await allRows<{ period: string; monto: number }>(
     db,
     `
-      SELECT period, monto
+      SELECT period, monto, movement_kind
       FROM transactions
       WHERE user_id = ?
         AND period >= ?
@@ -373,7 +563,7 @@ export async function getTransactionMonthlyEvolution(
   );
 
   return windowMonths.map((month) => {
-    const periodRows = rows.filter((row) => String(row.period) === month);
+    const periodRows = rows.filter((row) => String(row.period) === month && String((row as { movement_kind?: string }).movement_kind || "") !== "internal_transfer" && String((row as { movement_kind?: string }).movement_kind || "") !== "fx_exchange");
     const income = periodRows
       .filter((row) => Number(row.monto) > 0)
       .reduce((sum, row) => sum + Number(row.monto), 0);
@@ -385,8 +575,414 @@ export async function getTransactionMonthlyEvolution(
       month,
       income,
       expenses,
+      ingresos: income,
+      gastos: expenses,
       net: income - expenses,
       transaction_count: periodRows.length,
     };
   });
+}
+
+export async function searchTransactions(db: D1DatabaseLike, userId: string, query: string, limit: number) {
+  const matcher = `%${String(query || "").trim().toLowerCase()}%`;
+  return allRows(
+    db,
+    `
+      ${TRANSACTION_SELECT}
+      WHERE transactions.user_id = ?
+        AND (
+          lower(transactions.desc_banco) LIKE ?
+          OR lower(COALESCE(transactions.desc_usuario, '')) LIKE ?
+          OR lower(COALESCE(categories.name, '')) LIKE ?
+          OR lower(COALESCE(accounts.name, '')) LIKE ?
+          OR lower(transactions.fecha) LIKE ?
+        )
+      ORDER BY transactions.fecha DESC, transactions.id DESC
+      LIMIT ?
+    `,
+    [userId, matcher, matcher, matcher, matcher, matcher, Math.max(1, Math.min(limit, 100))],
+  );
+}
+
+export async function listCandidateTransactions(db: D1DatabaseLike, userId: string, pattern: string, limit = 50) {
+  const matcher = `%${String(pattern || "").trim().toLowerCase()}%`;
+  return allRows(
+    db,
+    `
+      ${TRANSACTION_SELECT}
+      WHERE transactions.user_id = ?
+        AND lower(transactions.desc_banco) LIKE ?
+        AND transactions.categorization_status != 'categorized'
+      ORDER BY transactions.fecha DESC, transactions.id DESC
+      LIMIT ?
+    `,
+    [userId, matcher, Math.max(1, Math.min(limit, 100))],
+  );
+}
+
+export async function markTransactionMovement(db: D1DatabaseLike, userId: string, transactionId: number, kind: string) {
+  const current = await getTransactionById(db, userId, transactionId);
+  if (!current) return null;
+
+  const normalizedKind = kind || "normal";
+  const isInternal = normalizedKind === "internal_transfer" || normalizedKind === "fx_exchange";
+
+  await runStatement(
+    db,
+    `
+      UPDATE transactions
+      SET movement_kind = ?,
+          category_id = CASE WHEN ? THEN NULL ELSE category_id END,
+          categorization_status = CASE
+            WHEN ? THEN 'categorized'
+            WHEN category_id IS NULL THEN 'uncategorized'
+            ELSE 'categorized'
+          END,
+          category_source = CASE
+            WHEN ? THEN 'movement_kind'
+            WHEN category_id IS NULL THEN NULL
+            ELSE category_source
+          END,
+          category_confidence = CASE WHEN ? THEN NULL ELSE category_confidence END,
+          category_rule_id = CASE WHEN ? THEN NULL ELSE category_rule_id END
+      WHERE user_id = ? AND id = ?
+    `,
+    [normalizedKind, isInternal ? 1 : 0, isInternal ? 1 : 0, isInternal ? 1 : 0, isInternal ? 1 : 0, isInternal ? 1 : 0, userId, transactionId],
+  );
+
+  return getTransactionById(db, userId, transactionId);
+}
+
+export async function buildImportReviewState(db: D1DatabaseLike, userId: string, transactionIds: number[]) {
+  const settings = await getSettingsObject(db, userId);
+  const transactions = await getTransactionsByIds(db, userId, transactionIds);
+  const pending = transactions.filter((transaction) => String(transaction.categorization_status || "") !== "categorized");
+  const enriched: Array<Record<string, unknown> & {
+    id?: unknown;
+    desc_banco?: unknown;
+    category_id?: unknown;
+    category_name?: unknown;
+    categorization_status?: unknown;
+  }> = [];
+  for (const transaction of pending) {
+    enriched.push(await enrichTransactionForReview(db, userId, transaction));
+  }
+
+  const grouped = new Map<string, {
+    key: string;
+    pattern: string;
+    category_id: number;
+    category_name: string;
+    count: number;
+    transaction_ids: number[];
+    samples: string[];
+  }>();
+
+  enriched
+    .filter((transaction) => String(transaction.categorization_status || "") === "suggested" && transaction.category_id != null)
+    .forEach((transaction) => {
+      const normalizedPattern = normalizeReviewPattern(String(transaction.desc_banco || ""));
+      if (!normalizedPattern) return;
+      const key = `${normalizedPattern}::${transaction.category_id}`;
+      const current = grouped.get(key) || {
+        key,
+        pattern: deriveRulePattern(String(transaction.desc_banco || "")) || String(transaction.desc_banco || ""),
+        category_id: Number(transaction.category_id),
+        category_name: String(transaction.category_name || "Sin categoria"),
+        count: 0,
+        transaction_ids: [],
+        samples: [],
+      };
+      current.count += 1;
+      current.transaction_ids.push(Number(transaction.id));
+      if (!current.samples.includes(String(transaction.desc_banco)) && current.samples.length < 5) {
+        current.samples.push(String(transaction.desc_banco));
+      }
+      grouped.set(key, current);
+    });
+
+  const guidedReviewGroups = [...grouped.values()]
+    .filter((group) => group.count >= 2)
+    .sort((left, right) => right.count - left.count)
+    .map((group) => ({
+      ...group,
+      priority: group.count >= 3 ? "high" : "medium",
+      risk_label: group.count >= 4 ? "Patron fuerte" : "Conviene confirmar",
+      guided_reason: "Vimos varias descripciones parecidas en la misma categoria",
+      suggested_rule_mode: group.count >= 3 ? "auto" : "suggest",
+      suggested_rule_confidence: group.count >= 4 ? 0.94 : 0.84,
+    }));
+
+  const guidedIds = new Set(guidedReviewGroups.flatMap((group) => group.transaction_ids));
+  return {
+    review_groups: [],
+    guided_review_groups: guidedReviewGroups,
+    transaction_review_queue: enriched.filter((transaction) => !guidedIds.has(Number(transaction.id))),
+    guided_onboarding_required: settings.guided_categorization_onboarding_completed !== "1"
+      && settings.guided_categorization_onboarding_skipped !== "1"
+      && guidedReviewGroups.length > 0,
+    remaining_transaction_ids: pending.map((transaction) => Number(transaction.id)),
+  };
+}
+
+export async function batchCreateTransactions(
+  db: D1DatabaseLike,
+  userId: string,
+  input: { account_id?: string; period?: string; transactions: CreateTransactionInput[] },
+) {
+  const createdIds: number[] = [];
+  let created = 0;
+  let duplicates = 0;
+  let errors = 0;
+
+  for (const transaction of input.transactions) {
+    try {
+      const createdTransaction = await createTransaction(db, userId, {
+        ...transaction,
+        account_id: transaction.account_id || input.account_id,
+        entry_type: transaction.entry_type || (Number(transaction.monto) >= 0 ? "income" : "expense"),
+        moneda: transaction.moneda || "UYU",
+      });
+      if (createdTransaction?.id) {
+        createdIds.push(Number(createdTransaction.id));
+        created += 1;
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("already exists")) duplicates += 1;
+      else errors += 1;
+    }
+  }
+
+  return {
+    created,
+    duplicates,
+    errors,
+    ...(await buildImportReviewState(db, userId, createdIds)),
+    guided_onboarding_session: null,
+  };
+}
+
+export async function confirmCategorySelection(db: D1DatabaseLike, userId: string, transactionIds: number[], categoryId: number) {
+  const transactions = await assignCategoryToTransactions(db, userId, transactionIds, categoryId);
+  return {
+    confirmed: transactions.length,
+    transactions,
+  };
+}
+
+export async function rejectCategorySelection(db: D1DatabaseLike, userId: string, transactionId: number, ruleId?: number | null) {
+  const current = await getTransactionById(db, userId, transactionId);
+  if (!current) return null;
+
+  if (ruleId) {
+    await rejectRuleForDescription(db, userId, ruleId, String(current.desc_banco));
+  }
+
+  await runStatement(
+    db,
+    `
+      UPDATE transactions
+      SET category_id = NULL,
+          categorization_status = CASE WHEN movement_kind = 'normal' THEN 'uncategorized' ELSE 'categorized' END,
+          category_source = CASE WHEN movement_kind = 'normal' THEN NULL ELSE 'movement_kind' END,
+          category_confidence = NULL,
+          category_rule_id = NULL
+      WHERE user_id = ? AND id = ?
+    `,
+    [userId, transactionId],
+  );
+
+  return getTransactionById(db, userId, transactionId);
+}
+
+export async function undoRejectCategorySelection(db: D1DatabaseLike, userId: string, transactionId: number, ruleId?: number | null) {
+  const current = await getTransactionById(db, userId, transactionId);
+  if (!current || !ruleId) return current;
+
+  const rule = await getRuleById(db, userId, ruleId);
+  if (!rule || rule.category_id == null) return current;
+
+  await runStatement(
+    db,
+    `
+      UPDATE transactions
+      SET category_id = ?,
+          categorization_status = CASE WHEN ? = 'auto' THEN 'categorized' ELSE 'suggested' END,
+          category_source = CASE WHEN ? = 'auto' THEN 'rule_confirmed' ELSE 'rule_suggest' END,
+          category_confidence = ?,
+          category_rule_id = ?
+      WHERE user_id = ? AND id = ?
+    `,
+    [rule.category_id, rule.mode || "suggest", rule.mode || "suggest", rule.confidence ?? null, rule.id, userId, transactionId],
+  );
+
+  return getTransactionById(db, userId, transactionId);
+}
+
+export async function undoConfirmCategorySelection(db: D1DatabaseLike, userId: string, transactionId: number) {
+  const current = await getTransactionById(db, userId, transactionId);
+  if (!current) return null;
+
+  await runStatement(
+    db,
+    `
+      UPDATE transactions
+      SET category_id = NULL,
+          categorization_status = CASE WHEN movement_kind = 'normal' THEN 'uncategorized' ELSE 'categorized' END,
+          category_source = CASE WHEN movement_kind = 'normal' THEN NULL ELSE 'movement_kind' END,
+          category_confidence = NULL,
+          category_rule_id = NULL
+      WHERE user_id = ? AND id = ?
+    `,
+    [userId, transactionId],
+  );
+
+  return getTransactionById(db, userId, transactionId);
+}
+
+export async function confirmInternalOperation(
+  db: D1DatabaseLike,
+  userId: string,
+  input: {
+    kind: string;
+    source_transaction_id: number;
+    target_transaction_id?: number | null;
+    from_account_id?: string | null;
+    to_account_id?: string | null;
+    effective_rate?: number | null;
+  },
+) {
+  const source = await getTransactionById(db, userId, input.source_transaction_id);
+  if (!source) return null;
+
+  const kind = input.kind || "internal_transfer";
+  let target = input.target_transaction_id ? await getTransactionById(db, userId, Number(input.target_transaction_id)) : null;
+
+  if (!target && input.to_account_id) {
+    const targetAccount = await firstRow<{ currency: string }>(
+      db,
+      "SELECT currency FROM accounts WHERE user_id = ? AND id = ? LIMIT 1",
+      [userId, input.to_account_id],
+    );
+    if (!targetAccount) {
+      throw new Error("target account not found");
+    }
+
+    const rawAmount = Math.abs(Number(source.monto));
+    let targetAmount = rawAmount;
+    if (kind === "fx_exchange" && input.effective_rate && input.effective_rate > 0) {
+      if (String(source.moneda) === "UYU" && targetAccount.currency !== "UYU") {
+        targetAmount = rawAmount / Number(input.effective_rate);
+      } else if (String(source.moneda) !== "UYU" && targetAccount.currency === "UYU") {
+        targetAmount = rawAmount * Number(input.effective_rate);
+      }
+    }
+
+    const counterpartDedup = buildDedupHash({
+      fecha: String(source.fecha),
+      monto: Math.abs(Number(targetAmount)),
+      desc_banco: String(source.desc_banco),
+    });
+    const existingCounterpart = await firstRow<{ id: number }>(
+      db,
+      "SELECT id FROM transactions WHERE user_id = ? AND period = ? AND dedup_hash = ? LIMIT 1",
+      [userId, String(source.period), counterpartDedup],
+    );
+
+    if (existingCounterpart) {
+      target = await getTransactionById(db, userId, existingCounterpart.id);
+    } else {
+      const result = await runStatement(
+        db,
+        `
+          INSERT INTO transactions (
+            user_id, period, fecha, desc_banco, desc_usuario, monto, moneda, category_id, account_id, entry_type, movement_kind,
+            categorization_status, category_source, category_confidence, category_rule_id, dedup_hash
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, 'income', ?, 'categorized', 'movement_kind', NULL, NULL, ?)
+        `,
+        [
+          userId,
+          String(source.period),
+          String(source.fecha),
+          String(source.desc_banco),
+          source.desc_usuario ?? null,
+          Math.abs(Number(targetAmount)),
+          targetAccount.currency,
+          input.to_account_id,
+          kind,
+          counterpartDedup,
+        ],
+      );
+      target = await getTransactionById(db, userId, Number(result.meta?.last_row_id || 0));
+    }
+  }
+
+  const groupId = String(source.internal_group_id || `internal_${Date.now()}_${source.id}`);
+  await runStatement(
+    db,
+    `
+      UPDATE transactions
+      SET movement_kind = ?,
+          paired_transaction_id = ?,
+          internal_group_id = ?,
+          category_id = NULL,
+          categorization_status = 'categorized',
+          category_source = 'movement_kind',
+          category_confidence = NULL,
+          category_rule_id = NULL
+      WHERE user_id = ? AND id = ?
+    `,
+    [kind, target?.id ?? null, groupId, userId, source.id],
+  );
+
+  if (target?.id) {
+    await runStatement(
+      db,
+      `
+        UPDATE transactions
+        SET movement_kind = ?,
+            paired_transaction_id = ?,
+            internal_group_id = ?,
+            category_id = NULL,
+            categorization_status = 'categorized',
+            category_source = 'movement_kind',
+            category_confidence = NULL,
+            category_rule_id = NULL
+        WHERE user_id = ? AND id = ?
+      `,
+      [kind, source.id, groupId, userId, target.id],
+    );
+  }
+
+  return {
+    ok: true,
+    transaction: await getTransactionById(db, userId, Number(source.id)),
+    counterpart: target ? await getTransactionById(db, userId, Number(target.id)) : null,
+  };
+}
+
+export async function rejectInternalOperation(db: D1DatabaseLike, userId: string, sourceTransactionId: number) {
+  const source = await getTransactionById(db, userId, sourceTransactionId);
+  if (!source) return null;
+
+  await runStatement(
+    db,
+    `
+      UPDATE transactions
+      SET movement_kind = 'normal',
+          paired_transaction_id = NULL,
+          internal_group_id = NULL,
+          account_link_id = NULL,
+          categorization_status = CASE WHEN category_id IS NULL THEN 'uncategorized' ELSE 'categorized' END,
+          category_source = CASE WHEN category_id IS NULL THEN NULL ELSE category_source END
+      WHERE user_id = ? AND id = ?
+    `,
+    [userId, sourceTransactionId],
+  );
+
+  return {
+    ok: true,
+    transaction: await getTransactionById(db, userId, sourceTransactionId),
+  };
 }

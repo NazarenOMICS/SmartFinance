@@ -7,8 +7,19 @@ function parseTimeout(value, fallback = 15000) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function resolveApiBaseUrl() {
+  const explicit = trimTrailingSlash(import.meta.env.VITE_API_URL || "");
+  if (explicit) return explicit;
+
+  if (import.meta.env.PROD) {
+    return "https://smartfinance-saas-api.nazarenocabrerati.workers.dev";
+  }
+
+  return "";
+}
+
 export const appConfig = Object.freeze({
-  apiBaseUrl: trimTrailingSlash(import.meta.env.VITE_API_URL || ""),
+  apiBaseUrl: resolveApiBaseUrl(),
   apiTimeoutMs: parseTimeout(import.meta.env.VITE_API_TIMEOUT_MS, 15000),
   clerkPublishableKey: String(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || ""),
 });

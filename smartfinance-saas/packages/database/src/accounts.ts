@@ -98,3 +98,32 @@ export async function deleteAccount(db: D1DatabaseLike, userId: string, accountI
   return { deleted: true as const };
 }
 
+export async function deleteAccountCascade(db: D1DatabaseLike, userId: string, accountId: string) {
+  await runStatement(
+    db,
+    "DELETE FROM account_links WHERE user_id = ? AND (account_a_id = ? OR account_b_id = ?)",
+    [userId, accountId, accountId],
+  );
+  await runStatement(
+    db,
+    "DELETE FROM uploads WHERE user_id = ? AND account_id = ?",
+    [userId, accountId],
+  );
+  await runStatement(
+    db,
+    "DELETE FROM installments WHERE user_id = ? AND account_id = ?",
+    [userId, accountId],
+  );
+  await runStatement(
+    db,
+    "DELETE FROM transactions WHERE user_id = ? AND account_id = ?",
+    [userId, accountId],
+  );
+  await runStatement(
+    db,
+    "DELETE FROM accounts WHERE user_id = ? AND id = ?",
+    [userId, accountId],
+  );
+
+  return { deleted: true as const };
+}

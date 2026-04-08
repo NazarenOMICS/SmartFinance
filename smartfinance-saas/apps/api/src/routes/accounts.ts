@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { createAccountInputSchema, updateAccountInputSchema } from "@smartfinance/contracts";
-import { createAccount, deleteAccount, listAccounts, updateAccount } from "@smartfinance/database";
+import { createAccount, deleteAccount, deleteAccountCascade, getConsolidatedAccounts, listAccountsWithLinks, updateAccount } from "@smartfinance/database";
 import type { ApiBindings, ApiVariables } from "../env";
 import { jsonError } from "../utils/http";
 
@@ -11,7 +11,12 @@ const accountsRouter = new Hono<{
 
 accountsRouter.get("/", async (c) => {
   const auth = c.get("auth");
-  return c.json(await listAccounts(c.env.DB, auth.userId));
+  return c.json(await listAccountsWithLinks(c.env.DB, auth.userId));
+});
+
+accountsRouter.get("/consolidated", async (c) => {
+  const auth = c.get("auth");
+  return c.json(await getConsolidatedAccounts(c.env.DB, auth.userId));
 });
 
 accountsRouter.post("/", async (c) => {
@@ -49,7 +54,10 @@ accountsRouter.put("/:id", async (c) => {
 accountsRouter.delete("/:id", async (c) => {
   const auth = c.get("auth");
   const requestId = c.get("requestId");
-  const result = await deleteAccount(c.env.DB, auth.userId, c.req.param("id"));
+  const force = c.req.query("force") === "true";
+  const result = force
+    ? await deleteAccountCascade(c.env.DB, auth.userId, c.req.param("id"))
+    : await deleteAccount(c.env.DB, auth.userId, c.req.param("id"));
 
   if (!result.deleted) {
     return jsonError("Account cannot be deleted yet", result.reason, requestId, 409);
@@ -59,4 +67,3 @@ accountsRouter.delete("/:id", async (c) => {
 });
 
 export default accountsRouter;
-
