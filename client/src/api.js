@@ -1,19 +1,51 @@
-const API_BASE = import.meta.env.VITE_API_URL || "";
+import { appConfig } from "./config";
 
 // The Clerk `getToken` function is injected here by <AuthSync /> in App.jsx.
 // This avoids having to thread the token through every call site.
 let _getToken = null;
 export function setTokenGetter(fn) { _getToken = fn; }
 
-async function request(url, options = {}) {
-  const token = _getToken ? await _getToken() : null;
-  const headers = {
+class ApiError extends Error {
+  constructor(message, options = {}) {
+    super(message);
+    this.name = "ApiError";
+    this.status = options.status || null;
+    this.code = options.code || null;
+    this.schema = options.schema || null;
+    this.cause = options.cause;
+  }
+}
+
+function buildHeaders(options, token) {
+  return {
     ...(!(options.body instanceof FormData) && { "Content-Type": "application/json" }),
     ...(token && { Authorization: `Bearer ${token}` }),
     ...(options.headers || {}),
   };
+}
 
-  const response = await fetch(`${API_BASE}${url}`, { ...options, headers });
+async function request(url, options = {}) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), options.timeoutMs || appConfig.apiTimeoutMs);
+  const token = _getToken ? await _getToken() : null;
+  const headers = buildHeaders(options, token);
+
+  let response;
+  try {
+    response = await fetch(`${appConfig.apiBaseUrl}${url}`, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === "AbortError") {
+      throw new ApiError("La request tardó demasiado. Probá de nuevo.", { code: "REQUEST_TIMEOUT", cause: error });
+    }
+    throw new ApiError("No se pudo conectar con la API.", { code: "NETWORK_ERROR", cause: error });
+  }
+
+  clearTimeout(timeoutId);
 
   if (!response.ok) {
     let message = "Request failed";
@@ -24,7 +56,7 @@ async function request(url, options = {}) {
     } catch {
       message = response.statusText || message;
     }
-    const error = new Error(message);
+    const error = new ApiError(message, { status: response.status });
     if (parsed?.blocking_reason) {
       error.code = "SCHEMA_MISMATCH";
       error.schema = parsed;

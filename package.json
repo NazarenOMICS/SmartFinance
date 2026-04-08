@@ -4,8 +4,11 @@
   "scripts": {
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "cd server && node index.js",
+    "start": "cd server && node index.js",
     "client": "cd client && npm run dev",
     "build": "cd client && npm run build",
+    "smoke": "cd server && node smoke.js",
+    "check": "npm run build && npm run smoke",
     "setup": "cd server && npm install && cd ../client && npm install && cd ../worker && npm install",
     "seed": "cd server && node seed.js",
     "worker:dev": "cd worker && npx wrangler dev",

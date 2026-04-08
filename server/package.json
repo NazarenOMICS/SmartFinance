@@ -3,6 +3,10 @@
   "private": true,
   "main": "index.js",
   "type": "commonjs",
+  "scripts": {
+    "start": "node index.js",
+    "smoke": "node smoke.js"
+  },
   "dependencies": {
     "better-sqlite3": "^11.8.1",
     "cors": "^2.8.5",

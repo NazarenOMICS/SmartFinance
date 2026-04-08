@@ -58,8 +58,15 @@ function startDailyRefresh() {
   }
 }
 
+function stopDailyRefresh() {
+  if (!intervalId) return;
+  clearInterval(intervalId);
+  intervalId = null;
+}
+
 module.exports = {
   fetchExchangeRates,
   refreshExchangeRates,
   startDailyRefresh,
+  stopDailyRefresh,
 };

@@ -1,0 +1,22 @@
+{
+  "name": "@smartfinance/api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@smartfinance/config": "workspace:*",
+    "@smartfinance/contracts": "workspace:*",
+    "@smartfinance/database": "workspace:*",
+    "@smartfinance/domain": "workspace:*",
+    "@smartfinance/observability": "workspace:*",
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "wrangler": "^4.78.0"
+  }
+}

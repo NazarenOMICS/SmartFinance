@@ -1,0 +1,17 @@
+name = "smartfinance-saas-api"
+main = "src/index.ts"
+compatibility_date = "2025-01-15"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "smartfinance-saas-prod"
+database_id = "1cb06651-b842-4650-a903-3fdd761f8086"
+migrations_dir = "migrations"
+
+[vars]
+AUTH_MODE = "development"
+# CLERK_JWKS_URL = "https://your-clerk-domain/.well-known/jwks.json"
+
+# [[r2_buckets]]
+# binding = "UPLOADS_BUCKET"
+# bucket_name = "smartfinance-saas-uploads"
