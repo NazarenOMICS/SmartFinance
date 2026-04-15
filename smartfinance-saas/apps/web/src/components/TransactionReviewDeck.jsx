@@ -25,6 +25,35 @@ function formatConfidence(confidence) {
   return `${Math.round(value * 100)}% confianza`;
 }
 
+function cleanDescription(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function isWeakDescription(value) {
+  const text = cleanDescription(value);
+  if (!text) return true;
+  if (text.length < 3) return true;
+
+  const withoutCurrency = text
+    .replace(/[$UuSsAaRrYy .,\-+()]/g, "")
+    .trim();
+  const mostlyNumeric = /^[\d.,\s$()+\-]+$/.test(text);
+  return mostlyNumeric || withoutCurrency.length === 0;
+}
+
+function getPrimaryDescription(transaction) {
+  const userDescription = cleanDescription(transaction?.desc_usuario);
+  if (!isWeakDescription(userDescription)) return userDescription;
+
+  const bankDescription = cleanDescription(transaction?.desc_banco);
+  if (!isWeakDescription(bankDescription)) return bankDescription;
+
+  const counterparty = cleanDescription(transaction?.counterparty_key);
+  if (!isWeakDescription(counterparty)) return counterparty;
+
+  return "Movimiento sin descripcion";
+}
+
 export default function TransactionReviewDeck({
   items,
   categories,
@@ -39,6 +68,7 @@ export default function TransactionReviewDeck({
   const [saving, setSaving] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const [selectedTargetAccountId, setSelectedTargetAccountId] = useState("");
+  const [customDescription, setCustomDescription] = useState("");
   const [dismissedInternalIds, setDismissedInternalIds] = useState([]);
 
   const otherCategory = useMemo(
@@ -71,6 +101,15 @@ export default function TransactionReviewDeck({
   }, [current?.transaction_id, current?.suggested_category_id]);
 
   useEffect(() => {
+    if (!current) {
+      setCustomDescription("");
+      return;
+    }
+    const preferredDescription = cleanDescription(current.desc_usuario);
+    setCustomDescription(preferredDescription || (!isWeakDescription(current.desc_banco) ? cleanDescription(current.desc_banco) : ""));
+  }, [current?.transaction_id, current?.desc_usuario, current?.desc_banco]);
+
+  useEffect(() => {
     setSelectedTargetAccountId(current?.internal_operation_to_account_id ? String(current.internal_operation_to_account_id) : "");
   }, [current?.transaction_id, current?.internal_operation_to_account_id]);
 
@@ -86,11 +125,17 @@ export default function TransactionReviewDeck({
     if (!current || saving || !categoryId) return;
     setSaving(true);
     try {
-      const result = await api.updateTransaction(current.transaction_id, { category_id: Number(categoryId) });
+      const cleanCustomDescription = cleanDescription(customDescription);
+      const payload = { category_id: Number(categoryId) };
+      if (cleanCustomDescription && cleanCustomDescription !== cleanDescription(current.desc_usuario)) {
+        payload.desc_usuario = cleanCustomDescription;
+      }
+      const result = await api.updateTransaction(current.transaction_id, payload);
       setHistory((prev) => [...prev, {
         type: "apply",
         transactionId: current.transaction_id,
-        previousCategoryId: null,
+        previousCategoryId: current.category_id ?? null,
+        previousDescription: current.desc_usuario ?? null,
         createdRuleId: result?.rule?.created ? result?.rule?.rule?.id : null,
         createdCategoryId: options.createdCategoryId || null,
       }]);
@@ -190,7 +235,10 @@ export default function TransactionReviewDeck({
     setSaving(true);
     try {
       if (last.type === "apply") {
-        await api.updateTransaction(last.transactionId, { category_id: last.previousCategoryId });
+        await api.updateTransaction(last.transactionId, {
+          category_id: last.previousCategoryId,
+          desc_usuario: last.previousDescription,
+        });
         if (last.createdRuleId) {
           await api.deleteRule(last.createdRuleId);
         }
@@ -209,6 +257,11 @@ export default function TransactionReviewDeck({
   }
 
   if (!current) return null;
+
+  const primaryDescription = getPrimaryDescription(current);
+  const rawBankDescription = cleanDescription(current.desc_banco);
+  const hasWeakBankDescription = isWeakDescription(rawBankDescription);
+  const accountLabel = cleanDescription(current.account_name) || cleanDescription(current.account_id) || "Sin cuenta";
 
   return (
     <div
@@ -254,11 +307,40 @@ export default function TransactionReviewDeck({
             ) : null}
           </div>
 
+          <div className="mt-5 rounded-2xl bg-white/80 px-4 py-4 dark:bg-neutral-900/80">
+            <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-400">Movimiento</p>
+            <p
+              className="mt-2 text-2xl font-semibold leading-tight text-finance-ink dark:text-neutral-100"
+              data-testid="review-transaction-description"
+              title={primaryDescription}
+            >
+              {primaryDescription}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs text-neutral-500 dark:text-neutral-300">
+              <span className="rounded-full bg-finance-cream px-3 py-1 dark:bg-neutral-800">
+                Cuenta: {accountLabel}
+              </span>
+              <span className="rounded-full bg-finance-cream px-3 py-1 dark:bg-neutral-800">
+                Moneda: {current.moneda || "UYU"}
+              </span>
+            </div>
+            {rawBankDescription && rawBankDescription !== primaryDescription ? (
+              <p
+                className="mt-3 break-words text-xs text-neutral-500 dark:text-neutral-300"
+                data-testid="review-transaction-raw-description"
+              >
+                Banco: {rawBankDescription}
+              </p>
+            ) : null}
+            {hasWeakBankDescription ? (
+              <p className="mt-3 rounded-2xl bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                El banco no mando una descripcion clara. Escribi un nombre abajo para recordarlo despues.
+              </p>
+            ) : null}
+          </div>
+
           <p className="mt-4 text-4xl font-semibold tracking-tight text-finance-ink dark:text-neutral-100">
             {fmtMoney(current.monto, current.moneda)}
-          </p>
-          <p className="mt-3 text-lg font-semibold text-finance-ink dark:text-neutral-100">
-            {current.desc_banco}
           </p>
           <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-300">
             {current.suggestion_reason || "Sugerencia del motor"}
@@ -341,6 +423,16 @@ export default function TransactionReviewDeck({
         </div>
 
         <div className="mt-5 rounded-[26px] border border-neutral-200 bg-white/80 p-5 dark:border-neutral-700 dark:bg-neutral-950/60">
+          <label className="block">
+            <span className="text-xs uppercase tracking-[0.18em] text-neutral-400">Nombre para recordar</span>
+            <input
+              value={customDescription}
+              onChange={(event) => setCustomDescription(event.target.value)}
+              placeholder="Ej: Luz, alquiler Maria, supermercado..."
+              className="mt-3 w-full rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm text-finance-ink outline-none transition focus:border-finance-purple dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+            />
+          </label>
+
           {isInternalOperationActive && (
             <div className="mb-4 flex flex-wrap gap-2">
               <button
@@ -374,7 +466,7 @@ export default function TransactionReviewDeck({
             </div>
           )}
 
-          <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Cambiar categoria</p>
+          <p className="mt-5 text-xs uppercase tracking-[0.18em] text-neutral-400">Cambiar categoria</p>
           {otherCategory ? (
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
