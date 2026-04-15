@@ -9,6 +9,7 @@ import categoriesRouter from "./src/routes/categories.js";
 import exportRouter from "./src/routes/export.js";
 import insightsRouter from "./src/routes/insights.js";
 import installmentsRouter from "./src/routes/installments.js";
+import jobsRouter from "./src/routes/jobs.js";
 import onboardRouter from "./src/routes/onboard.js";
 import rulesRouter from "./src/routes/rules.js";
 import savingsRouter from "./src/routes/savings.js";
@@ -48,9 +49,11 @@ app.route("/api/installments", installmentsRouter);
 app.route("/api/savings", savingsRouter);
 app.route("/api/settings", settingsRouter);
 app.route("/api/upload", uploadRouter);
+app.route("/api/uploads", uploadRouter);
 app.route("/api/export", exportRouter);
 app.route("/api/insights", insightsRouter);
 app.route("/api/bank-formats", bankFormatsRouter);
+app.route("/api/jobs", jobsRouter);
 
 app.onError((err, c) => {
   const status = typeof err?.status === "number" ? err.status : 500;

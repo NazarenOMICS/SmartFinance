@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = "2026-04-amount-profiles-v8";
+export const SCHEMA_VERSION = "2026-04-categorization-canonical-v9";
 
 export const DEFAULT_SETTINGS: Record<string, string> = {
   exchange_rate_usd_uyu: "42.5",
@@ -25,6 +25,7 @@ export const DEFAULT_SETTINGS: Record<string, string> = {
   categorizer_ollama_url: "",
   categorizer_ollama_model: "qwen2.5:3b",
   categorizer_amount_profiles_enabled: "1",
+  categorizer_v2_enabled: "1",
   categorizer_amount_auto_threshold: "0.92",
   categorizer_amount_suggest_threshold: "0.74",
   categorizer_ai_amount_audit_enabled: "0",

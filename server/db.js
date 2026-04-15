@@ -19,6 +19,7 @@ const DEFAULT_SETTINGS = {
   parsing_patterns: JSON.stringify(DEFAULT_PATTERNS),
   categorizer_auto_threshold: "0.88",
   categorizer_suggest_threshold: "0.68",
+  categorizer_v2_enabled: "1",
   categorizer_ollama_enabled: "0",
   categorizer_ollama_url: "",
   categorizer_ollama_model: "qwen2.5:3b",
@@ -43,7 +44,7 @@ const DEFAULT_GLOBAL_EXCHANGE_RATES = {
   exchange_rate_fetch_error: "",
 };
 const SUPPORTED_CURRENCIES = new Set(SUPPORTED_CURRENCY_LIST);
-const SCHEMA_VERSION = "2026-03-contract-v4";
+const SCHEMA_VERSION = "2026-04-categorization-canonical-v9";
 const EXPECTED_SCHEMA_VERSION = SCHEMA_VERSION;
 
 function getExchangeRateSettingKey(currency) {
@@ -169,7 +170,11 @@ function migrate() {
       currency TEXT,
       direction TEXT NOT NULL DEFAULT 'any',
       merchant_key TEXT,
+      merchant_scope TEXT NOT NULL DEFAULT '',
+      account_scope TEXT NOT NULL DEFAULT '',
+      currency_scope TEXT NOT NULL DEFAULT '',
       last_matched_at TEXT,
+      updated_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (category_id) REFERENCES categories(id)
     );
 
@@ -209,6 +214,39 @@ function migrate() {
       transaction_id INTEGER NOT NULL,
       created_at TEXT DEFAULT (datetime('now')),
       PRIMARY KEY (rule_id, transaction_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS rule_match_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      transaction_id INTEGER NOT NULL,
+      rule_id INTEGER,
+      category_id INTEGER,
+      layer TEXT NOT NULL,
+      confidence REAL,
+      reason TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS merchant_dictionary (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      merchant_key TEXT NOT NULL UNIQUE,
+      display_name TEXT NOT NULL,
+      aliases_json TEXT NOT NULL DEFAULT '[]',
+      default_category_id INTEGER,
+      origin TEXT NOT NULL DEFAULT 'seed',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS categorization_jobs (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'completed',
+      total INTEGER NOT NULL DEFAULT 0,
+      processed INTEGER NOT NULL DEFAULT 0,
+      result_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS categorization_events (
@@ -307,7 +345,14 @@ function migrate() {
   if (!ruleColumns.has("currency")) db.exec("ALTER TABLE rules ADD COLUMN currency TEXT");
   if (!ruleColumns.has("direction")) db.exec("ALTER TABLE rules ADD COLUMN direction TEXT NOT NULL DEFAULT 'any'");
   if (!ruleColumns.has("merchant_key")) db.exec("ALTER TABLE rules ADD COLUMN merchant_key TEXT");
+  if (!ruleColumns.has("merchant_scope")) db.exec("ALTER TABLE rules ADD COLUMN merchant_scope TEXT NOT NULL DEFAULT ''");
+  if (!ruleColumns.has("account_scope")) db.exec("ALTER TABLE rules ADD COLUMN account_scope TEXT NOT NULL DEFAULT ''");
+  if (!ruleColumns.has("currency_scope")) db.exec("ALTER TABLE rules ADD COLUMN currency_scope TEXT NOT NULL DEFAULT ''");
   if (!ruleColumns.has("last_matched_at")) db.exec("ALTER TABLE rules ADD COLUMN last_matched_at TEXT");
+  if (!ruleColumns.has("updated_at")) {
+    db.exec("ALTER TABLE rules ADD COLUMN updated_at TEXT");
+    db.exec("UPDATE rules SET updated_at = COALESCE(updated_at, datetime('now'))");
+  }
 
   const txColumns = new Set(db.prepare("PRAGMA table_info(transactions)").all().map((column) => column.name));
   if (!txColumns.has("categorization_status")) db.exec("ALTER TABLE transactions ADD COLUMN categorization_status TEXT NOT NULL DEFAULT 'uncategorized'");
@@ -317,6 +362,9 @@ function migrate() {
   if (!txColumns.has("movement_kind")) db.exec("ALTER TABLE transactions ADD COLUMN movement_kind TEXT NOT NULL DEFAULT 'normal'");
   if (!txColumns.has("internal_operation_id")) db.exec("ALTER TABLE transactions ADD COLUMN internal_operation_id INTEGER");
   if (!txColumns.has("counterparty_account_id")) db.exec("ALTER TABLE transactions ADD COLUMN counterparty_account_id TEXT");
+  if (!txColumns.has("merchant_key")) db.exec("ALTER TABLE transactions ADD COLUMN merchant_key TEXT");
+  if (!txColumns.has("parse_quality")) db.exec("ALTER TABLE transactions ADD COLUMN parse_quality TEXT NOT NULL DEFAULT 'clean'");
+  if (!txColumns.has("rule_skipped_reason")) db.exec("ALTER TABLE transactions ADD COLUMN rule_skipped_reason TEXT");
 
   const linkColumns = new Set(db.prepare("PRAGMA table_info(account_links)").all().map((column) => column.name));
   if (!linkColumns.has("preferred_currency")) db.exec("ALTER TABLE account_links ADD COLUMN preferred_currency TEXT DEFAULT NULL");
@@ -353,21 +401,33 @@ function migrate() {
   `);
 
   db.exec("UPDATE rules SET normalized_pattern = LOWER(TRIM(pattern)) WHERE COALESCE(normalized_pattern, '') = ''");
+  db.exec("UPDATE rules SET merchant_key = COALESCE(NULLIF(merchant_key, ''), NULLIF(normalized_pattern, ''), LOWER(TRIM(pattern)))");
+  db.exec("UPDATE rules SET merchant_scope = COALESCE(NULLIF(merchant_key, ''), NULLIF(normalized_pattern, ''), LOWER(TRIM(pattern))), account_scope = COALESCE(account_id, ''), currency_scope = COALESCE(currency, '')");
   db.exec(`
     DELETE FROM rules
     WHERE id NOT IN (
       SELECT MIN(id)
       FROM rules
-      GROUP BY normalized_pattern, IFNULL(account_id, ''), IFNULL(currency, ''), direction
+      GROUP BY merchant_scope, account_scope, currency_scope, direction
     )
   `);
 
   db.exec("DROP INDEX IF EXISTS idx_rules_user_pattern");
+  db.exec("DROP INDEX IF EXISTS idx_rules_scope");
   db.exec("CREATE INDEX IF NOT EXISTS idx_categories_slug ON categories(slug)");
-  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_rules_scope ON rules(normalized_pattern, IFNULL(account_id, ''), IFNULL(currency, ''), direction)");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_rules_scope ON rules(merchant_scope, account_scope, currency_scope, direction)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_rules_merchant ON rules(merchant_key)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_rules_category ON rules(category_id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_rules_direction_currency ON rules(direction, currency)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_rule_exclusions_tx ON rule_exclusions(transaction_id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_rule_exclusions_rule ON rule_exclusions(rule_id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_rule_rejections_rule ON rule_rejections(rule_id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_rule_match_log_tx ON rule_match_log(transaction_id, created_at DESC)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_categorization_jobs_created ON categorization_jobs(created_at DESC)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_categorization_events_tx ON categorization_events(transaction_id, created_at DESC)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(categorization_status, fecha DESC)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_transactions_category_status ON transactions(category_id, categorization_status)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_transactions_merchant ON transactions(merchant_key)");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_global_pattern_candidate_scope ON global_pattern_candidates(normalized_pattern, category_slug)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_global_pattern_candidates_status ON global_pattern_candidates(status, confidence_score DESC, user_count DESC)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_internal_operations_status ON internal_operations(status, updated_at DESC)");
@@ -379,6 +439,27 @@ function migrate() {
     ON CONFLICT(key) DO NOTHING
   `);
   Object.entries(DEFAULT_SETTINGS).forEach(([key, value]) => insertSetting.run(key, value));
+  insertSetting.run("categorizer_v2_enabled", "1");
+
+  const seedMerchant = db.prepare(`
+    INSERT INTO merchant_dictionary (merchant_key, display_name, aliases_json, origin)
+    VALUES (?, ?, ?, 'seed')
+    ON CONFLICT(merchant_key) DO NOTHING
+  `);
+  [
+    ["uber", "Uber", ["uber trip", "uber eats"]],
+    ["pedidosya", "PedidosYa", ["pedidos ya", "pedidosya"]],
+    ["mcdonalds", "McDonalds", ["mcdonald", "mcdonalds", "mc donald"]],
+    ["rappi", "Rappi", ["rappi"]],
+    ["mercadopago", "Mercado Pago", ["mercado pago", "mercadopago", "mercado"]],
+    ["netflix", "Netflix", ["netflix"]],
+    ["spotify", "Spotify", ["spotify"]],
+    ["openai", "OpenAI", ["openai", "chatgpt"]],
+    ["farmashop", "Farmashop", ["farmashop"]],
+    ["antel", "Antel", ["antel"]],
+    ["ute", "UTE", ["ute"]],
+    ["ose", "OSE", ["ose"]]
+  ].forEach(([key, name, aliases]) => seedMerchant.run(key, name, JSON.stringify(aliases)));
 
   db.prepare(`
     INSERT INTO system_meta (key, value) VALUES ('schema_version', ?)
@@ -412,7 +493,7 @@ function normalizeSettingValue(key, value) {
     return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? String(parsed) : DEFAULT_SETTINGS[key];
   }
 
-  if (key === "categorizer_ollama_enabled") {
+  if (key === "categorizer_ollama_enabled" || key === "categorizer_v2_enabled") {
     return raw === "1" || raw.toLowerCase() === "true" ? "1" : "0";
   }
 

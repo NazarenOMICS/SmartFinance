@@ -214,6 +214,16 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
     }
   }
 
+  async function handleApplyRule(rule) {
+    try {
+      const result = await api.applyRuleRetroactively(rule.id);
+      addToast("success", `${result.updated_transactions || result.processed_count || 0} transacciones actualizadas.`);
+      onDataChanged?.();
+    } catch (e) {
+      addToast("error", e.message);
+    }
+  }
+
   async function handleResetRules() {
     if (saving) return;
     if (!confirmResetRules) {
@@ -550,8 +560,16 @@ export default function CategoryManager({ open, onClose, onDataChanged, month })
                       <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: rule.category_color || "#888780" }} />
                       <span className="text-xs text-neutral-500">{rule.category_name}</span>
                       <span className="text-xs text-neutral-400">· {rule.match_count} matches</span>
+                      {rule.merchant_key ? <span className="text-xs text-neutral-400">· {rule.merchant_key}</span> : null}
+                      <span className="text-xs text-neutral-400">· {rule.account_id ? "cuenta" : "global"}</span>
                     </div>
                   </div>
+                  <button
+                    onClick={() => handleApplyRule(rule)}
+                    className="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold text-finance-purple transition hover:bg-finance-purple hover:text-white"
+                  >
+                    Aplicar
+                  </button>
                   <button
                     onClick={() => handleDeleteRule(rule.id)}
                     className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold transition ${

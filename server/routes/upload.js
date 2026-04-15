@@ -13,6 +13,7 @@ const {
   buildTransactionReviewSuggestion,
   resolveTransactionClassification,
 } = require("../services/transaction-categorization");
+const { extractMerchantKey } = require("../services/categorizer");
 const { extractTransactionsFromOcrWithOllama } = require("../services/ocr-import");
 const {
   createReviewGroupTracker,
@@ -36,6 +37,33 @@ function resolveUploadClassification(descBanco, monto, moneda) {
     ...classification,
     autoCategorized: classification.categorizationStatus === "categorized",
   };
+}
+
+function buildImportCategorizationMeta(descBanco) {
+  const merchantKey = extractMerchantKey(descBanco);
+  return {
+    merchantKey,
+    parseQuality: merchantKey ? "clean" : "partial",
+  };
+}
+
+function logImportCategorization(transactionId, classification) {
+  const layer = classification.categoryRuleId
+    ? (classification.categorySource === "rule_auto" ? "merchant_exact" : "pattern_substring")
+    : (classification.categoryId ? "heuristic" : "fallback");
+  db.prepare(
+    `INSERT INTO rule_match_log (transaction_id, rule_id, category_id, layer, confidence, reason)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(
+    Number(transactionId),
+    classification.categoryRuleId ?? null,
+    classification.categoryId ?? null,
+    layer,
+    classification.categoryConfidence ?? null,
+    classification.categoryRuleId
+      ? `Import categorized by ${classification.categorySource || "rule"}`
+      : "Import did not find an auto-applicable rule"
+  );
 }
 
 // ─── CSV helpers ──────────────────────────────────────────────────────────────
@@ -415,8 +443,9 @@ router.post("/", upload.single("file"), async (req, res, next) => {
         `
         INSERT INTO transactions (
           fecha, desc_banco, monto, moneda, category_id, account_id, upload_id, dedup_hash,
-          categorization_status, category_source, category_confidence, category_rule_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          categorization_status, category_source, category_confidence, category_rule_id,
+          merchant_key, parse_quality
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
       );
       const checkDup = db.prepare(
@@ -437,6 +466,7 @@ router.post("/", upload.single("file"), async (req, res, next) => {
             Number(transaction.monto),
             accountCurrency
           );
+          const importMeta = buildImportCategorizationMeta(transaction.desc_banco);
           if (classification.autoCategorized) autoCategorized += 1;
           else pendingReview += 1;
 
@@ -452,9 +482,12 @@ router.post("/", upload.single("file"), async (req, res, next) => {
             classification.categorizationStatus,
             classification.categorySource,
             classification.categoryConfidence,
-            classification.categoryRuleId
+            classification.categoryRuleId,
+            importMeta.merchantKey,
+            importMeta.parseQuality
           );
           newTransactions += 1;
+          logImportCategorization(insertResult.lastInsertRowid, classification);
 
           if (!classification.categoryId) {
             const smartMatch = matchSmartCategoryTemplate(transaction.desc_banco);
@@ -501,6 +534,15 @@ router.post("/", upload.single("file"), async (req, res, next) => {
         });
         extractedTransactions = ocrResult.transactions || [];
       }
+      if (extractedTransactions.length === 0) {
+        cleanupUploadedFile(req.file.path);
+        db.prepare("UPDATE uploads SET status='error' WHERE id = ?").run(uploadId);
+        return res.status(422).json({
+          error: "No transactions could be extracted from this upload",
+          code: "parse_failed",
+          parse_quality: "failed",
+        });
+      }
       ensureSmartCategoriesForTransactions(db, extractedTransactions);
       const categories = db.prepare(
         "SELECT id, name, slug, type, color FROM categories ORDER BY sort_order ASC, id ASC"
@@ -511,8 +553,9 @@ router.post("/", upload.single("file"), async (req, res, next) => {
         `
         INSERT INTO transactions (
           fecha, desc_banco, monto, moneda, category_id, account_id, upload_id, dedup_hash,
-          categorization_status, category_source, category_confidence, category_rule_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          categorization_status, category_source, category_confidence, category_rule_id,
+          merchant_key, parse_quality
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
       );
       const checkDup = db.prepare(
@@ -529,6 +572,7 @@ router.post("/", upload.single("file"), async (req, res, next) => {
           }
 
           const classification = resolveUploadClassification(transaction.desc_banco, transaction.monto, accountCurrency);
+          const importMeta = buildImportCategorizationMeta(transaction.desc_banco);
           if (classification.autoCategorized) autoCategorized += 1;
           else pendingReview += 1;
 
@@ -544,9 +588,12 @@ router.post("/", upload.single("file"), async (req, res, next) => {
             classification.categorizationStatus,
             classification.categorySource,
             classification.categoryConfidence,
-            classification.categoryRuleId
+            classification.categoryRuleId,
+            importMeta.merchantKey,
+            importMeta.parseQuality
           );
           const insertedId = insertResult.lastInsertRowid;
+          logImportCategorization(insertedId, classification);
           if (!classification.categoryId) {
             const smartMatch = matchSmartCategoryTemplate(transaction.desc_banco);
             if (smartMatch) {
@@ -588,9 +635,25 @@ router.post("/", upload.single("file"), async (req, res, next) => {
 
         // Look up a previously saved column mapping for this header fingerprint
         const savedFormat = db.prepare("SELECT config FROM bank_formats WHERE key = ?").get(formatKey);
+        let columns = null;
 
-        if (!savedFormat) {
-          // Unknown format — ask the user to map columns in the UI
+        if (savedFormat) {
+          const savedColumns = parseBankFormatConfig(savedFormat.config);
+          if (savedColumns) {
+            columns = {
+              fecha: savedColumns.col_fecha,
+              desc: savedColumns.col_desc,
+              debit: savedColumns.col_debit,
+              credit: savedColumns.col_credit,
+              monto: savedColumns.col_monto,
+            };
+          }
+        } else {
+          const detected = detectFormat(headers);
+          if (detected) columns = detected.columns;
+        }
+
+        if (!columns || columns.fecha < 0) {
           db.prepare("UPDATE uploads SET status = 'needs_mapping' WHERE id = ?").run(uploadResult.lastInsertRowid);
           return res.status(201).json({
             needs_mapping: true,
@@ -600,24 +663,22 @@ router.post("/", upload.single("file"), async (req, res, next) => {
             sample: rows.slice(0, 6),
           });
         }
-
-        // Known format — auto-parse and insert
-        const cfg = parseBankFormatConfig(savedFormat.config);
-        if (!cfg) {
-          db.prepare("UPDATE uploads SET status = 'needs_mapping' WHERE id = ?").run(uploadResult.lastInsertRowid);
-          return res.status(201).json({
-            needs_mapping: true,
-            upload_id: uploadResult.lastInsertRowid,
-            format_key: formatKey,
-            columns: headers,
-            sample: rows.slice(0, 6),
+        const { transactions: csvTransactions, unmatched } = applyColumnMap(dataRows, columns, period);
+        if (csvTransactions.length === 0) {
+          db.prepare("UPDATE uploads SET status = 'error' WHERE id = ?").run(uploadResult.lastInsertRowid);
+          return res.status(422).json({
+            error: "No transactions could be extracted from this upload",
+            code: "parse_failed",
+            parse_quality: "failed",
+            unmatched_rows: unmatched.length,
           });
         }
         const insertTx = db.prepare(
           `INSERT INTO transactions (
              fecha, desc_banco, monto, moneda, category_id, account_id, upload_id, dedup_hash,
-             categorization_status, category_source, category_confidence, category_rule_id
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             categorization_status, category_source, category_confidence, category_rule_id,
+             merchant_key, parse_quality
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
         const checkDup = db.prepare(
           "SELECT id FROM transactions WHERE dedup_hash = ? AND substr(fecha, 1, 7) = ? LIMIT 1"
@@ -629,28 +690,13 @@ router.post("/", upload.single("file"), async (req, res, next) => {
         const categoryByName = new Map(categories.map((category) => [category.name.toLowerCase(), category]));
 
         const runCsvInserts = db.transaction((rowList) => {
-          for (const row of rowList) {
-            const fecha = cfg.col_fecha >= 0 ? parseCsvDate(row[cfg.col_fecha]) : null;
-            if (!fecha || !isValidISODate(fecha)) continue;
-            const desc = cfg.col_desc >= 0 ? (row[cfg.col_desc] || "").trim() : "";
-            if (!desc) continue;
-
-            let monto = null;
-            if (cfg.col_monto >= 0) {
-              monto = parseCsvAmount(row[cfg.col_monto]);
-            } else if (cfg.col_debit >= 0 || cfg.col_credit >= 0) {
-              const d = cfg.col_debit  >= 0 ? parseCsvAmount(row[cfg.col_debit])  : null;
-              const c = cfg.col_credit >= 0 ? parseCsvAmount(row[cfg.col_credit]) : null;
-              if (d !== null && d !== 0) monto = -Math.abs(d);
-              else if (c !== null && c !== 0) monto = Math.abs(c);
-            }
-            if (monto === null || !Number.isFinite(Number(monto))) continue;
-
-            const tx = { fecha, desc_banco: desc, monto };
+          for (const tx of rowList) {
+            const { fecha, desc_banco: desc, monto } = tx;
             const dedupHash = buildDedupHash(tx);
             if (checkDup.get(dedupHash, fecha.slice(0, 7))) { duplicatesSkipped += 1; continue; }
 
             const classification = resolveUploadClassification(desc, monto, accountCurrency);
+            const importMeta = buildImportCategorizationMeta(desc);
             if (classification.autoCategorized) autoCategorized += 1;
             else pendingReview += 1;
 
@@ -666,9 +712,12 @@ router.post("/", upload.single("file"), async (req, res, next) => {
               classification.categorizationStatus,
               classification.categorySource,
               classification.categoryConfidence,
-              classification.categoryRuleId
+              classification.categoryRuleId,
+              importMeta.merchantKey,
+              importMeta.parseQuality
             );
             const insertedId = insertResult.lastInsertRowid;
+            logImportCategorization(insertedId, classification);
             if (!classification.categoryId) {
               const smartMatch = matchSmartCategoryTemplate(desc);
               if (smartMatch) {
@@ -694,7 +743,7 @@ router.post("/", upload.single("file"), async (req, res, next) => {
           }
         });
 
-        runCsvInserts(dataRows);
+        runCsvInserts(csvTransactions);
       }
     }
 
@@ -730,5 +779,62 @@ router.post("/", upload.single("file"), async (req, res, next) => {
   }
 });
 
-module.exports = router;
+router.post("/:id/retry-categorize", (req, res) => {
+  const id = Number(req.params.id);
+  const upload = db.prepare("SELECT id FROM uploads WHERE id = ?").get(id);
+  if (!upload) return res.status(404).json({ error: "upload not found" });
 
+  const rows = db.prepare("SELECT * FROM transactions WHERE upload_id = ? ORDER BY id ASC").all(id);
+  let autoCategorized = 0;
+  let pendingReview = 0;
+
+  const updateTx = db.prepare(
+    `UPDATE transactions
+     SET category_id = ?,
+         categorization_status = ?,
+         category_source = ?,
+         category_confidence = ?,
+         category_rule_id = ?,
+         merchant_key = ?,
+         parse_quality = ?,
+         rule_skipped_reason = ?
+     WHERE id = ?`
+  );
+
+  db.transaction(() => {
+    for (const tx of rows) {
+      const classification = resolveUploadClassification(tx.desc_banco, Number(tx.monto), tx.moneda);
+      const importMeta = buildImportCategorizationMeta(tx.desc_banco);
+      if (classification.autoCategorized) autoCategorized += 1;
+      else pendingReview += 1;
+      updateTx.run(
+        classification.categoryId,
+        classification.categorizationStatus,
+        classification.categorySource,
+        classification.categoryConfidence,
+        classification.categoryRuleId,
+        importMeta.merchantKey,
+        importMeta.parseQuality,
+        importMeta.merchantKey ? null : "generic_or_empty_merchant",
+        tx.id
+      );
+      logImportCategorization(tx.id, classification);
+    }
+    db.prepare(
+      `UPDATE uploads
+       SET tx_count = ?,
+           status = CASE WHEN ? = 0 THEN 'error' ELSE 'processed' END
+       WHERE id = ?`
+    ).run(rows.length, rows.length, id);
+  })();
+
+  res.json({
+    upload_id: id,
+    processed: rows.length,
+    auto_categorized: autoCategorized,
+    pending_review: pendingReview,
+    parse_quality: rows.length > 0 ? "clean" : "failed",
+  });
+});
+
+module.exports = router;

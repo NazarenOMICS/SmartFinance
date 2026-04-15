@@ -86,6 +86,8 @@ export const api = {
   getTransactions: (month) => request(`/api/transactions?month=${month}`),
   updateTransaction: (id, body) =>
     request(`/api/transactions/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  getCategorizationLog: (id) =>
+    request(`/api/transactions/${id}/categorization-log`),
   markTransactionMovement: (id, kind) =>
     request(`/api/transactions/${id}/movement-kind`, { method: "PATCH", body: JSON.stringify({ kind }) }),
   createTransaction: (body) =>
@@ -166,6 +168,8 @@ export const api = {
     request("/api/rules", { method: "POST", body: JSON.stringify(body) }),
   updateRule: (id, body) =>
     request(`/api/rules/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  applyRuleRetroactively: (id) =>
+    request(`/api/rules/${id}/apply-retroactively`, { method: "POST" }),
   resetRules: () =>
     request("/api/rules/reset", { method: "POST" }),
   deleteRule: (id) =>
@@ -200,6 +204,8 @@ export const api = {
   // Upload
   getUploads: (period) => request(period ? `/api/upload?period=${period}` : "/api/upload"),
   uploadFile: (formData) => request("/api/upload", { method: "POST", body: formData }),
+  retryCategorizeUpload: (id) => request(`/api/uploads/${id}/retry-categorize`, { method: "POST" }),
+  getJob: (id) => request(`/api/jobs/${id}`),
 
   // Bank formats (column mapping memory)
   getBankFormats: () => request("/api/bank-formats"),

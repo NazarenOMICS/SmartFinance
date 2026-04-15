@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { getDb, getSettingsObject, isValidMonthString } from "../db.js";
 import { buildDedupHash } from "../services/dedup.js";
-import { buildTransactionReviewSuggestion, bumpRule, classifyTransaction } from "../services/categorizer.js";
+import { buildMerchantKey, buildTransactionReviewSuggestion, bumpRule, classifyTransaction } from "../services/categorizer.js";
 import { extractTransactions } from "../services/tx-extractor.js";
 import { extractTransactionsFromOcrWithOllama } from "../services/ocr-import.js";
 import { parseCSV } from "../services/csv-parser.js";
@@ -19,6 +19,33 @@ import { normalizePatternValue } from "../services/taxonomy.js";
 const router = new Hono();
 const SUPPORTED_IMPORT_EXTENSIONS = new Set(["csv", "pdf", "txt", "png", "jpg", "jpeg", "webp"]);
 const OCR_IMPORT_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp"]);
+
+function buildImportCategorizationMeta(descBanco) {
+  const merchantKey = buildMerchantKey(descBanco);
+  return {
+    merchantKey,
+    parseQuality: merchantKey ? "clean" : "partial",
+  };
+}
+
+async function logImportCategorization(db, userId, transactionId, classification, categoryId) {
+  const ruleId = classification.category_rule_id ?? classification.rule?.id ?? null;
+  const layer = ruleId
+    ? (classification.category_source === "rule_auto" ? "merchant_exact" : "pattern_substring")
+    : (categoryId ? "heuristic" : "fallback");
+  await db.prepare(
+    `INSERT INTO rule_match_log (user_id, transaction_id, rule_id, category_id, layer, confidence, reason)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    userId,
+    Number(transactionId),
+    ruleId,
+    categoryId ?? classification.categoryId ?? null,
+    layer,
+    classification.category_confidence ?? null,
+    ruleId ? `Import categorized by ${classification.category_source || "rule"}` : "Import did not find an auto-applicable rule"
+  );
+}
 
 function isValidISODate(value) {
   const raw = String(value || "");
@@ -263,6 +290,15 @@ router.post("/", async (c) => {
       }
     }
 
+    if (extractedTxs.length === 0) {
+      await db.prepare("UPDATE uploads SET status='error' WHERE id=? AND user_id=?").run(uploadId, userId);
+      return c.json({
+        error: "No transactions could be extracted from this upload",
+        code: "parse_failed",
+        parse_quality: "failed",
+      }, 422);
+    }
+
     const settings = await getSettingsObject(c.env, userId);
     const guidedOnboardingDone = String(settings.guided_categorization_onboarding_completed || "0") === "1";
     const guidedOnboardingSkipped = String(settings.guided_categorization_onboarding_skipped || "0") === "1";
@@ -335,12 +371,13 @@ router.post("/", async (c) => {
       } else {
         pendingReview++;
       }
+      const importMeta = buildImportCategorizationMeta(normalizedDescBanco);
 
       const insertResult = await db.prepare(
         `INSERT INTO transactions (
           fecha,desc_banco,monto,moneda,category_id,account_id,upload_id,dedup_hash,user_id,
-          categorization_status,category_source,category_confidence,category_rule_id
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          categorization_status,category_source,category_confidence,category_rule_id,merchant_key,parse_quality,rule_skipped_reason
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).run(
         normalizedTx.fecha,
         normalizedTx.desc_banco,
@@ -354,8 +391,12 @@ router.post("/", async (c) => {
         categorizationStatus,
         categorySource,
         categoryConfidence,
-        categoryRuleId
+        categoryRuleId,
+        importMeta.merchantKey,
+        importMeta.parseQuality,
+        importMeta.merchantKey ? null : "generic_or_empty_merchant"
       );
+      await logImportCategorization(db, userId, insertResult.lastInsertRowid, classification, categoryId);
       if (!categoryId) {
         const smartMatch = matchSmartCategoryTemplate(normalizedDescBanco);
         if (smartMatch) {
@@ -417,6 +458,73 @@ router.post("/", async (c) => {
     }
     return c.json({ error: error?.message || "Unexpected server error" }, status);
   }
+});
+
+router.post("/:id/retry-categorize", async (c) => {
+  const userId = c.get("userId");
+  const db = getDb(c.env);
+  const uploadId = Number(c.req.param("id"));
+  const upload = await db.prepare("SELECT id FROM uploads WHERE id=? AND user_id=?").get(uploadId, userId);
+  if (!upload) return c.json({ error: "upload not found" }, 404);
+
+  const rows = await db.prepare(
+    "SELECT * FROM transactions WHERE upload_id=? AND user_id=? ORDER BY id ASC"
+  ).all(uploadId, userId);
+  const settings = await getSettingsObject(c.env, userId);
+  const categories = await db.prepare(
+    "SELECT id, name, type, color FROM categories WHERE user_id = ? ORDER BY sort_order ASC, id ASC"
+  ).all(userId);
+  let autoCategorized = 0;
+  let pendingReview = 0;
+
+  for (const tx of rows) {
+    const classification = await classifyTransaction(db, c.env, {
+      desc_banco: tx.desc_banco,
+      monto: Number(tx.monto),
+      moneda: tx.moneda,
+      account_id: tx.account_id,
+    }, userId, { settings, categories });
+    const categoryId = classification.action === "auto" && classification.categoryId ? classification.categoryId : null;
+    if (categoryId) autoCategorized++;
+    else pendingReview++;
+    const importMeta = buildImportCategorizationMeta(tx.desc_banco);
+    await db.prepare(
+      `UPDATE transactions
+       SET category_id=?,
+           categorization_status=?,
+           category_source=?,
+           category_confidence=?,
+           category_rule_id=?,
+           merchant_key=?,
+           parse_quality=?,
+           rule_skipped_reason=?
+       WHERE id=? AND user_id=?`
+    ).run(
+      categoryId,
+      classification.categorization_status,
+      classification.category_source,
+      classification.category_confidence,
+      classification.category_rule_id,
+      importMeta.merchantKey,
+      importMeta.parseQuality,
+      importMeta.merchantKey ? null : "generic_or_empty_merchant",
+      tx.id,
+      userId
+    );
+    await logImportCategorization(db, userId, tx.id, classification, categoryId);
+  }
+
+  await db.prepare(
+    "UPDATE uploads SET tx_count=?,status=? WHERE id=? AND user_id=?"
+  ).run(rows.length, rows.length > 0 ? "processed" : "error", uploadId, userId);
+
+  return c.json({
+    upload_id: uploadId,
+    processed: rows.length,
+    auto_categorized: autoCategorized,
+    pending_review: pendingReview,
+    parse_quality: rows.length > 0 ? "clean" : "failed",
+  });
 });
 
 export default router;

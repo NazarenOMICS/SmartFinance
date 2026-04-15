@@ -59,13 +59,24 @@ categoriesRouter.delete("/:id", async (c) => {
     return jsonError("Invalid category id", "VALIDATION_ERROR", requestId, 400);
   }
 
-  const result = await deleteCategory(c.env.DB, auth.userId, categoryId);
-  if (!result.deleted) {
-    return jsonError("Category cannot be deleted yet", result.reason, requestId, 409);
+  try {
+    const result = await deleteCategory(c.env.DB, auth.userId, categoryId);
+    if (!result.deleted) {
+      const status = result.reason === "category_delete_failed" ? 500 : 409;
+      return jsonError("Category cannot be deleted yet", result.reason, requestId, status);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Category delete failed";
+    const isConstraint = /constraint|foreign key/i.test(message);
+    return jsonError(
+      isConstraint ? "Category still has dependencies" : "Category delete failed",
+      isConstraint ? "CATEGORY_HAS_DEPENDENCIES" : "CATEGORY_DELETE_FAILED",
+      requestId,
+      isConstraint ? 409 : 500,
+    );
   }
 
   return new Response(null, { status: 204 });
 });
 
 export default categoriesRouter;
-

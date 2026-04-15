@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import Badge from "./Badge";
 import CategorySelect from "./CategorySelect";
 import { fmtMoney, shortDate } from "../utils";
+import { api } from "../api";
 
 export default function TransactionTable({
   transactions, categories,
@@ -19,6 +20,10 @@ export default function TransactionTable({
   const [activeFilter, setActiveFilter] = useState("all");
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkCatId, setBulkCatId] = useState("");
+  const [ruleScopeByTx, setRuleScopeByTx] = useState({});
+  const [openLogId, setOpenLogId] = useState(null);
+  const [logsByTx, setLogsByTx] = useState({});
+  const [loadingLogId, setLoadingLogId] = useState(null);
   const searchRef = useRef(null);
 
   // Reset internal filters when external filter activates
@@ -109,8 +114,34 @@ export default function TransactionTable({
     }
   }
 
+  function getStatusMeta(tx) {
+    const status = String(tx.categorization_status || (tx.category_id ? "categorized" : "uncategorized"));
+    if (status === "parse_failed" || tx.parse_quality === "failed") return { label: "extraccion fallida", cls: "bg-finance-redSoft text-finance-red" };
+    if (status === "rule_rejected") return { label: "regla rechazada", cls: "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-300" };
+    if (status === "suggested") return { label: "sugerida", cls: "bg-finance-blueSoft text-finance-blue" };
+    if (status === "categorized") return { label: tx.category_rule_id ? "regla aplicada" : "manual", cls: "bg-finance-tealSoft text-finance-teal" };
+    if (!tx.merchant_key && tx.rule_skipped_reason) return { label: "sin merchant", cls: "bg-finance-amberSoft text-finance-amber" };
+    return { label: "sin regla", cls: "bg-finance-amberSoft text-finance-amber" };
+  }
+
+  async function toggleLog(txId) {
+    if (openLogId === txId) {
+      setOpenLogId(null);
+      return;
+    }
+    setOpenLogId(txId);
+    if (logsByTx[txId]) return;
+    setLoadingLogId(txId);
+    try {
+      const payload = await api.getCategorizationLog(txId);
+      setLogsByTx((prev) => ({ ...prev, [txId]: payload.events || [] }));
+    } finally {
+      setLoadingLogId(null);
+    }
+  }
+
   async function handleCategoryChange(txId, value) {
-    const updated = await onCategorize?.(txId, value);
+    const updated = await onCategorize?.(txId, value, { ruleScope: ruleScopeByTx[txId] || "account" });
     if (updated !== false) {
       setEditingCategory(null);
       setSelectedIds((prev) => { const next = new Set(prev); next.delete(txId); return next; });
@@ -269,6 +300,7 @@ export default function TransactionTable({
           const isEditingThis = editingRow === tx.id;
           const isSelected    = selectedIds.has(tx.id);
           const isTransfer    = tx.category_type === "transferencia" || tx.movement_kind === "internal_transfer" || tx.movement_kind === "fx_exchange";
+          const statusMeta    = getStatusMeta(tx);
           const rowBg = isSelected
             ? "bg-finance-purpleSoft dark:bg-purple-900/20"
             : isTransfer
@@ -311,6 +343,15 @@ export default function TransactionTable({
                 </div>
               ) : (
                 <div className="flex items-center gap-1">
+                  <select
+                    value={ruleScopeByTx[tx.id] || (tx.account_id ? "account" : "global")}
+                    onChange={(event) => setRuleScopeByTx((prev) => ({ ...prev, [tx.id]: event.target.value }))}
+                    className="w-20 rounded-lg border border-neutral-200 bg-white px-2 py-2 text-[11px] text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
+                    title="Alcance de la regla"
+                  >
+                    <option value="account">cuenta</option>
+                    <option value="global">global</option>
+                  </select>
                   <div className="flex-1">
                     <CategorySelect
                       categories={availableCategories}
@@ -367,6 +408,17 @@ export default function TransactionTable({
                           {tx.account_name ? ` · ${tx.account_name}` : ""}
                           {tx.es_cuota ? " · cuota" : ""}
                         </p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusMeta.cls}`}>
+                            {statusMeta.label}
+                          </span>
+                          <button
+                            onClick={() => toggleLog(tx.id)}
+                            className="text-[10px] font-semibold text-finance-purple"
+                          >
+                            {openLogId === tx.id ? "ocultar log" : "ver log"}
+                          </button>
+                        </div>
                       </div>
                       <div className="shrink-0 text-right">
                         <p className={`font-semibold ${tx.monto > 0 ? "text-finance-teal" : "text-finance-ink dark:text-neutral-100"}`}>
@@ -447,6 +499,18 @@ export default function TransactionTable({
                   {tx.desc_usuario && tx.desc_usuario !== tx.desc_banco
                     ? <p className="truncate text-xs text-neutral-400">{tx.desc_banco}</p>
                     : null}
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusMeta.cls}`}>
+                      {statusMeta.label}
+                    </span>
+                    {tx.merchant_key ? <span className="text-[10px] text-neutral-400">merchant: {tx.merchant_key}</span> : null}
+                    <button
+                      onClick={() => toggleLog(tx.id)}
+                      className="text-[10px] font-semibold text-finance-purple hover:underline"
+                    >
+                      {openLogId === tx.id ? "ocultar log" : "ver log"}
+                    </button>
+                  </div>
                   {tx.es_cuota ? <span className="text-xs text-finance-amber">(cuota)</span> : null}
                   <button
                     onClick={() => isEditingThis ? setEditingRow(null) : openEditRow(tx)}
@@ -490,6 +554,27 @@ export default function TransactionTable({
                   {confirmDelete === tx.id ? "!" : "×"}
                 </button>
               </div>
+
+              {openLogId === tx.id && (
+                <div className="border-t border-dashed border-neutral-200 bg-white/70 px-5 py-3 text-xs text-neutral-500 dark:border-neutral-700 dark:bg-neutral-900/70 dark:text-neutral-300">
+                  {loadingLogId === tx.id ? (
+                    <p>Cargando log...</p>
+                  ) : (logsByTx[tx.id] || []).length > 0 ? (
+                    <div className="space-y-1">
+                      {(logsByTx[tx.id] || []).slice(0, 5).map((event) => (
+                        <p key={event.id}>
+                          <span className="font-semibold text-finance-ink dark:text-neutral-100">{event.layer}</span>
+                          {event.category_name ? ` -> ${event.category_name}` : ""}
+                          {event.rule_pattern ? ` · ${event.rule_pattern}` : ""}
+                          {event.reason ? ` · ${event.reason}` : ""}
+                        </p>
+                      ))}
+                    </div>
+                  ) : (
+                    <p>Sin eventos de categorizacion.</p>
+                  )}
+                </div>
+              )}
 
               {/* Inline edit row — fecha + monto (desktop only) */}
               {isEditingThis && (

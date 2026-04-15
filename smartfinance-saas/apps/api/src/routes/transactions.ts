@@ -35,7 +35,9 @@ import {
   getUsageSnapshot,
   listCandidateTransactions,
   listPendingTransactionsByMonth,
+  listRuleMatchLog,
   listTransactionsByMonth,
+  logRuleMatch,
   markUploadStatus,
   markTransactionMovement,
   processUploadTransactions,
@@ -134,6 +136,18 @@ transactionsRouter.get("/candidates", async (c) => {
 
   const candidates = await listCandidateTransactions(c.env.DB, auth.userId, pattern);
   return c.json(candidates.map((candidate) => transactionSchema.parse(candidate)));
+});
+
+transactionsRouter.get("/:id/categorization-log", async (c) => {
+  const auth = c.get("auth");
+  const requestId = c.get("requestId");
+  const transactionId = Number(c.req.param("id"));
+  if (!Number.isInteger(transactionId) || transactionId < 1) {
+    return jsonError("Invalid transaction id", "VALIDATION_ERROR", requestId, 400);
+  }
+
+  const rows = await listRuleMatchLog(c.env.DB, auth.userId, transactionId);
+  return c.json({ transaction_id: transactionId, events: rows });
 });
 
 transactionsRouter.post("/", async (c) => {
@@ -368,6 +382,7 @@ transactionsRouter.put("/:id", async (c) => {
         accountId: parsedTransaction.account_id,
         currency: parsedTransaction.moneda,
         direction: parsedTransaction.entry_type === "income" ? "income" : "expense",
+        scopePreference: parsedBody.data.rule_scope === "global" ? "global" : parsedBody.data.rule_scope === "account" ? "account" : null,
       });
 
       if (syncResult?.rule) {
@@ -377,6 +392,30 @@ transactionsRouter.put("/:id", async (c) => {
           candidates_count: 0,
           rule: syncResult.rule,
         };
+        await logRuleMatch(c.env.DB, auth.userId, {
+          transactionId,
+          ruleId: Number(syncResult.rule.id),
+          categoryId: parsedTransaction.category_id,
+          layer: "manual",
+          confidence: Number(syncResult.rule.confidence ?? 0.9),
+          reason: syncResult.status === "overrode_conflict" ? "Manual category overrode existing rule scope" : "Manual category confirmed rule",
+        });
+      } else if (syncResult?.status === "skipped") {
+        rulePayload = {
+          created: false,
+          conflict: false,
+          candidates_count: 0,
+          skipped: true,
+          skipped_reason: syncResult.skipped_reason,
+        };
+        await logRuleMatch(c.env.DB, auth.userId, {
+          transactionId,
+          ruleId: null,
+          categoryId: parsedTransaction.category_id,
+          layer: "manual",
+          confidence: null,
+          reason: `Rule skipped: ${syncResult.skipped_reason}`,
+        });
       }
     }
 
@@ -526,6 +565,7 @@ transactionsRouter.post("/review/assign-category", async (c) => {
         accountId: parsedTransaction.account_id,
         currency: parsedTransaction.moneda,
         direction: parsedTransaction.entry_type === "income" ? "income" : "expense",
+        scopePreference: parsedBody.data.rule_scope === "global" ? "global" : parsedBody.data.rule_scope === "account" ? "account" : null,
       });
     }
   }

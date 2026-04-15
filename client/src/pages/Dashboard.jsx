@@ -155,9 +155,12 @@ export default function Dashboard({
     clearPendingReviewSession(userId);
   }
 
-  async function handleCategorize(id, categoryId) {
+  async function handleCategorize(id, categoryId, options = {}) {
     try {
-      const result = await api.updateTransaction(id, { category_id: Number(categoryId) });
+      const result = await api.updateTransaction(id, {
+        category_id: Number(categoryId),
+        rule_scope: options.ruleScope || undefined,
+      });
       const cat = state.categories.find((c) => c.id === Number(categoryId));
       const catName = cat?.name;
 
@@ -181,8 +184,10 @@ export default function Dashboard({
         ),
       }));
 
-      if (result?.rule?.conflict) {
-        addToast("warning", `Ya existe una regla "${result.rule.rule?.pattern}" para otra categoría. Se categorizó sin modificar la regla.`);
+      if (result?.rule?.skipped) {
+        addToast("info", `Categoria guardada. No se creo regla: ${result.rule.skipped_reason || "merchant generico"}.`);
+      } else if (result?.rule?.conflict) {
+        addToast("success", `Regla actualizada por decision manual: "${result.rule.rule?.pattern}" ahora va a ${catName}.`);
       } else if (result?.rule?.created && result.rule.candidates_count > 0) {
         // Show candidates for Tinder-style confirmation
         const review = {
@@ -193,9 +198,11 @@ export default function Dashboard({
         };
         setCategoryCandidates(review);
         rememberPendingReview(review);
-        addToast("info", `Regla creada: "${result.rule.rule?.pattern}" → ${catName}. Hay ${result.rule.candidates_count} transacciones similares para revisar.`);
+        addToast("info", `Regla creada: "${result.rule.rule?.pattern}" -> ${catName}. Hay ${result.rule.candidates_count} transacciones similares para revisar.`);
       } else if (result?.rule?.created) {
         addToast("success", `Aprendido: las próximas transacciones con "${result.rule.rule?.pattern}" se categorizarán como ${catName || "esta categoría"}.`);
+      } else if (result?.rule?.rule) {
+        addToast("success", `Regla actualizada: "${result.rule.rule.pattern}" -> ${catName || "esta categoria"}.`);
       }
 
       // Background refresh for summary/charts (non-blocking)

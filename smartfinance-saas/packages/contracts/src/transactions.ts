@@ -4,7 +4,7 @@ import { booleanishSchema } from "./common";
 
 export const monthStringSchema = z.string().regex(/^\d{4}-\d{2}$/);
 export const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-export const categorizationStatusSchema = z.enum(["uncategorized", "suggested", "categorized"]);
+export const categorizationStatusSchema = z.enum(["uncategorized", "suggested", "categorized", "parse_failed", "rule_rejected"]);
 
 export const transactionSchema = z.object({
   id: z.number(),
@@ -22,6 +22,9 @@ export const transactionSchema = z.object({
   category_source: z.string().nullable(),
   category_confidence: z.number().nullable(),
   category_rule_id: z.number().nullable(),
+  merchant_key: z.string().nullable().optional(),
+  parse_quality: z.string().nullable().optional(),
+  rule_skipped_reason: z.string().nullable().optional(),
   category_name: z.string().nullable().optional(),
   category_type: z.string().nullable().optional(),
   category_color: z.string().nullable().optional(),
@@ -81,6 +84,7 @@ export const updateTransactionInputSchema = z.object({
   account_id: z.string().nullable().optional(),
   fecha: isoDateSchema.optional(),
   monto: z.number().optional(),
+  rule_scope: z.enum(["account", "global"]).optional(),
 });
 
 export const transactionSummarySchema = z.object({
@@ -142,6 +146,7 @@ export const transactionBatchDecisionInputSchema = z.object({
 export const transactionBatchAssignCategoryInputSchema = z.object({
   transaction_ids: z.array(z.number().int().positive()).min(1),
   category_id: z.number().int().positive(),
+  rule_scope: z.enum(["account", "global"]).optional(),
 });
 
 export const transactionBatchResultSchema = z.object({
@@ -170,6 +175,7 @@ export const transactionCategoryDecisionInputSchema = z.object({
   category_id: z.number().int().positive(),
   rule_id: z.number().int().positive().nullable().optional(),
   origin: z.string().optional(),
+  rule_scope: z.enum(["account", "global"]).optional(),
 });
 
 export const transactionCategoryRejectionInputSchema = z.object({

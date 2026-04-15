@@ -1,9 +1,12 @@
 import type { CreateRuleInput, UpdateRuleInput } from "@smartfinance/contracts";
 import {
+  buildManualRuleUpsert,
+  classifyTransaction as classifyTransactionWithCanonicalRules,
   calculateAmountSimilarity,
   calculateLearnedRuleConfidence,
   deriveCounterpartyKey,
   deriveRulePattern,
+  deriveRuleIdentity,
   normalizeRulePattern,
   selectBestRuleMatch,
 } from "@smartfinance/domain";
@@ -21,11 +24,15 @@ export type RuleRow = {
   confidence: number;
   source: "manual" | "seed" | "learned" | "guided";
   account_id: string | null;
+  merchant_scope: string | null;
+  account_scope: string | null;
   currency: string | null;
+  currency_scope: string | null;
   direction: "any" | "expense" | "income";
   merchant_key: string | null;
   last_matched_at: string | null;
   created_at: string;
+  updated_at?: string | null;
 };
 
 export type RuleInsightRow = {
@@ -890,17 +897,21 @@ export async function listRules(db: D1DatabaseLike, userId: string) {
         rules.confidence,
         rules.source,
         rules.account_id,
+        rules.merchant_scope,
+        rules.account_scope,
         rules.currency,
+        rules.currency_scope,
         rules.direction,
         rules.merchant_key,
         rules.last_matched_at,
-        rules.created_at
+        rules.created_at,
+        rules.updated_at
       FROM rules
       LEFT JOIN categories
         ON categories.user_id = rules.user_id
        AND categories.id = rules.category_id
       WHERE rules.user_id = ?
-      ORDER BY LENGTH(rules.normalized_pattern) DESC, rules.confidence DESC, rules.match_count DESC, rules.id ASC
+      ORDER BY rules.merchant_key IS NULL ASC, rules.confidence DESC, rules.match_count DESC, rules.last_matched_at DESC, rules.id ASC
     `,
     [userId],
   );
@@ -999,11 +1010,15 @@ export async function getRuleById(db: D1DatabaseLike, userId: string, ruleId: nu
         rules.confidence,
         rules.source,
         rules.account_id,
+        rules.merchant_scope,
+        rules.account_scope,
         rules.currency,
+        rules.currency_scope,
         rules.direction,
         rules.merchant_key,
         rules.last_matched_at,
-        rules.created_at
+        rules.created_at,
+        rules.updated_at
       FROM rules
       LEFT JOIN categories
         ON categories.user_id = rules.user_id
@@ -1036,11 +1051,15 @@ export async function getRuleByNormalizedScope(
         rules.confidence,
         rules.source,
         rules.account_id,
+        rules.merchant_scope,
+        rules.account_scope,
         rules.currency,
+        rules.currency_scope,
         rules.direction,
         rules.merchant_key,
         rules.last_matched_at,
-        rules.created_at
+        rules.created_at,
+        rules.updated_at
       FROM rules
       LEFT JOIN categories
         ON categories.user_id = rules.user_id
@@ -1059,6 +1078,13 @@ export async function getRuleByNormalizedScope(
 export async function createRule(db: D1DatabaseLike, userId: string, input: CreateRuleInput) {
   const normalizedPattern = normalizeRulePattern(input.pattern);
   const scope = normalizeRuleScope(input);
+  const identity = deriveRuleIdentity(input.pattern, {
+    accountId: scope.account_id,
+    currency: scope.currency,
+    direction: scope.direction,
+  });
+  const merchantKey = identity.merchant_key || normalizedPattern;
+  const merchantScope = merchantKey || normalizedPattern;
   const result = await runStatement(
     db,
     `
@@ -1066,34 +1092,68 @@ export async function createRule(db: D1DatabaseLike, userId: string, input: Crea
         user_id,
         pattern,
         normalized_pattern,
+        merchant_key,
+        merchant_scope,
         category_id,
         match_count,
         mode,
         confidence,
         source,
         account_id,
+        account_scope,
         currency,
+        currency_scope,
         direction,
-        merchant_key
+        updated_at
       )
-      VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(user_id, merchant_scope, account_scope, currency_scope, direction)
+      DO UPDATE SET
+        pattern = excluded.pattern,
+        normalized_pattern = excluded.normalized_pattern,
+        merchant_key = excluded.merchant_key,
+        category_id = excluded.category_id,
+        mode = excluded.mode,
+        confidence = MAX(rules.confidence, excluded.confidence),
+        source = excluded.source,
+        match_count = rules.match_count + 1,
+        last_matched_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
     `,
     [
       userId,
       input.pattern.trim(),
       normalizedPattern,
+      merchantKey,
+      merchantScope,
       input.category_id,
       input.mode,
       input.confidence,
       input.source,
       scope.account_id,
+      scope.account_id ?? "",
       scope.currency,
+      scope.currency ?? "",
       scope.direction,
-      normalizedPattern,
     ],
   );
 
-  return getRuleById(db, userId, Number(result.meta?.last_row_id || 0));
+  void result;
+  const existingRule = await firstRow<{ id: number }>(
+    db,
+    `
+      SELECT id
+      FROM rules
+      WHERE user_id = ?
+        AND merchant_scope = ?
+        AND account_scope = ?
+        AND currency_scope = ?
+        AND direction = ?
+      LIMIT 1
+    `,
+    [userId, merchantScope, scope.account_id ?? "", scope.currency ?? "", scope.direction],
+  );
+  return existingRule ? getRuleById(db, userId, existingRule.id) : null;
 }
 
 export async function updateRule(db: D1DatabaseLike, userId: string, ruleId: number, input: UpdateRuleInput) {
@@ -1104,7 +1164,7 @@ export async function updateRule(db: D1DatabaseLike, userId: string, ruleId: num
     db,
     `
       UPDATE rules
-      SET category_id = ?, mode = ?, confidence = ?
+      SET category_id = ?, mode = ?, confidence = ?, updated_at = CURRENT_TIMESTAMP
       WHERE user_id = ? AND id = ?
     `,
     [
@@ -1129,6 +1189,65 @@ export async function deleteRule(db: D1DatabaseLike, userId: string, ruleId: num
     db,
     "DELETE FROM rules WHERE user_id = ? AND id = ?",
     [userId, ruleId],
+  );
+}
+
+export async function logRuleMatch(
+  db: D1DatabaseLike,
+  userId: string,
+  input: {
+    transactionId: number;
+    ruleId?: number | null;
+    categoryId?: number | null;
+    layer: string;
+    confidence?: number | null;
+    reason?: string | null;
+  },
+) {
+  await runStatement(
+    db,
+    `
+      INSERT INTO rule_match_log (user_id, transaction_id, rule_id, category_id, layer, confidence, reason)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      userId,
+      input.transactionId,
+      input.ruleId ?? null,
+      input.categoryId ?? null,
+      input.layer,
+      input.confidence ?? null,
+      input.reason ?? null,
+    ],
+  );
+}
+
+export async function listRuleMatchLog(db: D1DatabaseLike, userId: string, transactionId: number) {
+  return allRows(
+    db,
+    `
+      SELECT
+        log.id,
+        log.transaction_id,
+        log.rule_id,
+        log.category_id,
+        log.layer,
+        log.confidence,
+        log.reason,
+        log.created_at,
+        rules.pattern AS rule_pattern,
+        categories.name AS category_name
+      FROM rule_match_log log
+      LEFT JOIN rules
+        ON rules.user_id = log.user_id
+       AND rules.id = log.rule_id
+      LEFT JOIN categories
+        ON categories.user_id = log.user_id
+       AND categories.id = log.category_id
+      WHERE log.user_id = ? AND log.transaction_id = ?
+      ORDER BY log.created_at DESC, log.id DESC
+    `,
+    [userId, transactionId],
   );
 }
 
@@ -1255,6 +1374,36 @@ export async function classifyTransactionByRules(
       amountSimilarity: null,
       conflictCandidates: [],
     };
+  }
+
+  const settings = await getSettingsObject(db, userId);
+  if (String(settings.categorizer_v2_enabled ?? "1") !== "0") {
+    const canonical = classifyTransactionWithCanonicalRules(
+      {
+        desc_banco: input.descBanco,
+        monto: input.amount,
+        moneda: input.currency,
+        account_id: input.accountId ?? null,
+      },
+      await listRules(db, userId),
+      [],
+      settings,
+    );
+
+    if (canonical.categorizationStatus !== "uncategorized") {
+      return {
+        categoryId: canonical.categoryId,
+        categorizationStatus: canonical.categorizationStatus === "categorized" ? "categorized" : "suggested",
+        categorySource: canonical.categorySource,
+        categoryConfidence: canonical.categoryConfidence,
+        categoryRuleId: canonical.categoryRuleId,
+        matchedRule: canonical.matchedRule as RuleRow | null,
+        amountProfileId: null,
+        amountProfile: null,
+        amountSimilarity: null,
+        conflictCandidates: [],
+      };
+    }
   }
 
   const matchedRule = await findMatchingRule(db, userId, {
@@ -1422,52 +1571,114 @@ export async function syncRuleFromCategorizedDescription(
     accountId?: string | null;
     currency?: "UYU" | "USD" | "EUR" | "ARS" | null;
     direction?: "expense" | "income";
+    scopePreference?: "account" | "global" | null;
   },
 ) {
-  const pattern = deriveRulePattern(input.descBanco);
-  if (!pattern) {
-    return { status: "skipped" as const };
-  }
-
-  const normalizedPattern = normalizeRulePattern(pattern);
-  const scope = normalizeRuleScope({
+  const upsert = buildManualRuleUpsert({
+    desc_banco: input.descBanco,
+    monto: input.direction === "income" ? 1 : -1,
+    moneda: input.currency,
     account_id: input.accountId ?? null,
-    currency: input.currency ?? null,
-    direction: input.direction ?? "any",
-  });
-  const existing = await getRuleByNormalizedScope(db, userId, normalizedPattern, scope);
+  }, input.categoryId, input.scopePreference || (input.accountId ? "account" : "global"));
 
-  if (!existing) {
-    const created = await createRule(db, userId, {
-      pattern,
-      category_id: input.categoryId,
-      mode: "auto",
-      confidence: calculateLearnedRuleConfidence(0),
-      source: "learned",
-      account_id: scope.account_id ?? undefined,
-      currency: scope.currency ?? undefined,
-      direction: scope.direction,
-    });
-
-    if (created) {
-      await incrementRuleMatchCount(db, userId, created.id);
-    }
-
-    return { status: "created" as const, rule: created ?? null };
+  if (upsert.skipped) {
+    return { status: "skipped" as const, skipped_reason: upsert.skippedReason };
   }
 
-  if (existing.category_id === input.categoryId) {
-    const nextConfidence = Math.max(existing.confidence, calculateLearnedRuleConfidence(Number(existing.match_count || 0) + 1));
-    await updateRule(db, userId, existing.id, {
-      category_id: input.categoryId,
-      mode: existing.mode === "disabled" ? "suggest" : existing.mode,
-      confidence: nextConfidence,
-    });
-    await incrementRuleMatchCount(db, userId, existing.id);
-    return { status: "updated" as const, rule: await getRuleById(db, userId, existing.id) };
-  }
+  const before = await firstRow<{ id: number; category_id: number | null }>(
+    db,
+    `
+      SELECT id, category_id
+      FROM rules
+      WHERE user_id = ?
+        AND merchant_scope = ?
+        AND account_scope = ?
+        AND currency_scope = ?
+        AND direction = ?
+      LIMIT 1
+    `,
+    [userId, upsert.merchant_scope, upsert.account_scope, upsert.currency_scope, upsert.direction],
+  );
 
-  return { status: "conflict" as const, rule: existing };
+  await runStatement(
+    db,
+    `
+      INSERT INTO rules (
+        user_id, pattern, normalized_pattern, merchant_key, merchant_scope,
+        account_id, account_scope, currency, currency_scope, direction,
+        category_id, match_count, mode, confidence, source, last_matched_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'auto', ?, 'learned', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ON CONFLICT(user_id, merchant_scope, account_scope, currency_scope, direction)
+      DO UPDATE SET
+        pattern = excluded.pattern,
+        normalized_pattern = excluded.normalized_pattern,
+        merchant_key = excluded.merchant_key,
+        category_id = excluded.category_id,
+        source = 'learned',
+        mode = CASE WHEN rules.mode = 'disabled' THEN 'suggest' ELSE rules.mode END,
+        confidence = MAX(rules.confidence, excluded.confidence),
+        match_count = rules.match_count + 1,
+        last_matched_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+    `,
+    [
+      userId,
+      upsert.pattern,
+      upsert.normalized_pattern,
+      upsert.merchant_key,
+      upsert.merchant_scope,
+      upsert.account_id,
+      upsert.account_scope,
+      upsert.currency,
+      upsert.currency_scope,
+      upsert.direction,
+      input.categoryId,
+      upsert.confidence,
+    ],
+  );
+
+  const rule = await firstRow<RuleRow>(
+    db,
+    `
+      SELECT
+        rules.id,
+        rules.pattern,
+        rules.normalized_pattern,
+        rules.category_id,
+        categories.name AS category_name,
+        rules.match_count,
+        rules.mode,
+        rules.confidence,
+        rules.source,
+        rules.account_id,
+        rules.merchant_scope,
+        rules.account_scope,
+        rules.currency,
+        rules.currency_scope,
+        rules.direction,
+        rules.merchant_key,
+        rules.last_matched_at,
+        rules.created_at,
+        rules.updated_at
+      FROM rules
+      LEFT JOIN categories
+        ON categories.user_id = rules.user_id
+       AND categories.id = rules.category_id
+      WHERE rules.user_id = ?
+        AND rules.merchant_scope = ?
+        AND rules.account_scope = ?
+        AND rules.currency_scope = ?
+        AND rules.direction = ?
+      LIMIT 1
+    `,
+    [userId, upsert.merchant_scope, upsert.account_scope, upsert.currency_scope, upsert.direction],
+  );
+
+  return {
+    status: before ? (before.category_id === input.categoryId ? "updated" as const : "overrode_conflict" as const) : "created" as const,
+    rule: rule ?? null,
+  };
 }
 
 export async function applyRuleRetroactively(db: D1DatabaseLike, userId: string, ruleId: number): Promise<RuleApplicationSummary> {
@@ -1531,4 +1742,32 @@ export async function applyRuleRetroactively(db: D1DatabaseLike, userId: string,
     categorized_transactions: categorizedTransactions,
     suggested_transactions: suggestedTransactions,
   };
+}
+
+export async function applyRuleRetroactivelyJob(db: D1DatabaseLike, userId: string, ruleId: number) {
+  const jobId = `rule_${ruleId}_${Date.now()}`;
+  const summary = await applyRuleRetroactively(db, userId, ruleId);
+  await runStatement(
+    db,
+    `
+      INSERT INTO categorization_jobs (id, user_id, type, status, total, processed, result_json, updated_at)
+      VALUES (?, ?, 'apply_rule_retroactively', 'completed', ?, ?, ?, CURRENT_TIMESTAMP)
+    `,
+    [
+      jobId,
+      userId,
+      summary.affected_transactions,
+      summary.affected_transactions,
+      JSON.stringify(summary),
+    ],
+  );
+  return { job_id: jobId, status: "completed" as const, ...summary };
+}
+
+export async function getCategorizationJob(db: D1DatabaseLike, userId: string, jobId: string) {
+  return firstRow(
+    db,
+    "SELECT id, type, status, total, processed, result_json, created_at, updated_at FROM categorization_jobs WHERE user_id = ? AND id = ? LIMIT 1",
+    [userId, jobId],
+  );
 }

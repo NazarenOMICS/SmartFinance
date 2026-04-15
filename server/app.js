@@ -20,6 +20,7 @@ const assistantRouter = require("./routes/assistant");
 const onboardRouter = require("./routes/onboard");
 const insightsRouter = require("./routes/insights");
 const bankFormatsRouter = require("./routes/bank-formats");
+const jobsRouter = require("./routes/jobs");
 
 let bootstrapped = false;
 
@@ -80,9 +81,11 @@ function createApp(options = {}) {
   app.use("/api/assistant", assistantRouter);
   app.use("/api/settings", settingsRouter);
   app.use("/api/upload", uploadRouter);
+  app.use("/api/uploads", uploadRouter);
   app.use("/api/export", exportRouter);
   app.use("/api/insights", insightsRouter);
   app.use("/api/bank-formats", bankFormatsRouter);
+  app.use("/api/jobs", jobsRouter);
 
   app.use((req, res) => {
     res.status(404).json({ error: "Route not found" });

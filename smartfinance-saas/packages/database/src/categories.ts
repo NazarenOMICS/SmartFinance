@@ -84,12 +84,68 @@ export async function deleteCategory(db: D1DatabaseLike, userId: string, categor
     return { deleted: false, reason: "category_has_transactions" as const };
   }
 
+  const ruleRows = await allRows<{ id: number }>(
+    db,
+    "SELECT id FROM rules WHERE user_id = ? AND category_id = ?",
+    [userId, categoryId],
+  );
+  const ruleIds = ruleRows.map((row) => Number(row.id)).filter((id) => Number.isInteger(id));
+
+  for (const ruleId of ruleIds) {
+    await runStatement(
+      db,
+      "DELETE FROM rule_rejections WHERE user_id = ? AND rule_id = ?",
+      [userId, ruleId],
+    );
+    await runStatement(
+      db,
+      "DELETE FROM rule_match_log WHERE user_id = ? AND rule_id = ?",
+      [userId, ruleId],
+    );
+  }
+
+  const profileRows = await allRows<{ id: number }>(
+    db,
+    "SELECT id FROM categorization_profiles WHERE user_id = ? AND category_id = ?",
+    [userId, categoryId],
+  );
+  for (const profile of profileRows) {
+    await runStatement(
+      db,
+      "DELETE FROM categorization_profile_rejections WHERE user_id = ? AND profile_id = ?",
+      [userId, Number(profile.id)],
+    );
+  }
+  await runStatement(
+    db,
+    "DELETE FROM categorization_profiles WHERE user_id = ? AND category_id = ?",
+    [userId, categoryId],
+  );
+  await runStatement(
+    db,
+    "DELETE FROM merchant_dictionary WHERE user_id = ? AND default_category_id = ?",
+    [userId, categoryId],
+  );
+  await runStatement(
+    db,
+    "DELETE FROM rule_match_log WHERE user_id = ? AND category_id = ?",
+    [userId, categoryId],
+  );
+  await runStatement(
+    db,
+    "DELETE FROM rules WHERE user_id = ? AND category_id = ?",
+    [userId, categoryId],
+  );
   await runStatement(
     db,
     "DELETE FROM categories WHERE user_id = ? AND id = ?",
     [userId, categoryId],
   );
 
+  const stillThere = await getCategoryById(db, userId, categoryId);
+  if (stillThere) {
+    return { deleted: false, reason: "category_delete_failed" as const };
+  }
+
   return { deleted: true as const };
 }
-

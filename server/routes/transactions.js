@@ -2,7 +2,7 @@ const express = require("express");
 const crypto = require("crypto");
 const { db, getSettingsObject, isValidMonthString, SUPPORTED_CURRENCY_LIST } = require("../db");
 const { buildDedupHash } = require("../services/dedup");
-const { ensureRuleForManualCategorization, findMatchingRule, getCandidatesForPattern, rejectRuleForDescription } = require("../services/categorizer");
+const { ensureRuleForManualCategorization, extractMerchantKey, findMatchingRule, getCandidatesForPattern, rejectRuleForDescription } = require("../services/categorizer");
 const { computeMonthlyEvolution, computeSummary, getTransactionsForMonth } = require("../services/metrics");
 const { suggestSync } = require("../services/suggester");
 const {
@@ -438,21 +438,37 @@ router.post("/", (req, res) => {
     if (duplicate) {
       return res.status(409).json({ error: "transaction already exists for this month" });
     }
+    const merchantKey = extractMerchantKey(normalizedDescBanco);
 
     const result = db.prepare(
       `INSERT INTO transactions (
         fecha, desc_banco, desc_usuario, monto, moneda, category_id, account_id, es_cuota, installment_id, dedup_hash,
         entry_type, movement_type,
         categorization_status, category_source, category_confidence, category_rule_id,
-        movement_kind, internal_operation_id, counterparty_account_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'standard', ?, ?, ?, ?, ?, NULL, NULL)`
+        movement_kind, internal_operation_id, counterparty_account_id, merchant_key, parse_quality, rule_skipped_reason
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'standard', ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`
     ).run(
       fecha, normalizedDescBanco, normalizedDescUsuario, signedMonto, moneda,
       classification.categoryId, account_id, es_cuota ? 1 : 0, installment_id, dedupHash,
       entryType,
       classification.categorizationStatus, classification.categorySource,
       classification.categoryConfidence, classification.categoryRuleId,
-      classification.movementKind || "normal"
+      classification.movementKind || "normal",
+      merchantKey,
+      merchantKey ? "clean" : "partial",
+      merchantKey ? null : "generic_or_empty_merchant"
+    );
+
+    db.prepare(
+      `INSERT INTO rule_match_log (transaction_id, rule_id, category_id, layer, confidence, reason)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(
+      result.lastInsertRowid,
+      classification.categoryRuleId,
+      classification.categoryId,
+      classification.categoryRuleId ? "merchant_exact" : (classification.categoryId ? "manual" : "fallback"),
+      classification.categoryConfidence,
+      classification.categoryRuleId ? "Transaction matched during create" : "Transaction create did not find an auto-applicable rule"
     );
 
     if (classification.internalOperation) {
@@ -462,6 +478,22 @@ router.post("/", (req, res) => {
   } catch (error) {
     res.status(error.statusCode || 500).json({ error: error.message });
   }
+});
+
+router.get("/:id/categorization-log", (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id < 1) {
+    return res.status(400).json({ error: "invalid transaction id" });
+  }
+  const events = db.prepare(
+    `SELECT l.*, r.pattern AS rule_pattern, c.name AS category_name
+     FROM rule_match_log l
+     LEFT JOIN rules r ON r.id = l.rule_id
+     LEFT JOIN categories c ON c.id = l.category_id
+     WHERE l.transaction_id = ?
+     ORDER BY l.created_at DESC, l.id DESC`
+  ).all(id);
+  res.json({ transaction_id: id, events });
 });
 
 router.put("/:id", (req, res) => {
@@ -558,7 +590,17 @@ router.put("/:id", (req, res) => {
       if (matchingRule && matchingRule.category_id !== Number(req.body.category_id)) {
         rejectRuleForDescription(db, matchingRule.id, current.desc_banco);
       }
-      ruleStatus = ensureRuleForManualCategorization(db, current.desc_banco, req.body.category_id);
+      ruleStatus = ensureRuleForManualCategorization(db, { ...current, ...next }, req.body.category_id, req.body.rule_scope);
+      db.prepare(
+        `INSERT INTO rule_match_log (transaction_id, rule_id, category_id, layer, confidence, reason)
+         VALUES (?, ?, ?, 'manual', ?, ?)`
+      ).run(
+        id,
+        ruleStatus?.rule?.id || null,
+        Number(req.body.category_id),
+        ruleStatus?.rule?.confidence ?? null,
+        ruleStatus?.skipped ? `Rule skipped: ${ruleStatus.skipped_reason}` : "Manual category confirmed rule"
+      );
       recordGlobalPatternLearning(db, "local-user", current.desc_banco, req.body.category_id, "confirm");
     }
   })();
@@ -762,8 +804,8 @@ router.post("/batch", (req, res) => {
     INSERT INTO transactions
       (fecha, desc_banco, desc_usuario, monto, moneda, category_id, account_id, es_cuota, dedup_hash,
        categorization_status, category_source, category_confidence, category_rule_id,
-       movement_kind, internal_operation_id, counterparty_account_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+       movement_kind, internal_operation_id, counterparty_account_id, merchant_key, parse_quality, rule_skipped_reason)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
   `);
 
   const runBatch = db.transaction((txs) => {
@@ -790,6 +832,7 @@ router.post("/batch", (req, res) => {
         fecha,
         account_id,
       });
+      const merchantKey = extractMerchantKey(normalizedDescBanco);
 
       const insertResult = insertStmt.run(
         fecha,
@@ -805,7 +848,21 @@ router.post("/batch", (req, res) => {
         classification.categorySource,
         classification.categoryConfidence,
         classification.categoryRuleId,
-        classification.movementKind || "normal"
+        classification.movementKind || "normal",
+        merchantKey,
+        merchantKey ? "clean" : "partial",
+        merchantKey ? null : "generic_or_empty_merchant"
+      );
+      db.prepare(
+        `INSERT INTO rule_match_log (transaction_id, rule_id, category_id, layer, confidence, reason)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(
+        insertResult.lastInsertRowid,
+        classification.categoryRuleId,
+        classification.categoryId,
+        classification.categoryRuleId ? "merchant_exact" : (classification.categoryId ? "manual" : "fallback"),
+        classification.categoryConfidence,
+        classification.categoryRuleId ? "Batch transaction matched during create" : "Batch transaction create did not find an auto-applicable rule"
       );
       if (classification.internalOperation) {
         upsertInternalOperationSuggestion(db, {

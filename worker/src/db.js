@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS = {
   parsing_patterns: JSON.stringify(DEFAULT_PATTERNS),
   categorizer_auto_threshold: "0.88",
   categorizer_suggest_threshold: "0.68",
+  categorizer_v2_enabled: "1",
   categorizer_ollama_enabled: "0",
   categorizer_ollama_url: "",
   categorizer_ollama_model: "qwen2.5:3b",
@@ -39,7 +40,7 @@ export const DEFAULT_GLOBAL_EXCHANGE_RATES = {
   exchange_rate_fetch_error: "",
 };
 const SUPPORTED_CURRENCIES = new Set(SUPPORTED_CURRENCY_LIST);
-export const SCHEMA_VERSION = "2026-04-account-links-columns-v1";
+export const SCHEMA_VERSION = "2026-04-categorization-canonical-v9";
 export const EXPECTED_SCHEMA_VERSION = SCHEMA_VERSION;
 
 export function getExchangeRateSettingKey(currency) {
@@ -175,7 +176,7 @@ export function normalizeSettingValue(key, value) {
     return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? String(parsed) : DEFAULT_SETTINGS[key];
   }
 
-  if (key === "categorizer_ollama_enabled") {
+  if (key === "categorizer_ollama_enabled" || key === "categorizer_v2_enabled") {
     return raw === "1" || raw.toLowerCase() === "true" ? "1" : "0";
   }
 

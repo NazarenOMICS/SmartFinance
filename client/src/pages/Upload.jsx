@@ -462,6 +462,16 @@ export default function Upload({
     }
   }
 
+  async function handleRetryCategorize(uploadId) {
+    try {
+      const result = await api.retryCategorizeUpload(uploadId);
+      addToast("success", `${result.processed} transacciones reprocesadas.`);
+      await load();
+    } catch (error) {
+      addToast("error", error.message);
+    }
+  }
+
   useEffect(() => {
     load();
   }, []);
@@ -1152,13 +1162,25 @@ export default function Upload({
                 <p className="font-semibold text-finance-ink">{item.filename}</p>
                 <p className="text-sm text-neutral-500">{item.account_name || "Sin cuenta"} · {item.period} · {item.tx_count} transacciones</p>
               </div>
-              <span className={`rounded-full px-3 py-1 text-sm font-semibold ${
-                item.status === "needs_mapping"
-                  ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
-                  : "bg-finance-tealSoft text-finance-teal dark:bg-teal-900/30 dark:text-teal-300"
-              }`}>
-                {item.status === "needs_mapping" ? "Sin mapeo" : item.status}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className={`rounded-full px-3 py-1 text-sm font-semibold ${
+                  item.status === "error"
+                    ? "bg-finance-redSoft text-finance-red dark:bg-red-900/30 dark:text-red-300"
+                    : item.status === "needs_mapping"
+                    ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                    : "bg-finance-tealSoft text-finance-teal dark:bg-teal-900/30 dark:text-teal-300"
+                }`}>
+                  {item.status === "needs_mapping" ? "Sin mapeo" : item.status === "error" ? "Extraccion fallida" : item.status}
+                </span>
+                {item.tx_count > 0 && (
+                  <button
+                    onClick={() => handleRetryCategorize(item.id)}
+                    className="rounded-full border border-finance-purple/30 px-3 py-1 text-xs font-semibold text-finance-purple transition hover:bg-finance-purple hover:text-white"
+                  >
+                    Reprocesar reglas
+                  </button>
+                )}
+              </div>
             </div>
           ))}
           {!loading && history.length === 0 && (

@@ -1,8 +1,8 @@
 import type { CreateTransactionInput, UpdateTransactionInput } from "@smartfinance/contracts";
-import { deriveRulePattern } from "@smartfinance/domain";
+import { deriveRuleIdentity, deriveRulePattern } from "@smartfinance/domain";
 import { allRows, firstRow, runStatement, type D1DatabaseLike } from "./client";
 import { filterTransactionsForMetricFlows, getPreferredCurrencyByLinkId, markTransactionsForMetricFlows } from "./metrics";
-import { classifyTransactionByRules, findAmountProfileCategoryMatch, findMatchingRule, getRuleById, incrementRuleMatchCount, rejectAmountProfileForTransaction, rejectRuleForDescription, syncAmountProfileFromCategorizedDescription, syncRuleFromCategorizedDescription } from "./rules";
+import { classifyTransactionByRules, findAmountProfileCategoryMatch, findMatchingRule, getRuleById, incrementRuleMatchCount, listRuleMatchLog, logRuleMatch, rejectAmountProfileForTransaction, rejectRuleForDescription, syncAmountProfileFromCategorizedDescription, syncRuleFromCategorizedDescription } from "./rules";
 import { getSettingsObject } from "./settings";
 
 function toPeriod(fecha: string) {
@@ -41,6 +41,9 @@ const TRANSACTION_SELECT = `
     transactions.category_source,
     transactions.category_confidence,
     transactions.category_rule_id,
+    transactions.merchant_key,
+    transactions.parse_quality,
+    transactions.rule_skipped_reason,
     transactions.created_at,
     transactions.paired_transaction_id,
     transactions.account_link_id,
@@ -79,6 +82,9 @@ type TransactionRecord = {
   category_source: string | null;
   category_confidence: number | null;
   category_rule_id: number | null;
+  merchant_key: string | null;
+  parse_quality: string | null;
+  rule_skipped_reason: string | null;
   created_at: string;
   paired_transaction_id: number | null;
   account_link_id: number | null;
@@ -639,6 +645,11 @@ export async function createTransaction(
     entryType: classificationEntryType,
     categoryId: input.category_id ?? null,
   });
+  const identity = deriveRuleIdentity(input.desc_banco, {
+    accountId: input.account_id ?? null,
+    currency: input.moneda,
+    direction: classificationEntryType,
+  });
   const dedupHash = buildDedupHash({
     fecha: input.fecha,
     monto: signedAmount,
@@ -664,9 +675,10 @@ export async function createTransaction(
       INSERT INTO transactions
       (
         user_id, period, fecha, desc_banco, desc_usuario, monto, moneda, category_id, account_id, entry_type, movement_kind,
-        categorization_status, category_source, category_confidence, category_rule_id, dedup_hash, upload_id
+        categorization_status, category_source, category_confidence, category_rule_id,
+        merchant_key, parse_quality, rule_skipped_reason, dedup_hash, upload_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'normal', ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'normal', ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       userId,
@@ -683,6 +695,9 @@ export async function createTransaction(
       classification.categorySource,
       classification.categoryConfidence,
       classification.categoryRuleId,
+      identity.merchant_key,
+      identity.skipped ? "partial" : "clean",
+      identity.skippedReason,
       dedupHash,
       options.uploadId ?? null,
     ],
@@ -696,6 +711,16 @@ export async function createTransaction(
 
   if (classification.matchedRule?.id) {
     await incrementRuleMatchCount(db, userId, classification.matchedRule.id);
+  }
+  if (created?.id) {
+    await logRuleMatch(db, userId, {
+      transactionId: Number(created.id),
+      ruleId: classification.categoryRuleId,
+      categoryId: classification.categoryId,
+      layer: classification.categorySource || (identity.skipped ? "fallback" : "manual"),
+      confidence: classification.categoryConfidence,
+      reason: classification.categorySource || identity.skippedReason || "created",
+    });
   }
 
   const createdTransaction = await getTransactionById(db, userId, Number(created?.id || 0));

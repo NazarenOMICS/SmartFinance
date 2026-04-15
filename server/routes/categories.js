@@ -90,27 +90,35 @@ router.delete("/:id", (req, res) => {
   const existing = db.prepare("SELECT * FROM categories WHERE id = ?").get(id);
   if (!existing) return res.status(404).json({ error: "category not found" });
 
-  db.transaction(() => {
-    if (existing.origin === "seed") {
-      const hidden = getHiddenSeedCategorySlugs();
-      hidden.add(existing.slug);
-      saveHiddenSeedCategorySlugs(hidden);
-    }
-    db.prepare(
-      `UPDATE transactions
-       SET category_id = NULL,
-           categorization_status = 'uncategorized',
-           category_source = NULL,
-           category_confidence = NULL,
-           category_rule_id = NULL
-       WHERE category_id = ?`
-    ).run(id);
-    db.prepare("DELETE FROM rule_exclusions WHERE rule_id IN (SELECT id FROM rules WHERE category_id = ?)").run(id);
-    db.prepare("DELETE FROM rules WHERE category_id = ?").run(id);
-    db.prepare("DELETE FROM categories WHERE id = ?").run(id);
-  })();
+  const txCount = db.prepare("SELECT COUNT(*) AS count FROM transactions WHERE category_id = ?").get(id);
+  if (Number(txCount?.count || 0) > 0) {
+    return res.status(409).json({ error: "category_has_transactions" });
+  }
 
-  res.status(204).send();
+  try {
+    db.transaction(() => {
+      if (existing.origin === "seed") {
+        const hidden = getHiddenSeedCategorySlugs();
+        hidden.add(existing.slug);
+        saveHiddenSeedCategorySlugs(hidden);
+      }
+      db.prepare("DELETE FROM rule_match_log WHERE category_id = ?").run(id);
+      db.prepare("DELETE FROM rule_exclusions WHERE rule_id IN (SELECT id FROM rules WHERE category_id = ?)").run(id);
+      db.prepare("DELETE FROM rule_rejections WHERE rule_id IN (SELECT id FROM rules WHERE category_id = ?)").run(id);
+      db.prepare("DELETE FROM rules WHERE category_id = ?").run(id);
+      db.prepare("DELETE FROM merchant_dictionary WHERE default_category_id = ?").run(id);
+      db.prepare("DELETE FROM categories WHERE id = ?").run(id);
+    })();
+    const stillThere = db.prepare("SELECT id FROM categories WHERE id = ?").get(id);
+    if (stillThere) return res.status(500).json({ error: "CATEGORY_DELETE_FAILED" });
+    return res.status(204).send();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "category delete failed";
+    const isConstraint = /constraint|foreign key/i.test(message);
+    return res.status(isConstraint ? 409 : 500).json({
+      error: isConstraint ? "CATEGORY_HAS_DEPENDENCIES" : "CATEGORY_DELETE_FAILED",
+    });
+  }
 });
 
 module.exports = router;

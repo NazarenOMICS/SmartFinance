@@ -10,7 +10,7 @@ import {
   uploadSchema,
 } from "@smartfinance/contracts";
 import { extractTransactionsFromCsv, extractTransactionsFromText } from "@smartfinance/domain";
-import { createUploadIntentRecord, getUploadById, getUsageSnapshot, listUploadsByMonth, markUploadStatus, processUploadTransactions } from "@smartfinance/database";
+import { createUploadIntentRecord, getUploadById, getUsageSnapshot, listUploadsByMonth, markUploadStatus, processUploadTransactions, retryCategorizeUploadTransactions } from "@smartfinance/database";
 import { getSettingsObject } from "@smartfinance/database";
 import type { ApiBindings, ApiVariables } from "../env";
 import { getUploadBinary, storeUploadBinary } from "../services/upload-storage";
@@ -204,6 +204,21 @@ uploadsRouter.post("/process", async (c) => {
     }
     throw error;
   }
+});
+
+uploadsRouter.post("/:id/retry-categorize", async (c) => {
+  const auth = c.get("auth");
+  const requestId = c.get("requestId");
+  const uploadId = Number(c.req.param("id"));
+  if (!Number.isInteger(uploadId) || uploadId < 1) {
+    return jsonError("Invalid upload id", "VALIDATION_ERROR", requestId, 400);
+  }
+
+  const result = await retryCategorizeUploadTransactions(c.env.DB, auth.userId, uploadId);
+  if (!result) {
+    return jsonError("Upload not found", "UPLOAD_NOT_FOUND", requestId, 404);
+  }
+  return c.json(result);
 });
 
 export default uploadsRouter;

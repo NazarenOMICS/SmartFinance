@@ -16,6 +16,7 @@ import categoriesRouter from "./routes/categories";
 import exportRouter from "./routes/export";
 import insightsRouter from "./routes/insights";
 import installmentsRouter from "./routes/installments";
+import jobsRouter from "./routes/jobs";
 import onboardRouter from "./routes/onboard";
 import rulesRouter from "./routes/rules";
 import savingsRouter from "./routes/savings";
@@ -147,6 +148,8 @@ app.use("/api/savings", authMiddleware);
 app.use("/api/savings/*", authMiddleware);
 app.use("/api/insights", authMiddleware);
 app.use("/api/insights/*", authMiddleware);
+app.use("/api/jobs", authMiddleware);
+app.use("/api/jobs/*", authMiddleware);
 app.use("/api/bank-formats", authMiddleware);
 app.use("/api/bank-formats/*", authMiddleware);
 app.use("/api/assistant", authMiddleware);
@@ -257,6 +260,14 @@ app.use("/api/insights/*", async (c, next) => {
   await assertSchemaVersion(c.env.DB);
   await next();
 });
+app.use("/api/jobs", async (c, next) => {
+  await assertSchemaVersion(c.env.DB);
+  await next();
+});
+app.use("/api/jobs/*", async (c, next) => {
+  await assertSchemaVersion(c.env.DB);
+  await next();
+});
 app.use("/api/bank-formats", async (c, next) => {
   await assertSchemaVersion(c.env.DB);
   await next();
@@ -332,6 +343,7 @@ app.route("/api/categories", categoriesRouter);
 app.route("/api/installments", installmentsRouter);
 app.route("/api/savings", savingsRouter);
 app.route("/api/insights", insightsRouter);
+app.route("/api/jobs", jobsRouter);
 app.route("/api/bank-formats", bankFormatsRouter);
 app.route("/api/assistant", assistantRouter);
 app.route("/api/upload", uploadRouter);

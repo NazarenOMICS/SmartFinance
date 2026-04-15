@@ -1,6 +1,7 @@
 import type { CreateUploadIntentInput, UploadProcessInput } from "@smartfinance/contracts";
 import { allRows, firstRow, runStatement, type D1DatabaseLike } from "./client";
 import { buildImportReviewState, createTransaction } from "./transactions";
+import { classifyTransactionByRules, incrementRuleMatchCount, logRuleMatch } from "./rules";
 
 type UploadRow = {
   id: number;
@@ -327,5 +328,97 @@ export async function processUploadTransactions(db: D1DatabaseLike, userId: stri
     suggested,
     pending_review: pendingReview,
     ...(await buildImportReviewState(db, userId, createdIds)),
+  };
+}
+
+export async function retryCategorizeUploadTransactions(db: D1DatabaseLike, userId: string, uploadId: number) {
+  const upload = await getUploadById(db, userId, uploadId);
+  if (!upload) return null;
+
+  const rows = await allRows<{
+    id: number;
+    desc_banco: string;
+    monto: number;
+    moneda: "UYU" | "USD" | "EUR" | "ARS";
+    account_id: string | null;
+    category_id: number | null;
+  }>(
+    db,
+    `
+      SELECT id, desc_banco, monto, moneda, account_id, category_id
+      FROM transactions
+      WHERE user_id = ? AND upload_id = ?
+      ORDER BY id ASC
+    `,
+    [userId, uploadId],
+  );
+
+  let categorized = 0;
+  let suggested = 0;
+  let pending = 0;
+
+  for (const row of rows) {
+    const classification = await classifyTransactionByRules(db, userId, {
+      descBanco: row.desc_banco,
+      amount: Number(row.monto),
+      currency: row.moneda,
+      accountId: row.account_id,
+      entryType: Number(row.monto) >= 0 ? "income" : "expense",
+      categoryId: null,
+    });
+
+    await runStatement(
+      db,
+      `
+        UPDATE transactions
+        SET category_id = ?,
+            categorization_status = ?,
+            category_source = ?,
+            category_confidence = ?,
+            category_rule_id = ?
+        WHERE user_id = ? AND id = ?
+      `,
+      [
+        classification.categoryId,
+        classification.categorizationStatus,
+        classification.categorySource,
+        classification.categoryConfidence,
+        classification.categoryRuleId,
+        userId,
+        row.id,
+      ],
+    );
+
+    if (classification.matchedRule?.id) {
+      await incrementRuleMatchCount(db, userId, Number(classification.matchedRule.id));
+    }
+    await logRuleMatch(db, userId, {
+      transactionId: row.id,
+      ruleId: classification.categoryRuleId,
+      categoryId: classification.categoryId,
+      layer: classification.categorySource || "fallback",
+      confidence: classification.categoryConfidence,
+      reason: classification.categorySource || "retry_categorize",
+    });
+
+    if (classification.categorizationStatus === "categorized") categorized += 1;
+    else if (classification.categorizationStatus === "suggested") suggested += 1;
+    else pending += 1;
+  }
+
+  const updated = await markUploadStatus(db, userId, uploadId, {
+    status: pending + suggested > 0 ? "needs_review" : "processed",
+    auto_categorized_count: categorized,
+    suggested_count: suggested,
+    pending_review_count: pending + suggested,
+  });
+
+  return {
+    upload: updated,
+    processed: rows.length,
+    categorized,
+    suggested,
+    pending_review: pending + suggested,
+    ...(await buildImportReviewState(db, userId, rows.map((row) => Number(row.id)))),
   };
 }
