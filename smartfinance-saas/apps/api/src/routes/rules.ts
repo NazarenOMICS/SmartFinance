@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { amountProfileListResponseSchema, amountProfileRebuildResponseSchema, createRuleInputSchema, ruleInsightSchema, ruleMutationResponseSchema, ruleSchema, transactionSchema, updateRuleInputSchema } from "@smartfinance/contracts";
-import { applyRuleRetroactively, buildRuleInsights, createRule, deleteRule, disableAmountProfile, listAmountProfiles, listRuleCandidates, listRules, rebuildAmountProfiles, updateRule } from "@smartfinance/database";
+import { applyRuleRetroactively, applyRuleRetroactivelyJob, buildRuleInsights, createRule, deleteRule, disableAmountProfile, listAmountProfiles, listRuleCandidates, listRules, rebuildAmountProfiles, updateRule } from "@smartfinance/database";
 import type { ApiBindings, ApiVariables } from "../env";
 import { enhanceRuleInsightsWithAi } from "../services/ai";
 import { jsonError } from "../utils/http";
@@ -103,6 +103,26 @@ rulesRouter.get("/:id/candidates", async (c) => {
   return c.json(candidates.map((candidate) => transactionSchema.parse(candidate)));
 });
 
+rulesRouter.post("/:id/apply-retroactively", async (c) => {
+  const auth = c.get("auth");
+  const requestId = c.get("requestId");
+  const ruleId = Number(c.req.param("id"));
+  if (!Number.isInteger(ruleId) || ruleId < 1) {
+    return jsonError("Invalid rule id", "VALIDATION_ERROR", requestId, 400);
+  }
+
+  const result = await applyRuleRetroactivelyJob(c.env.DB, auth.userId, ruleId);
+  return c.json({
+    job_id: result.job_id,
+    status: result.status,
+    total_count: result.affected_transactions,
+    processed_count: result.affected_transactions,
+    updated_transactions: result.affected_transactions,
+    categorized_count: result.categorized_transactions,
+    suggested_count: result.suggested_transactions,
+  }, 202);
+});
+
 rulesRouter.delete("/:id", async (c) => {
   const auth = c.get("auth");
   const requestId = c.get("requestId");
@@ -115,14 +135,4 @@ rulesRouter.delete("/:id", async (c) => {
   return new Response(null, { status: 204 });
 });
 
-rulesRouter.post("/reset", async (c) => {
-  const auth = c.get("auth");
-  const rules = await listRules(c.env.DB, auth.userId);
-  await Promise.all(rules.map((rule) => deleteRule(c.env.DB, auth.userId, Number(rule.id))));
-  return c.json({
-    deleted_count: rules.length,
-    rules_count: 0,
-  });
-});
-
-export default rulesRouter;
+rulesRouter.post(

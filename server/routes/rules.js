@@ -1,6 +1,6 @@
 const express = require("express");
 const { db } = require("../db");
-const { findCandidatesForRule } = require("../services/categorizer");
+const { extractMerchantKey, findCandidatesForRule } = require("../services/categorizer");
 const { buildSeedRules, normalizePatternValue } = require("../services/taxonomy");
 const { recordGlobalPatternLearning } = require("../services/global-learning");
 
@@ -12,8 +12,8 @@ function reseedRules() {
   const insertRule = db.prepare(
     `INSERT INTO rules (
       pattern, normalized_pattern, category_id, match_count, mode, confidence, source,
-      account_id, currency, direction, merchant_key
-    ) VALUES (?, ?, ?, 0, ?, ?, 'seed', NULL, NULL, ?, ?)`
+      account_id, account_scope, currency, currency_scope, direction, merchant_key, merchant_scope, updated_at
+    ) VALUES (?, ?, ?, 0, ?, ?, 'seed', NULL, '', NULL, '', ?, ?, ?, datetime('now'))`
   );
 
   db.transaction(() => {
@@ -21,7 +21,16 @@ function reseedRules() {
     for (const rule of buildSeedRules()) {
       const categoryId = bySlug.get(rule.slug);
       if (!categoryId) continue;
-      insertRule.run(rule.pattern, rule.normalized_pattern, categoryId, rule.mode, rule.confidence, rule.direction, rule.merchant_key);
+      insertRule.run(
+        rule.pattern,
+        rule.normalized_pattern,
+        categoryId,
+        rule.mode,
+        rule.confidence,
+        rule.direction,
+        rule.merchant_key,
+        rule.merchant_key || rule.normalized_pattern
+      );
     }
   })();
 }
@@ -58,35 +67,65 @@ router.post("/", (req, res) => {
     if (!account) return res.status(404).json({ error: "account not found" });
   }
 
+  const merchantKey = extractMerchantKey(pattern) || normalizedPattern;
+  const merchantScope = merchantKey || normalizedPattern;
+  const accountScope = account_id || "";
+  const currencyScope = currency || "";
   const existing = db.prepare(
-    `SELECT id, category_id FROM rules
-     WHERE normalized_pattern = ?
-       AND COALESCE(account_id, '') = COALESCE(?, '')
-       AND COALESCE(currency, '') = COALESCE(?, '')
+    `SELECT id FROM rules
+     WHERE merchant_scope = ?
+       AND account_scope = ?
+       AND currency_scope = ?
        AND direction = ?
      LIMIT 1`
-  ).get(normalizedPattern, account_id, currency, direction);
-  if (existing) {
-    if (existing.category_id === Number(category_id)) {
-      const rule = db.prepare("SELECT * FROM rules WHERE id = ?").get(existing.id);
-      return res.status(200).json({ ...rule, candidates_count: 0, duplicate: true });
-    }
-    return res.status(409).json({ error: `Pattern "${pattern}" already exists for a different category. Delete the existing rule first.` });
-  }
+  ).get(merchantScope, accountScope, currencyScope, direction);
 
   const result = db.prepare(
     `INSERT INTO rules (
       pattern, normalized_pattern, category_id, match_count, mode, confidence, source,
-      account_id, currency, direction, merchant_key
-    ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(String(pattern).trim(), normalizedPattern, category_id, mode, normalizedConfidence, source, account_id, currency, direction, normalizedPattern);
+      account_id, account_scope, currency, currency_scope, direction, merchant_key, merchant_scope, updated_at
+    ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(merchant_scope, account_scope, currency_scope, direction)
+    DO UPDATE SET
+      pattern = excluded.pattern,
+      normalized_pattern = excluded.normalized_pattern,
+      merchant_key = excluded.merchant_key,
+      category_id = excluded.category_id,
+      mode = excluded.mode,
+      confidence = MAX(rules.confidence, excluded.confidence),
+      source = excluded.source,
+      match_count = rules.match_count + 1,
+      last_matched_at = datetime('now'),
+      updated_at = datetime('now')`
+  ).run(
+    String(pattern).trim(),
+    normalizedPattern,
+    category_id,
+    mode,
+    normalizedConfidence,
+    source,
+    account_id,
+    accountScope,
+    currency,
+    currencyScope,
+    direction,
+    merchantKey,
+    merchantScope
+  );
 
-  const rule = db.prepare("SELECT * FROM rules WHERE id = ?").get(result.lastInsertRowid);
+  const rule = db.prepare(
+    `SELECT * FROM rules
+     WHERE merchant_scope = ?
+       AND account_scope = ?
+       AND currency_scope = ?
+       AND direction = ?
+     LIMIT 1`
+  ).get(merchantScope, accountScope, currencyScope, direction);
   const candidates_count = findCandidatesForRule(db, String(pattern).trim(), Number(category_id)).length;
   if (source === "manual" || source === "guided") {
     recordGlobalPatternLearning(db, "local-user", String(pattern).trim(), category_id, "confirm");
   }
-  res.status(201).json({ ...rule, candidates_count });
+  res.status(existing ? 200 : 201).json({ ...rule, candidates_count, upserted: Boolean(existing || result.changes) });
 });
 
 router.put("/:id", (req, res) => {
@@ -129,12 +168,90 @@ router.post("/reset", (req, res) => {
   res.json({ deleted_count, rules_count });
 });
 
+router.post("/:id/apply-retroactively", (req, res) => {
+  const id = Number(req.params.id);
+  const rule = db.prepare("SELECT * FROM rules WHERE id = ?").get(id);
+  if (!rule) return res.status(404).json({ error: "rule not found" });
+  if (!rule.category_id) return res.status(400).json({ error: "rule has no category assigned" });
+
+  const jobResult = db.transaction(() => {
+    const insertJob = db.prepare(
+      `INSERT INTO categorization_jobs (kind, status, total_count, processed_count, result_json)
+       VALUES ('apply_rule_retroactively', 'running', 0, 0, '{}')`
+    ).run();
+
+    // Fetch uncategorized candidates that match the rule pattern (paginated, max 500 per run)
+    const candidates = db.prepare(
+      `SELECT id, desc_banco, monto, moneda, account_id, entry_type
+       FROM transactions
+       WHERE categorization_status != 'categorized'
+         AND LOWER(desc_banco) LIKE '%' || LOWER(?) || '%'
+       ORDER BY fecha DESC, id DESC
+       LIMIT 500`
+    ).all(rule.normalized_pattern || "");
+
+    let affected = 0;
+    let categorized = 0;
+    let suggested = 0;
+
+    for (const candidate of candidates) {
+      if (rule.mode === 'disabled') continue;
+
+      const update = db.prepare(
+        `UPDATE transactions
+         SET category_id = ?,
+             categorization_status = ?,
+             category_source = 'rule_retroactive',
+             category_confidence = ?,
+             category_rule_id = ?
+         WHERE id = ?`
+      ).run(
+        Number(rule.category_id),
+        rule.mode === 'auto' ? 'categorized' : 'suggested',
+        Number(rule.confidence ?? 0.72),
+        id,
+        candidate.id
+      );
+
+      if (update.changes > 0) {
+        affected += 1;
+        if (rule.mode === 'auto') categorized += 1;
+        else suggested += 1;
+      }
+    }
+
+    db.prepare(
+      `UPDATE categorization_jobs
+       SET status = 'completed',
+           total_count = ?,
+           processed_count = ?,
+           result_json = ?,
+           updated_at = datetime('now')
+       WHERE id = ?`
+    ).run(affected, affected, JSON.stringify({ updated_transactions: affected, categorized, suggested }), insertJob.lastInsertRowid);
+
+    return { id: insertJob.lastInsertRowid, affected, categorized, suggested };
+  })();
+
+  res.status(202).json({
+    job_id: jobResult.id,
+    status: "completed",
+    total_count: jobResult.affected,
+    processed_count: jobResult.affected,
+    updated_transactions: jobResult.affected,
+    categorized_count: jobResult.categorized,
+    suggested_count: jobResult.suggested,
+  });
+});
+
 router.delete("/:id", (req, res) => {
   const id = Number(req.params.id);
   const existing = db.prepare("SELECT id FROM rules WHERE id = ?").get(id);
   if (!existing) return res.status(404).json({ error: "rule not found" });
   db.transaction(() => {
     db.prepare("DELETE FROM rule_exclusions WHERE rule_id = ?").run(id);
+    db.prepare("DELETE FROM rule_rejections WHERE rule_id = ?").run(id);
+    db.prepare("DELETE FROM rule_match_log WHERE rule_id = ?").run(id);
     db.prepare("DELETE FROM rules WHERE id = ?").run(id);
   })();
   res.status(204).send();
