@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  calculateAmountSimilarity,
   calculateLearnedRuleConfidence,
+  deriveCounterpartyKey,
   deriveRulePattern,
   isGenericRulePattern,
   matchesRulePattern,
@@ -41,5 +43,17 @@ describe("rule helpers", () => {
   it("increases learned confidence as confirmations accumulate", () => {
     expect(calculateLearnedRuleConfidence(0)).toBe(0.82);
     expect(calculateLearnedRuleConfidence(5)).toBeGreaterThan(0.82);
+  });
+
+  it("derives stable counterparty keys from noisy transfers", () => {
+    expect(deriveCounterpartyKey("TRANSFERENCIA INMEDIATA A MARIA DELACROIX 123456")).toBe("maria delacroix");
+    expect(deriveCounterpartyKey("TRF PLAZA MARIA DELACROIX")).toBe("maria delacroix");
+    expect(deriveCounterpartyKey("DEBITO OPERACION EN SUPERNET P--/ 123")).toBeNull();
+  });
+
+  it("scores amount similarity with currency-aware tolerance", () => {
+    expect(calculateAmountSimilarity(-30200, -30000, "UYU")).toBeGreaterThan(0.9);
+    expect(calculateAmountSimilarity(-3900, -3000, "UYU")).toBe(0);
+    expect(calculateAmountSimilarity(-1005, -1000, "USD")).toBeGreaterThan(0.9);
   });
 });

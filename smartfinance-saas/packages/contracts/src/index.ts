@@ -1,4 +1,5 @@
 export * from "./accounts";
+export * from "./assistant";
 export * from "./account-links";
 export * from "./auth";
 export * from "./bank-formats";

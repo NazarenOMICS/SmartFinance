@@ -9,9 +9,65 @@ database_id = "1cb06651-b842-4650-a903-3fdd761f8086"
 migrations_dir = "migrations"
 
 [vars]
+APP_ENV = "local"
 AUTH_MODE = "development"
-# CLERK_JWKS_URL = "https://your-clerk-domain/.well-known/jwks.json"
+UPLOAD_BINARY_STORAGE = "disabled"
+CLERK_JWKS_URL = "https://internal-salmon-11.clerk.accounts.dev/.well-known/jwks.json"
+APP_BASE_URL = "http://localhost:5173"
+ALLOWED_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
+AI_PROVIDER = "auto"
+AI_TEXT_MODEL = "@cf/meta/llama-3.1-8b-instruct"
+ERROR_REPORTING_WEBHOOK_URL = ""
+# STRIPE_SECRET_KEY = "sk_test_..."
+# STRIPE_WEBHOOK_SECRET = "whsec_..."
+# STRIPE_PRICE_PRO_MONTHLY = "price_..."
+# STRIPE_PRICE_PRO_YEARLY = "price_..."
 
-# [[r2_buckets]]
+[env.staging.vars]
+APP_ENV = "staging"
+AUTH_MODE = "clerk"
+UPLOAD_BINARY_STORAGE = "disabled"
+CLERK_JWKS_URL = "https://internal-salmon-11.clerk.accounts.dev/.well-known/jwks.json"
+APP_BASE_URL = "https://staging.smartfinance-saas-web.pages.dev"
+ALLOWED_ORIGINS = "https://staging.smartfinance-saas-web.pages.dev"
+AI_PROVIDER = "auto"
+AI_TEXT_MODEL = "@cf/meta/llama-3.1-8b-instruct"
+ERROR_REPORTING_WEBHOOK_URL = ""
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "smartfinance-saas-staging"
+database_id = "replace-with-real-staging-database-id"
+migrations_dir = "migrations"
+
+# Uncomment once R2 is enabled in the Cloudflare account.
+# Then set UPLOAD_BINARY_STORAGE = "r2".
+# [[env.staging.r2_buckets]]
+# binding = "UPLOADS_BUCKET"
+# bucket_name = "smartfinance-saas-uploads-staging"
+
+[env.production.vars]
+APP_ENV = "production"
+AUTH_MODE = "clerk"
+UPLOAD_BINARY_STORAGE = "disabled"
+CLERK_JWKS_URL = "https://internal-salmon-11.clerk.accounts.dev/.well-known/jwks.json"
+APP_BASE_URL = "https://smartfinance-saas-web.pages.dev"
+ALLOWED_ORIGINS = "https://smartfinance-saas-web.pages.dev"
+AI_PROVIDER = "auto"
+AI_TEXT_MODEL = "@cf/meta/llama-3.1-8b-instruct"
+ERROR_REPORTING_WEBHOOK_URL = ""
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "smartfinance-saas-prod"
+database_id = "1cb06651-b842-4650-a903-3fdd761f8086"
+migrations_dir = "migrations"
+
+# Uncomment once R2 is enabled in the Cloudflare account.
+# Then set UPLOAD_BINARY_STORAGE = "r2".
+# [[env.production.r2_buckets]]
 # binding = "UPLOADS_BUCKET"
 # bucket_name = "smartfinance-saas-uploads"
+
+# [ai]
+# binding = "AI"

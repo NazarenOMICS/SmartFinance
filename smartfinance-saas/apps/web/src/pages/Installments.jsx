@@ -175,7 +175,7 @@ export default function Installments({ month }) {
             ))}
           </select>
           <input className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100" type="month" value={form.start_month} onChange={(event) => setForm((prev) => ({ ...prev, start_month: event.target.value }))} />
-          <button className="rounded-full bg-finance-purple px-5 py-3 font-semibold text-white">Agregar</button>
+          <button data-testid="installments-create-button" className="rounded-full bg-finance-purple px-5 py-3 font-semibold text-white">Agregar</button>
         </div>
       </form>
     </div>

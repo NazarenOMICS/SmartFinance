@@ -29,3 +29,9 @@ jobs:
 
       - name: Check workspace
         run: pnpm check
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run local e2e
+        run: pnpm test:e2e

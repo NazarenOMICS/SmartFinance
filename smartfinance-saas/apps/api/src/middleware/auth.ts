@@ -79,7 +79,18 @@ export const authMiddleware: MiddlewareHandler<{
   const authHeader = c.req.header("Authorization") || "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
 
-  if (!token || !runtimeEnv.CLERK_JWKS_URL) {
+  if (!runtimeEnv.CLERK_JWKS_URL) {
+    return c.json(
+      {
+        error: "Authentication is misconfigured",
+        code: "AUTH_MISCONFIGURED",
+        request_id: c.get("requestId"),
+      },
+      500,
+    );
+  }
+
+  if (!token) {
     return c.json(
       {
         error: "Authentication required",

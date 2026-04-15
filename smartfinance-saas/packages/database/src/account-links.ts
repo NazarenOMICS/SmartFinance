@@ -141,6 +141,51 @@ function dayDistance(left: string, right: string) {
   return Math.abs((leftDate.getTime() - rightDate.getTime()) / (24 * 60 * 60 * 1000));
 }
 
+function scoreCounterpart(
+  link: AccountLinkRow,
+  source: {
+    fecha: string;
+    monto: number;
+    moneda: string;
+    account_id: string | null;
+  },
+  candidate: {
+    fecha: string;
+    monto: number;
+    moneda: string;
+    account_id: string | null;
+  },
+) {
+  if (candidate.account_id === source.account_id) return 0;
+  if (Number(source.monto) * Number(candidate.monto) >= 0) return 0;
+  const distance = dayDistance(String(candidate.fecha), String(source.fecha));
+  if (distance > 2) return 0;
+
+  const sameCurrencyLink = String(link.account_a_currency || "") === String(link.account_b_currency || "");
+  const sourceAmount = normalizedAmount(Number(source.monto));
+  const candidateAmount = normalizedAmount(Number(candidate.monto));
+
+  if (sameCurrencyLink) {
+    if (candidate.moneda !== source.moneda) return 0;
+    const delta = Math.abs(candidateAmount - sourceAmount) / Math.max(sourceAmount, 1);
+    if (delta > 0.06) return 0;
+    return 1.1 - delta - distance * 0.08;
+  }
+
+  let score = 0.65 - distance * 0.06;
+  if (link.preferred_currency && candidate.moneda === link.preferred_currency) {
+    score += 0.1;
+  }
+  if (candidate.moneda !== source.moneda) {
+    score += 0.12;
+  }
+  const ratio = candidateAmount / Math.max(sourceAmount, 0.0001);
+  if (ratio > 0.01 && ratio < 200) {
+    score += 0.08;
+  }
+  return score;
+}
+
 export async function reconcileAccountLink(db: D1DatabaseLike, userId: string, linkId: number) {
   const link = await getAccountLinkById(db, userId, linkId);
   if (!link) return null;
@@ -173,18 +218,14 @@ export async function reconcileAccountLink(db: D1DatabaseLike, userId: string, l
   for (const transaction of sourceSide) {
     if (usedIds.has(transaction.id) || Number(transaction.monto) === 0) continue;
 
-    const counterpart = sourceSide.find((candidate) => {
-      if (candidate.id === transaction.id || usedIds.has(candidate.id)) return false;
-      if (candidate.account_id === transaction.account_id) return false;
-      if (dayDistance(String(candidate.fecha), String(transaction.fecha)) > 2) return false;
-      if (Number(transaction.monto) * Number(candidate.monto) >= 0) return false;
-
-      if (candidate.moneda === transaction.moneda) {
-        return Math.abs(normalizedAmount(Number(candidate.monto)) - normalizedAmount(Number(transaction.monto))) < 0.01;
-      }
-
-      return dayDistance(String(candidate.fecha), String(transaction.fecha)) <= 1;
-    });
+    const counterpart = sourceSide
+      .filter((candidate) => candidate.id !== transaction.id && !usedIds.has(candidate.id))
+      .map((candidate) => ({
+        candidate,
+        score: scoreCounterpart(link, transaction, candidate),
+      }))
+      .filter((entry) => entry.score > 0.5)
+      .sort((left, right) => right.score - left.score)[0]?.candidate;
 
     if (!counterpart) continue;
 

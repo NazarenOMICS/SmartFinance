@@ -1,7 +1,8 @@
 import { Hono } from "hono";
-import { bankFormatSchema, upsertBankFormatInputSchema } from "@smartfinance/contracts";
+import { bankFormatSchema, bankFormatSuggestionInputSchema, bankFormatSuggestionSchema, upsertBankFormatInputSchema } from "@smartfinance/contracts";
 import { deleteBankFormat, getBankFormatByKey, listBankFormats, upsertBankFormat } from "@smartfinance/database";
 import type { ApiBindings, ApiVariables } from "../env";
+import { suggestBankFormatMappingWithAi } from "../services/ai";
 import { jsonError } from "../utils/http";
 
 const bankFormatsRouter = new Hono<{
@@ -24,6 +25,33 @@ bankFormatsRouter.get("/:key", async (c) => {
   }
 
   return c.json(bankFormatSchema.parse(format));
+});
+
+bankFormatsRouter.post("/suggest", async (c) => {
+  const auth = c.get("auth");
+  const requestId = c.get("requestId");
+  const body = bankFormatSuggestionInputSchema.safeParse(await c.req.json());
+  if (!body.success) {
+    return jsonError("Invalid bank format suggestion payload", "VALIDATION_ERROR", requestId, 400);
+  }
+
+  const knownFormats = await listBankFormats(c.env.DB, auth.userId);
+  const suggestion = await suggestBankFormatMappingWithAi(c.env, {
+    formatKey: body.data.format_key ?? null,
+    columns: body.data.columns,
+    sampleRows: body.data.sample_rows,
+    accountCurrency: body.data.account_currency ?? null,
+    knownFormats: knownFormats.map((format) => ({
+      bank_name: format.bank_name,
+      col_fecha: format.col_fecha,
+      col_desc: format.col_desc,
+      col_debit: format.col_debit,
+      col_credit: format.col_credit,
+      col_monto: format.col_monto,
+    })),
+  });
+
+  return c.json(bankFormatSuggestionSchema.parse(suggestion));
 });
 
 bankFormatsRouter.post("/", async (c) => {

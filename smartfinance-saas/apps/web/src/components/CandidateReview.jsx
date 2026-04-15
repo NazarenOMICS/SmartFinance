@@ -19,6 +19,7 @@ export default function CandidateReview({
   categoryId,
   categoryName,
   ruleId = null,
+  intro = "",
   onDone,
   onClose,
 }) {
@@ -174,6 +175,11 @@ export default function CandidateReview({
             <h3 className="font-display text-xl text-finance-ink dark:text-neutral-100">
               Regla: "{pattern}" {"->"} {categoryName}
             </h3>
+            {intro ? (
+              <p className="mt-2 max-w-sm text-xs text-neutral-500 dark:text-neutral-400">
+                {intro}
+              </p>
+            ) : null}
           </div>
           <button
             onClick={closeReview}
@@ -201,6 +207,11 @@ export default function CandidateReview({
                 {shortDate(current.fecha)}
                 {current.account_name ? ` | ${current.account_name}` : ""}
               </p>
+              {current.suggestion_reason ? (
+                <p className="mt-2 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
+                  {current.suggestion_reason}
+                </p>
+              ) : null}
             </div>
             <p className={`shrink-0 font-semibold ${current.monto > 0 ? "text-finance-teal" : "text-finance-ink dark:text-neutral-100"}`}>
               {current.monto > 0 ? "+" : ""}

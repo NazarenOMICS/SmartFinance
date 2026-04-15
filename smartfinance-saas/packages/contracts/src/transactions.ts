@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { accountCurrencySchema } from "./accounts";
+import { booleanishSchema } from "./common";
 
 export const monthStringSchema = z.string().regex(/^\d{4}-\d{2}$/);
 export const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -39,10 +40,19 @@ export const transactionSchema = z.object({
   internal_operation_to_account_name: z.string().nullable().optional(),
   internal_operation_to_currency: z.string().nullable().optional(),
   internal_operation_effective_rate: z.number().nullable().optional(),
+  counts_in_metrics: z.boolean().optional(),
   suggested_category_id: z.number().nullable().optional(),
   suggested_category_name: z.string().nullable().optional(),
   suggestion_source: z.string().nullable().optional(),
   suggestion_reason: z.string().nullable().optional(),
+  amount_profile_id: z.number().nullable().optional(),
+  counterparty_key: z.string().nullable().optional(),
+  amount_similarity: z.number().nullable().optional(),
+  historical_median: z.number().nullable().optional(),
+  historical_sample_count: z.number().int().nonnegative().nullable().optional(),
+  conflict_candidates: z.array(z.unknown()).optional(),
+  ai_audited: z.boolean().optional(),
+  ai_reason: z.string().nullable().optional(),
   proposed_new_category: z.object({
     name: z.string(),
     type: z.string().optional(),
@@ -79,6 +89,42 @@ export const transactionSummarySchema = z.object({
   expenses: z.number(),
   net: z.number(),
   transaction_count: z.number().int().nonnegative(),
+  currency: accountCurrencySchema,
+  pending_count: z.number().int().nonnegative(),
+  totals: z.object({
+    income: z.number(),
+    expenses: z.number(),
+    net: z.number(),
+    margin: z.number(),
+    installments: z.number(),
+    savings_monthly_target: z.number(),
+  }),
+  deltas: z.object({
+    income: z.number(),
+    expenses: z.number(),
+  }),
+  byCategory: z.array(z.object({
+    id: z.number(),
+    name: z.string(),
+    slug: z.string().nullable().optional(),
+    spent: z.number(),
+    budget: z.number(),
+    color: z.string().nullable().optional(),
+    type: z.string().nullable().optional(),
+  })),
+  byType: z.object({
+    fijo: z.number(),
+    variable: z.number(),
+  }),
+  budgets: z.array(z.object({
+    id: z.number(),
+    category_id: z.number(),
+    name: z.string(),
+    spent: z.number(),
+    budget: z.number(),
+    color: z.string().nullable().optional(),
+    type: z.string().nullable().optional(),
+  })),
 });
 
 export const transactionMonthlyEvolutionPointSchema = z.object({
@@ -159,9 +205,33 @@ export const importReviewStateSchema = z.object({
   remaining_transaction_ids: z.array(z.number().int().positive()),
 });
 
+export const transactionBatchImportResultSchema = importReviewStateSchema.extend({
+  upload_id: z.number().int().positive().optional(),
+  created: z.number().int().nonnegative(),
+  duplicates: z.number().int().nonnegative(),
+  duplicates_skipped: z.number().int().nonnegative().optional(),
+  auto_categorized: z.number().int().nonnegative().optional(),
+  suggested: z.number().int().nonnegative().optional(),
+  pending_review: z.number().int().nonnegative().optional(),
+  unmatched_count: z.number().int().nonnegative().optional(),
+  errors: z.number().int().nonnegative(),
+  parser: z.string().optional(),
+  ai_assisted: booleanishSchema.optional(),
+  ai_provider: z.string().nullable().optional(),
+  ai_model: z.string().nullable().optional(),
+  extracted_candidates: z.number().int().nonnegative().optional(),
+  guided_onboarding_session: z.unknown().nullable().optional(),
+}).passthrough();
+
+export const transactionCategoryConfirmResponseSchema = z.object({
+  confirmed: z.number().int().nonnegative(),
+  transactions: z.array(transactionSchema),
+});
+
 export type Transaction = z.infer<typeof transactionSchema>;
 export type CreateTransactionInput = z.infer<typeof createTransactionInputSchema>;
 export type UpdateTransactionInput = z.infer<typeof updateTransactionInputSchema>;
 export type TransactionSummary = z.infer<typeof transactionSummarySchema>;
 export type TransactionMonthlyEvolutionPoint = z.infer<typeof transactionMonthlyEvolutionPointSchema>;
 export type TransactionBatchResult = z.infer<typeof transactionBatchResultSchema>;
+export type TransactionBatchImportResult = z.infer<typeof transactionBatchImportResultSchema>;

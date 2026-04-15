@@ -26,7 +26,7 @@ export default function Recurring({ month, userId, resumePendingReview = null, o
     }
   }
 
-  async function handleCategorize(item, categoryId) {
+  async function handleCategorize(item, categoryId, options = {}) {
     setSavingRule(item.desc_banco);
     try {
       const normalizedCategoryId = Number(categoryId);
@@ -34,6 +34,9 @@ export default function Recurring({ month, userId, resumePendingReview = null, o
       const result = await api.createRule({
         pattern: item.desc_banco,
         category_id: normalizedCategoryId,
+        mode: options.mode || item.suggested_rule_mode || "suggest",
+        confidence: options.confidence ?? item.suggestion_confidence ?? 0.82,
+        source: options.source || (item.suggestion_provider === "cloudflare-ai" ? "guided" : "learned"),
       });
 
       if (result?.duplicate) {
@@ -170,6 +173,30 @@ export default function Recurring({ month, userId, resumePendingReview = null, o
                     </span>
                   ) : savingRule === item.desc_banco ? (
                     <span className="text-xs text-neutral-400">Guardando...</span>
+                  ) : item.suggested_category_id ? (
+                    <div className="flex w-64 flex-col items-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleCategorize(item, item.suggested_category_id, {
+                          mode: item.suggested_rule_mode || "suggest",
+                          confidence: item.suggestion_confidence ?? 0.82,
+                          source: item.suggestion_provider === "cloudflare-ai" ? "guided" : "learned",
+                        })}
+                        className="rounded-full bg-finance-purple px-3 py-1.5 text-xs font-semibold text-white transition hover:opacity-90"
+                      >
+                        Aceptar {item.suggested_category_name}
+                      </button>
+                      <p className="max-w-xs text-right text-[11px] text-neutral-500 dark:text-neutral-400">
+                        {item.suggestion_reason || "Hay una sugerencia lista para convertir este patron en regla."}
+                      </p>
+                      <div className="w-full">
+                        <CategorySelect
+                          categories={categories.filter((c) => c.name !== "Ingreso")}
+                          onChange={(catId) => handleCategorize(item, catId)}
+                          onCategoryCreated={loadCategories}
+                        />
+                      </div>
+                    </div>
                   ) : (
                     <div className="w-44">
                       <CategorySelect
@@ -232,6 +259,7 @@ export default function Recurring({ month, userId, resumePendingReview = null, o
           categoryId={pendingReview.categoryId}
           categoryName={pendingReview.categoryName}
           ruleId={pendingReview.ruleId}
+          intro="Estas transacciones se parecen a un gasto recurrente; revisarlas ahora ayuda a automatizar el proximo mes."
           onDone={() => {
             setPendingReview(null);
             clearRememberedPendingReview();

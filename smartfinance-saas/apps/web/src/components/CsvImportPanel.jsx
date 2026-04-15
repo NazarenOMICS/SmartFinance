@@ -142,6 +142,10 @@ function detectColumnsFromData(rows) {
   return roles;
 }
 
+function derivePendingCount(result) {
+  return Number(result?.remaining_transaction_ids?.length || 0);
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function CsvImportPanel({ selectedAccount, selectedCurrency = "UYU", month, onImported }) {
@@ -363,6 +367,8 @@ export default function CsvImportPanel({ selectedAccount, selectedCurrency = "UY
             <div className="mt-2 text-sm text-finance-ink dark:text-neutral-200 space-y-1">
               <p>Nuevas: <strong>{result.created}</strong></p>
               <p>Duplicados salteados: {result.duplicates}</p>
+              <p>Auto-resueltas: {Math.max(Number(result.created || 0) - derivePendingCount(result), 0)}</p>
+              <p>Pendientes de revisar: {derivePendingCount(result)}</p>
               {result.errors > 0 && <p className="text-finance-red">Errores: {result.errors}</p>}
             </div>
           </div>

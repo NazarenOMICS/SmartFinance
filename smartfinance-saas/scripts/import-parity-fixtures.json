@@ -1,0 +1,26 @@
+[
+  {
+    "id": "generic-text",
+    "period": "2026-04",
+    "source_type": "text",
+    "content": "05/04 PEDIDOSYA MONTEVIDEO -890\n06/04 NETFLIX -429"
+  },
+  {
+    "id": "brou-csv-with-metadata",
+    "period": "2026-04",
+    "source_type": "csv",
+    "content": "Banco Republica Oriental del Uruguay\nMovimientos de cuenta\nFecha;Referencia;Concepto;Debito;Credito;Saldo\n05/04/2026;123;DISCO FRESH MARKET;1.250,00;;48.000,00\n06/04/2026;124;SUELDO EMPRESA;;50.000,00;98.000,00"
+  },
+  {
+    "id": "santander-ar-text",
+    "period": "2026-04",
+    "source_type": "text",
+    "content": "Resumen de cuenta\nConsultar detalle\n05/04/2026\nTransferencia inmediata\nA TESITORE FERNANDEZ\n-$ 2.340,00\n06/04/2026\nCompra con tarjeta de debito\nDISCO 1234 - tarj nro. ****1234\n-$ 1.250,00"
+  },
+  {
+    "id": "ocr-noisy-text",
+    "period": "2026-04",
+    "source_type": "text",
+    "content": "05/04 PEDIDOSYA *7732   -890\nlinea rota sin monto\n06-04 FARMASHOP 1.234,00"
+  }
+]

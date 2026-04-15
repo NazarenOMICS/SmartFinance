@@ -15,25 +15,30 @@ import {
   transactionMovementKindInputSchema,
   transactionMonthlyEvolutionPointSchema,
   transactionSchema,
+  uploadSchema,
   transactionUndoConfirmInputSchema,
   updateTransactionInputSchema,
 } from "@smartfinance/contracts";
 import {
+  AccountCurrencyMismatchError,
   acceptSuggestedTransaction,
   acceptSuggestedTransactions,
   assignCategoryToTransactions,
-  batchCreateTransactions,
   buildImportReviewState,
   confirmCategorySelection,
   confirmInternalOperation,
+  createUploadIntentRecord,
   createTransaction,
   deleteTransaction,
   getTransactionMonthlyEvolution,
   getTransactionSummary,
+  getUsageSnapshot,
   listCandidateTransactions,
   listPendingTransactionsByMonth,
   listTransactionsByMonth,
+  markUploadStatus,
   markTransactionMovement,
+  processUploadTransactions,
   rejectCategorySelection,
   rejectInternalOperation,
   findMatchingRule,
@@ -44,10 +49,13 @@ import {
   syncRuleFromCategorizedDescription,
   undoConfirmCategorySelection,
   undoRejectCategorySelection,
+  TransactionAccountNotFoundError,
   updateTransaction,
 } from "@smartfinance/database";
 import type { ApiBindings, ApiVariables } from "../env";
+import { enhanceReviewStateWithAi } from "../services/ai";
 import { jsonError } from "../utils/http";
+import { allRows } from "@smartfinance/database";
 
 const transactionsRouter = new Hono<{
   Bindings: ApiBindings;
@@ -158,7 +166,13 @@ transactionsRouter.post("/", async (c) => {
         })()
       : await createTransaction(c.env.DB, auth.userId, parsedBody.data);
     return c.json(transactionSchema.parse(transaction), 201);
-  } catch {
+  } catch (error) {
+    if (error instanceof AccountCurrencyMismatchError) {
+      return jsonError(error.message, "ACCOUNT_CURRENCY_MISMATCH", requestId, 409);
+    }
+    if (error instanceof TransactionAccountNotFoundError) {
+      return jsonError(error.message, "ACCOUNT_NOT_FOUND", requestId, 404);
+    }
     return jsonError("Transaction already exists for this month", "TRANSACTION_CONFLICT", requestId, 409);
   }
 });
@@ -171,15 +185,117 @@ transactionsRouter.post("/batch", async (c) => {
     return jsonError("Invalid batch payload", "VALIDATION_ERROR", requestId, 400);
   }
 
-  const result = await batchCreateTransactions(c.env.DB, auth.userId, parsedBody.data);
+  const usage = await getUsageSnapshot(c.env.DB, auth.userId);
+  if (usage.usage.uploads_this_month.used >= usage.usage.uploads_this_month.limit) {
+    return jsonError("Monthly upload limit reached", "UPLOAD_LIMIT_REACHED", requestId, 409);
+  }
+
+  const estimatedBytes = new TextEncoder().encode(JSON.stringify(parsedBody.data.transactions)).length;
+  const maxSizeBytes = usage.usage.max_upload_size_mb * 1024 * 1024;
+  if (estimatedBytes > maxSizeBytes) {
+    return jsonError("Import exceeds plan size limit", "UPLOAD_SIZE_LIMIT", requestId, 413);
+  }
+
+  const importPeriod = parsedBody.data.period || parsedBody.data.transactions[0]?.fecha?.slice(0, 7) || new Date().toISOString().slice(0, 7);
+  const upload = await createUploadIntentRecord(c.env.DB, auth.userId, {
+    original_filename: `manual-import-${parsedBody.data.period || "batch"}.csv`,
+    mime_type: "text/csv",
+    size_bytes: Math.max(estimatedBytes, 1),
+    period: importPeriod,
+    account_id: parsedBody.data.account_id,
+    source: "import",
+  });
+  if (!upload) {
+    return jsonError("Import could not be created", "UPLOAD_ERROR", requestId, 500);
+  }
+
+  await markUploadStatus(c.env.DB, auth.userId, upload.id, { status: "uploaded" });
+  let processed;
+  try {
+    processed = await processUploadTransactions(c.env.DB, auth.userId, {
+      upload_id: upload.id,
+      transactions: parsedBody.data.transactions.map((transaction) => ({
+        fecha: transaction.fecha,
+        desc_banco: transaction.desc_banco,
+        monto: transaction.monto,
+        moneda: transaction.moneda,
+        desc_usuario: transaction.desc_usuario,
+        entry_type: transaction.entry_type === "internal_transfer"
+          ? (transaction.monto >= 0 ? "income" : "expense")
+          : transaction.entry_type,
+      })),
+    });
+  } catch (error) {
+    if (error instanceof AccountCurrencyMismatchError) {
+      await markUploadStatus(c.env.DB, auth.userId, upload.id, {
+        status: "processed",
+        parser: "csv",
+        parse_failure_reason: "account_currency_mismatch",
+        extracted_candidates: parsedBody.data.transactions.length,
+        tx_count: 0,
+      });
+      return jsonError(error.message, "ACCOUNT_CURRENCY_MISMATCH", requestId, 409);
+    }
+    if (error instanceof TransactionAccountNotFoundError) {
+      return jsonError(error.message, "ACCOUNT_NOT_FOUND", requestId, 404);
+    }
+    throw error;
+  }
+  if (!processed || !processed.upload) {
+    return jsonError("Import could not be processed", "UPLOAD_ERROR", requestId, 500);
+  }
+
+  const persistedUpload = await markUploadStatus(c.env.DB, auth.userId, upload.id, {
+    status: processed.pending_review > 0 ? "needs_review" : "processed",
+    tx_count: processed.created,
+    parser: "csv",
+    ai_assisted: false,
+    ai_provider: null,
+    ai_model: null,
+    extracted_candidates: parsedBody.data.transactions.length,
+    duplicates_skipped: processed.duplicates_skipped,
+    auto_categorized_count: processed.auto_categorized,
+    suggested_count: processed.suggested,
+    pending_review_count: processed.pending_review + processed.suggested,
+    unmatched_count: 0,
+  });
+
+  const uploadTransactions = await allRows<{ id: number }>(
+    c.env.DB,
+    "SELECT id FROM transactions WHERE user_id = ? AND upload_id = ? ORDER BY id ASC",
+    [auth.userId, upload.id],
+  );
+  const reviewState = await enhanceReviewStateWithAi(c.env, {
+    ...(await buildImportReviewState(
+      c.env.DB,
+      auth.userId,
+      uploadTransactions.map((row) => Number(row.id)),
+    )),
+  });
+
   return c.json({
-    ...result,
+    upload_id: upload.id,
+    upload: persistedUpload ? uploadSchema.parse(persistedUpload) : null,
+    created: processed.created,
+    duplicates: processed.duplicates_skipped,
+    duplicates_skipped: processed.duplicates_skipped,
+    auto_categorized: processed.auto_categorized,
+    suggested: processed.suggested,
+    pending_review: processed.pending_review + processed.suggested,
+    errors: 0,
+    parser: "csv",
+    ai_assisted: false,
+    ai_provider: null,
+    ai_model: null,
+    extracted_candidates: parsedBody.data.transactions.length,
+    unmatched_count: 0,
+    guided_onboarding_session: null,
     ...importReviewStateSchema.parse({
-      review_groups: result.review_groups,
-      guided_review_groups: result.guided_review_groups,
-      transaction_review_queue: result.transaction_review_queue,
-      guided_onboarding_required: result.guided_onboarding_required,
-      remaining_transaction_ids: result.remaining_transaction_ids,
+      review_groups: reviewState.review_groups,
+      guided_review_groups: reviewState.guided_review_groups,
+      transaction_review_queue: reviewState.transaction_review_queue,
+      guided_onboarding_required: reviewState.guided_onboarding_required,
+      remaining_transaction_ids: reviewState.remaining_transaction_ids,
     }),
   });
 });
@@ -200,7 +316,10 @@ transactionsRouter.post("/review/pending-guided", async (c) => {
       .map((transaction) => Number(transaction.id));
   }
 
-  const result = await buildImportReviewState(c.env.DB, auth.userId, transactionIds);
+  const result = await enhanceReviewStateWithAi(
+    c.env,
+    await buildImportReviewState(c.env.DB, auth.userId, transactionIds),
+  );
   return c.json(importReviewStateSchema.parse(result));
 });
 

@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { categoryTrendPointSchema, monthStringSchema, recurringExpenseSchema } from "@smartfinance/contracts";
-import { getLegacyCategoryTrend, getRecurringExpenses } from "@smartfinance/database";
+import { getLegacyCategoryTrend, getRecurringExpenses, listCategories } from "@smartfinance/database";
 import type { ApiBindings, ApiVariables } from "../env";
+import { suggestRecurringCategoriesWithAi } from "../services/ai";
 import { jsonError } from "../utils/http";
 
 const insightsRouter = new Hono<{
@@ -17,8 +18,28 @@ insightsRouter.get("/recurring", async (c) => {
     return jsonError("month query param is required", "VALIDATION_ERROR", requestId, 400);
   }
 
-  const recurring = await getRecurringExpenses(c.env.DB, auth.userId, parsedMonth.data);
-  return c.json(recurring.map((item) => recurringExpenseSchema.parse(item)));
+  const [recurring, categories] = await Promise.all([
+    getRecurringExpenses(c.env.DB, auth.userId, parsedMonth.data),
+    listCategories(c.env.DB, auth.userId),
+  ]);
+  const suggestions = await suggestRecurringCategoriesWithAi(c.env, {
+    recurring,
+    categories: categories.map((category) => ({
+      id: Number(category.id),
+      name: String(category.name),
+      color: category.color == null ? null : String(category.color),
+    })),
+  });
+  const suggestionByDescription = new Map(
+    suggestions.map((item) => [String(item.desc_banco), item]),
+  );
+
+  return c.json(
+    recurring.map((item) => recurringExpenseSchema.parse({
+      ...item,
+      ...(suggestionByDescription.get(String(item.desc_banco)) || {}),
+    })),
+  );
 });
 
 insightsRouter.get("/category-trend", async (c) => {

@@ -43,7 +43,7 @@ export default function Rules({
   onResumePendingAction,
 }) {
   const { addToast } = useToast();
-  const [state, setState] = useState({ loading: true, error: "", categories: [], rules: [], settings: {}, accounts: [] });
+  const [state, setState] = useState({ loading: true, error: "", categories: [], rules: [], ruleInsights: [], amountProfiles: [], settings: {}, accounts: [] });
   const [localBudgets, setLocalBudgets] = useState({});
   const [ruleForm, setRuleForm] = useState({ pattern: "", category_id: "", mode: "suggest" });
   const [catForm, setCatForm] = useState({ name: "", budget: "", type: "variable", color: PRESET_COLORS[0] });
@@ -62,14 +62,16 @@ export default function Rules({
       setState((prev) => ({ ...prev, loading: true, error: "" }));
     }
     try {
-      const [categories, rules, settings, accounts] = await Promise.all([
+      const [categories, rules, ruleInsights, amountProfilesResult, settings, accounts] = await Promise.all([
         api.getCategories(),
         api.getRules(),
+        api.getRuleInsights().catch(() => []),
+        api.getAmountProfiles().catch(() => ({ profiles: [] })),
         api.getSettings(),
         api.getAccounts(),
       ]);
       if (loadRequestIdRef.current !== requestId) return;
-      setState((prev) => ({ ...prev, loading: false, error: "", categories, rules, settings, accounts }));
+      setState((prev) => ({ ...prev, loading: false, error: "", categories, rules, ruleInsights, amountProfiles: amountProfilesResult.profiles || [], settings, accounts }));
       const budgetMap = {};
       categories.forEach((category) => {
         budgetMap[category.id] = String(category.budget);
@@ -315,6 +317,34 @@ export default function Rules({
     }
   }
 
+  async function handleRebuildAmountProfiles() {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const result = await api.rebuildAmountProfiles();
+      setState((prev) => ({ ...prev, amountProfiles: result.profiles || [] }));
+      addToast("success", `Se recalcularon ${result.rebuilt_count || 0} patrones por monto.`);
+    } catch (error) {
+      addToast("error", error.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDisableAmountProfile(profile) {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const result = await api.disableAmountProfile(profile.id);
+      setState((prev) => ({ ...prev, amountProfiles: result.profiles || [] }));
+      addToast("info", `Patron por monto desactivado para ${profile.counterparty_key}.`);
+    } catch (error) {
+      addToast("error", error.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function updateRule(rule, changes) {
     try {
       const updated = await api.updateRule(rule.id, { ...changes });
@@ -322,9 +352,18 @@ export default function Rules({
         ...prev,
         rules: prev.rules.map((item) => (item.id === rule.id ? { ...item, ...updated } : item)),
       }));
+      await load({ silent: true });
     } catch (error) {
       addToast("error", error.message);
     }
+  }
+
+  async function applyRuleInsight(insight) {
+    if (insight.kind !== "weak_auto" || insight.rule_ids.length !== 1) return;
+    const target = state.rules.find((rule) => rule.id === insight.rule_ids[0]);
+    if (!target) return;
+    await updateRule(target, { mode: "suggest", confidence: Math.min(Number(target.confidence || 0.72), 0.82) });
+    addToast("success", `La regla "${target.pattern}" ahora quedo en suggest.`);
   }
 
   async function saveSetting(key, value, options = {}) {
@@ -348,6 +387,9 @@ export default function Rules({
     .filter((rule) => !["seed", "manual"].includes(rule.source))
     .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")))
     .slice(0, 6);
+  const activeAmountProfiles = [...state.amountProfiles]
+    .filter((profile) => profile.status !== "disabled")
+    .slice(0, 8);
 
   if (state.loading) {
     return (
@@ -429,6 +471,128 @@ export default function Rules({
           </div>
         </div>
       </section>
+
+      <section className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Patrones por monto</p>
+            <h2 className="mt-1 font-display text-3xl text-finance-ink dark:text-neutral-100">
+              Misma persona, montos distintos
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm leading-7 text-neutral-500 dark:text-neutral-300">
+              Estos patrones ayudan a distinguir transferencias ambiguas: por ejemplo Maria Delacroix con monto de alquiler
+              versus Maria Delacroix con monto de luz o gastos comunes.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleRebuildAmountProfiles}
+            disabled={saving}
+            className="shrink-0 rounded-full bg-finance-purple px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
+          >
+            Recalcular patrones
+          </button>
+        </div>
+
+        <div className="mt-5 space-y-3">
+          {activeAmountProfiles.length > 0 ? activeAmountProfiles.map((profile) => (
+            <div key={`amount-profile-${profile.id}`} className="flex flex-col gap-3 rounded-[24px] border border-neutral-200 bg-finance-cream/60 p-4 dark:border-neutral-800 dark:bg-neutral-950/50 lg:flex-row lg:items-center lg:justify-between">
+              <div className="min-w-0">
+                <p className="font-semibold text-finance-ink dark:text-neutral-100">
+                  {profile.counterparty_key} {"->"} {profile.category_name || `Categoria ${profile.category_id}`}
+                </p>
+                <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-300">
+                  Mediana {Math.round(Number(profile.amount_median || 0))} {profile.currency} · rango {Math.round(Number(profile.amount_min || 0))}-{Math.round(Number(profile.amount_max || 0))} · {profile.sample_count} muestras · {Math.round(Number(profile.confidence || 0) * 100)}% confianza
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleDisableAmountProfile(profile)}
+                disabled={saving}
+                className="rounded-full bg-finance-redSoft px-3 py-1.5 text-xs font-semibold text-finance-red transition hover:bg-finance-red hover:text-white disabled:opacity-60"
+              >
+                Desactivar
+              </button>
+            </div>
+          )) : (
+            <p className="rounded-2xl bg-finance-cream/70 px-4 py-3 text-sm text-neutral-500 dark:bg-neutral-950/50 dark:text-neutral-300">
+              Todavia no hay suficientes confirmaciones para aprender patrones por monto. Confirmá 2 o más pagos parecidos a la misma contraparte para que aparezcan acá.
+            </p>
+          )}
+        </div>
+      </section>
+
+      {state.ruleInsights.length > 0 && (
+        <section className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Rule insights</p>
+              <h2 className="mt-1 font-display text-3xl text-finance-ink dark:text-neutral-100">
+                Cosas para limpiar antes de que escalen
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm leading-7 text-neutral-500 dark:text-neutral-300">
+                Detectamos reglas que pueden estar duplicadas, solapadas o demasiado agresivas para seguir en auto.
+              </p>
+            </div>
+            <span className="rounded-full bg-finance-cream px-3 py-1 text-xs font-semibold text-finance-ink dark:bg-neutral-800 dark:text-neutral-100">
+              {state.ruleInsights.length} insight{state.ruleInsights.length === 1 ? "" : "s"}
+            </span>
+          </div>
+
+          <div className="mt-5 space-y-3">
+            {state.ruleInsights.map((insight, index) => {
+              const relatedRules = state.rules.filter((rule) => insight.rule_ids.includes(rule.id));
+              return (
+                <div
+                  key={`${insight.kind}-${index}`}
+                  className="rounded-[26px] border border-neutral-200 bg-finance-cream/60 p-4 dark:border-neutral-800 dark:bg-neutral-950/50"
+                >
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-finance-ink dark:text-neutral-100">{insight.title}</p>
+                        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                          insight.priority === "high"
+                            ? "bg-finance-redSoft text-finance-red"
+                            : insight.priority === "medium"
+                              ? "bg-finance-cream text-finance-amber"
+                              : "bg-white text-neutral-500 dark:bg-neutral-800 dark:text-neutral-300"
+                        }`}>
+                          {insight.priority}
+                        </span>
+                      </div>
+                      <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500 dark:text-neutral-300">
+                        {insight.description}
+                      </p>
+                      {relatedRules.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {relatedRules.map((rule) => (
+                            <span
+                              key={rule.id}
+                              className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-finance-ink dark:bg-neutral-800 dark:text-neutral-100"
+                            >
+                              {rule.pattern} · {rule.mode}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {insight.kind === "weak_auto" && insight.rule_ids.length === 1 ? (
+                      <button
+                        type="button"
+                        onClick={() => applyRuleInsight(insight)}
+                        className="shrink-0 rounded-full bg-finance-purple px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+                      >
+                        Bajar a suggest
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <section className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel dark:border-white/10 dark:bg-neutral-900/90">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -709,6 +873,7 @@ export default function Rules({
                 <button
                   type="button"
                   onClick={handleResetRules}
+                  data-testid="rules-reset-button"
                   disabled={saving}
                   className={`mt-3 rounded-xl px-4 py-2 text-sm font-semibold transition ${
                     confirmResetRules
@@ -759,6 +924,7 @@ export default function Rules({
             <option value="disabled">disabled</option>
           </select>
           <button
+            data-testid="rules-create-button"
             disabled={saving}
             className="rounded-full bg-finance-purple px-5 py-3 font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
           >
@@ -820,6 +986,7 @@ export default function Rules({
                 </span>
               </div>
               <button
+                data-testid={`rule-delete-${rule.id}`}
                 onClick={() => handleDeleteRule(rule.id)}
                 className="rounded-full px-3 py-1.5 text-xs font-semibold text-finance-red transition hover:bg-finance-redSoft dark:hover:bg-red-900/30"
               >

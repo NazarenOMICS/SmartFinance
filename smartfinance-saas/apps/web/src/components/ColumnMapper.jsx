@@ -1,68 +1,35 @@
-/**
- * ColumnMapper — universal CSV column mapping UI.
- *
- * Shows when SmartFinance cannot auto-detect the format of an uploaded CSV.
- * The user assigns roles (Fecha / Descripción / Monto / Débito / Crédito) to
- * each column, sees a live preview of the parsed transactions, and optionally
- * saves the mapping so future uploads from the same bank are automatic.
- *
- * Props:
- *   columns     string[]   — raw header row from the CSV
- *   sample      string[][] — first 5–6 rows (incl. header) for the preview table
- *   formatKey   string     — fingerprint of the header row (for saving)
- *   accountId   string     — account_id to attach transactions to
- *   month       string     — YYYY-MM period
- *   onSuccess   fn({created,duplicates,errors}) — called after successful import
- *   onCancel    fn()       — called when user dismisses the modal
- */
-
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../contexts/ToastContext";
 import { fmtMoney } from "../utils";
 
-// ─── Client-side CSV helpers (mirrors server-side logic) ─────────────────────
-
-function splitCSVLine(line) {
-  const fields = [];
-  let cur = "", inQ = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') {
-      if (inQ && line[i + 1] === '"') { cur += '"'; i++; }
-      else inQ = !inQ;
-    } else if (ch === "," && !inQ) { fields.push(cur.trim()); cur = ""; }
-    else cur += ch;
-  }
-  fields.push(cur.trim());
-  return fields;
-}
-
-function toISO(s) {
-  if (!s) return null;
-  const raw = s.trim();
+function toISO(value) {
+  if (!value) return null;
+  const raw = String(value).trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
     return isValidISODate(raw) ? raw : null;
   }
-  const m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
-  if (!m) return null;
-  const [, d, mo, y] = m;
-  const year = y.length === 2 ? `20${y}` : y;
-  const iso = `${year}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  const match = raw.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if (!match) return null;
+
+  const [, day, month, yearValue] = match;
+  const year = yearValue.length === 2 ? `20${yearValue}` : yearValue;
+  const iso = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
   return isValidISODate(iso) ? iso : null;
 }
 
-function parseAmt(s) {
-  if (!s || !s.trim()) return null;
-  const clean = s.replace(/[^\d,.-]/g, "").trim();
+function parseAmount(value) {
+  if (!value || !String(value).trim()) return null;
+  const clean = String(value).replace(/[^\d,.-]/g, "").trim();
   if (!clean) return null;
+
   const commaPos = clean.lastIndexOf(",");
-  const dotPos   = clean.lastIndexOf(".");
-  let n;
-  if (commaPos > dotPos)      n = parseFloat(clean.replace(/\./g, "").replace(",", "."));
-  else if (dotPos > commaPos) n = parseFloat(clean.replace(/,/g, ""));
-  else                        n = parseFloat(clean);
-  return Number.isFinite(n) ? n : null;
+  const dotPos = clean.lastIndexOf(".");
+  let parsed;
+  if (commaPos > dotPos) parsed = Number.parseFloat(clean.replace(/\./g, "").replace(",", "."));
+  else if (dotPos > commaPos) parsed = Number.parseFloat(clean.replace(/,/g, ""));
+  else parsed = Number.parseFloat(clean);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function isValidISODate(value) {
@@ -76,46 +43,54 @@ function isValidISODate(value) {
   );
 }
 
-// ─── Auto-detect column roles from header names ───────────────────────────────
-
-function normH(h) {
-  return (h || "").toLowerCase().normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "").replace(/\ufffd/g, "").trim();
+function normalizeHeader(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\ufffd/g, "")
+    .trim();
 }
 
 function autoDetectRoles(headers) {
   const roles = {};
-  headers.forEach((h, i) => {
-    const n = normH(h);
-    if (roles.fecha  === undefined && /fecha|date|datum|dato/.test(n))                                             roles.fecha  = i;
-    else if (roles.desc === undefined && /concepto|descripcion|desc|detalle|text|verwendung|narration/.test(n))   roles.desc   = i;
-    else if (roles.debit === undefined && /dbito|debito|cargo|egreso|debe|withdrawal/.test(n))                     roles.debit  = i;
-    else if (roles.credit === undefined && /crdito|credito|abono|ingreso|haber|deposit/.test(n))                   roles.credit = i;
+  headers.forEach((header, index) => {
+    const normalized = normalizeHeader(header);
+    if (roles.fecha === undefined && /fecha|date|datum|dato/.test(normalized)) roles.fecha = index;
+    else if (roles.desc === undefined && /concepto|descripcion|desc|detalle|text|verwendung|narration/.test(normalized)) roles.desc = index;
+    else if (roles.debit === undefined && /dbito|debito|cargo|egreso|debe|withdrawal/.test(normalized)) roles.debit = index;
+    else if (roles.credit === undefined && /crdito|credito|abono|ingreso|haber|deposit/.test(normalized)) roles.credit = index;
     else if (
       roles.monto === undefined &&
-      (/^monto$|^importe$|^amount$|^betrag$|^valor$/.test(n) || /caja de ahorro|cuenta corriente/.test(n))
+      (/^monto$|^importe$|^amount$|^betrag$|^valor$/.test(normalized) || /caja de ahorro|cuenta corriente/.test(normalized))
     ) {
-      roles.monto  = i;
+      roles.monto = index;
     }
   });
   return roles;
 }
 
-// ─── Role metadata ────────────────────────────────────────────────────────────
-
 const ROLES = [
-  { id: "fecha",  label: "Fecha",       color: "text-finance-teal font-medium" },
-  { id: "desc",   label: "Descripción", color: "font-medium text-finance-ink dark:text-neutral-200" },
-  { id: "monto",  label: "Monto (±)",   color: "text-finance-purple font-medium" },
-  { id: "debit",  label: "Débito (−)",  color: "text-finance-red font-medium" },
-  { id: "credit", label: "Crédito (+)", color: "text-finance-teal font-medium" },
+  { id: "fecha", label: "Fecha", color: "text-finance-teal font-medium" },
+  { id: "desc", label: "Descripcion", color: "font-medium text-finance-ink dark:text-neutral-200" },
+  { id: "monto", label: "Monto (+/-)", color: "text-finance-purple font-medium" },
+  { id: "debit", label: "Debito (-)", color: "text-finance-red font-medium" },
+  { id: "credit", label: "Credito (+)", color: "text-finance-teal font-medium" },
 ];
 
-// ─── Component ────────────────────────────────────────────────────────────────
+function rolesFromSuggestion(suggestion) {
+  const next = {};
+  if (Number.isInteger(suggestion?.col_fecha) && suggestion.col_fecha >= 0) next.fecha = suggestion.col_fecha;
+  if (Number.isInteger(suggestion?.col_desc) && suggestion.col_desc >= 0) next.desc = suggestion.col_desc;
+  if (Number.isInteger(suggestion?.col_debit) && suggestion.col_debit >= 0) next.debit = suggestion.col_debit;
+  if (Number.isInteger(suggestion?.col_credit) && suggestion.col_credit >= 0) next.credit = suggestion.col_credit;
+  if (Number.isInteger(suggestion?.col_monto) && suggestion.col_monto >= 0) next.monto = suggestion.col_monto;
+  return next;
+}
 
 export default function ColumnMapper({
-  columns,  // string[]   — header row
-  sample,   // string[][] — [header, ...data rows]
+  columns,
+  sample,
   formatKey,
   accountId,
   accountCurrency = "UYU",
@@ -124,115 +99,148 @@ export default function ColumnMapper({
   onCancel,
 }) {
   const { addToast } = useToast();
-
   const [roles, setRoles] = useState(() => autoDetectRoles(columns));
-  const [remember, setRemember]     = useState(true);
-  const [bankName, setBankName]     = useState("");
-  const [importing, setImporting]   = useState(false);
+  const [remember, setRemember] = useState(true);
+  const [bankName, setBankName] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestionMeta, setSuggestionMeta] = useState(null);
+  const [userEdited, setUserEdited] = useState(false);
 
-  // Data rows (skip the header row that's index 0 in sample)
   const dataRows = sample.slice(1);
 
-  // ── Build preview transactions from current role assignments ────────────────
-  const transactions = useMemo(() => {
-    return dataRows
-      .map(row => {
+  const transactions = useMemo(() => (
+    dataRows
+      .map((row) => {
         const fecha = roles.fecha !== undefined ? toISO(row[roles.fecha]) : null;
-        const desc  = roles.desc  !== undefined ? (row[roles.desc] || "").trim() : "";
+        const desc = roles.desc !== undefined ? String(row[roles.desc] || "").trim() : "";
         if (!fecha || !desc) return null;
 
         let monto = null;
         if (roles.monto !== undefined) {
-          monto = parseAmt(row[roles.monto]);
+          monto = parseAmount(row[roles.monto]);
         } else if (roles.debit !== undefined || roles.credit !== undefined) {
-          const d = roles.debit  !== undefined ? parseAmt(row[roles.debit])  : null;
-          const c = roles.credit !== undefined ? parseAmt(row[roles.credit]) : null;
-          if (d !== null && d !== 0) monto = -Math.abs(d);
-          else if (c !== null)       monto = Math.abs(c);
+          const debit = roles.debit !== undefined ? parseAmount(row[roles.debit]) : null;
+          const credit = roles.credit !== undefined ? parseAmount(row[roles.credit]) : null;
+          if (debit !== null && debit !== 0) monto = -Math.abs(debit);
+          else if (credit !== null) monto = Math.abs(credit);
         }
+
         if (monto === null) return null;
         return { fecha, desc_banco: desc, monto, moneda: accountCurrency };
       })
-      .filter(Boolean);
-  }, [accountCurrency, roles, dataRows]);
+      .filter(Boolean)
+  ), [accountCurrency, dataRows, roles]);
 
-  // ── Validation ──────────────────────────────────────────────────────────────
-  const hasFecha  = roles.fecha  !== undefined;
-  const hasDesc   = roles.desc   !== undefined;
+  const hasFecha = roles.fecha !== undefined;
+  const hasDesc = roles.desc !== undefined;
   const hasAmount = roles.monto !== undefined || roles.debit !== undefined || roles.credit !== undefined;
   const canImport = hasFecha && hasDesc && hasAmount && transactions.length > 0;
 
-  // ── Handlers ────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSuggestion() {
+      if (!columns?.length) return;
+      setSuggesting(true);
+      try {
+        const suggestion = await api.suggestBankFormat({
+          format_key: formatKey,
+          columns,
+          sample_rows: sample,
+          account_currency: accountCurrency,
+        });
+        if (cancelled) return;
+
+        const nextRoles = rolesFromSuggestion(suggestion);
+        if (!userEdited && Object.keys(nextRoles).length > 0) {
+          setRoles((current) => {
+            const currentCount = Object.keys(current || {}).length;
+            return Object.keys(nextRoles).length >= currentCount ? nextRoles : current;
+          });
+        }
+        if (!bankName && suggestion?.bank_name) {
+          setBankName(suggestion.bank_name);
+        }
+        setSuggestionMeta(suggestion);
+      } catch {
+        if (!cancelled) setSuggestionMeta(null);
+      } finally {
+        if (!cancelled) setSuggesting(false);
+      }
+    }
+
+    loadSuggestion();
+    return () => {
+      cancelled = true;
+    };
+  }, [accountCurrency, columns, formatKey, sample, userEdited]);
 
   function assignRole(colIdx, role) {
+    setUserEdited(true);
     const next = { ...roles };
-    // Remove existing assignment of this column
-    Object.keys(next).forEach(k => { if (next[k] === colIdx) delete next[k]; });
-    // Remove existing assignment of this role (each role can only be assigned once)
+    Object.keys(next).forEach((key) => {
+      if (next[key] === colIdx) delete next[key];
+    });
     if (role !== "ignorar") {
-      Object.keys(next).forEach(k => { if (k === role) delete next[k]; });
+      Object.keys(next).forEach((key) => {
+        if (key === role) delete next[key];
+      });
       next[role] = colIdx;
     }
     setRoles(next);
   }
 
   function roleOfCol(idx) {
-    return Object.entries(roles).find(([, v]) => v === idx)?.[0] ?? "ignorar";
+    return Object.entries(roles).find(([, value]) => value === idx)?.[0] ?? "ignorar";
   }
 
   async function handleImport() {
     if (!canImport) return;
     setImporting(true);
     try {
-      // Optionally save the mapping for future uploads
       if (remember) {
         await api.saveBankFormat({
           format_key: formatKey,
-          bank_name:  bankName.trim() || null,
-          col_fecha:  roles.fecha  ?? -1,
-          col_desc:   roles.desc   ?? -1,
-          col_debit:  roles.debit  ?? -1,
+          bank_name: bankName.trim() || null,
+          col_fecha: roles.fecha ?? -1,
+          col_desc: roles.desc ?? -1,
+          col_debit: roles.debit ?? -1,
           col_credit: roles.credit ?? -1,
-          col_monto:  roles.monto  ?? -1,
-        }).catch(() => {}); // non-fatal: don't block import if save fails
+          col_monto: roles.monto ?? -1,
+        }).catch(() => {});
       }
 
-      // Import via batch endpoint
-      const txsWithAccount = transactions.map(tx => ({ ...tx, account_id: accountId }));
+      const txsWithAccount = transactions.map((tx) => ({ ...tx, account_id: accountId }));
       const result = await api.batchCreateTransactions({
         transactions: txsWithAccount,
-        account_id:   accountId,
-        period:       month,
+        account_id: accountId,
+        period: month,
       });
-
       onSuccess?.(result);
-    } catch (e) {
-      addToast("error", e.message);
+    } catch (error) {
+      addToast("error", error.message);
     } finally {
       setImporting(false);
     }
   }
 
-  // ── Render ──────────────────────────────────────────────────────────────────
-
-  const cellColor = (role) => {
-    const r = ROLES.find(x => x.id === role);
-    return r ? r.color : "text-neutral-400";
-  };
+  function cellColor(role) {
+    const match = ROLES.find((item) => item.id === role);
+    return match ? match.color : "text-neutral-400";
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
       <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-[32px] border border-white/70 bg-white shadow-panel dark:border-white/10 dark:bg-neutral-900">
-
-        {/* Header */}
         <div className="flex items-start justify-between border-b border-neutral-100 px-6 py-5 dark:border-neutral-800">
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Formato desconocido</p>
             <h2 className="mt-0.5 font-display text-2xl text-finance-ink dark:text-neutral-100">
-              Mapeá las columnas
+              Mapea las columnas
             </h2>
             <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-              No reconocimos el formato de este banco. Asigná cada columna y SmartFinance lo recordará.
+              No reconocimos el formato de este banco. Asigna cada columna y SmartFinance lo recordara.
             </p>
           </div>
           <button
@@ -246,14 +254,14 @@ export default function ColumnMapper({
           </button>
         </div>
 
-        {/* Body — scrollable */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-
-          {/* Role legend */}
+        <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
           <div className="flex flex-wrap gap-2">
-            {ROLES.map(r => (
-              <span key={r.id} className={`inline-flex items-center gap-1.5 rounded-full border border-neutral-100 bg-neutral-50 px-3 py-1 text-xs font-semibold dark:border-neutral-800 dark:bg-neutral-800/60 ${r.color}`}>
-                {r.label}
+            {ROLES.map((role) => (
+              <span
+                key={role.id}
+                className={`inline-flex items-center gap-1.5 rounded-full border border-neutral-100 bg-neutral-50 px-3 py-1 text-xs font-semibold dark:border-neutral-800 dark:bg-neutral-800/60 ${role.color}`}
+              >
+                {role.label}
               </span>
             ))}
             <span className="inline-flex items-center gap-1.5 rounded-full border border-neutral-100 bg-neutral-50 px-3 py-1 text-xs text-neutral-400 dark:border-neutral-800 dark:bg-neutral-800/60">
@@ -261,26 +269,55 @@ export default function ColumnMapper({
             </span>
           </div>
 
-          {/* Column mapping table */}
+          {(suggesting || suggestionMeta) && (
+            <div className="rounded-2xl border border-neutral-100 bg-neutral-50 px-4 py-3 text-xs dark:border-neutral-800 dark:bg-neutral-800/40">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold text-finance-ink dark:text-neutral-200">
+                  {suggesting ? "Analizando columnas..." : "Sugerencia lista"}
+                </span>
+                {suggestionMeta && (
+                  <>
+                    <span className="rounded-full bg-white px-2 py-1 text-[11px] text-neutral-500 dark:bg-neutral-900 dark:text-neutral-300">
+                      {suggestionMeta.provider === "cloudflare-ai" ? "AI assist" : "Deteccion automatica"}
+                    </span>
+                    {suggestionMeta.bank_name && (
+                      <span className="rounded-full bg-white px-2 py-1 text-[11px] text-neutral-500 dark:bg-neutral-900 dark:text-neutral-300">
+                        {suggestionMeta.bank_name}
+                      </span>
+                    )}
+                    <span className="rounded-full bg-white px-2 py-1 text-[11px] text-neutral-500 dark:bg-neutral-900 dark:text-neutral-300">
+                      Confianza {Math.round(Number(suggestionMeta.confidence || 0) * 100)}%
+                    </span>
+                  </>
+                )}
+              </div>
+              {suggestionMeta?.notes?.length > 0 && (
+                <p className="mt-2 text-neutral-500 dark:text-neutral-400">
+                  {suggestionMeta.notes[0]}
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="overflow-x-auto rounded-2xl border border-neutral-100 dark:border-neutral-800">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-neutral-100 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800/40">
-                  {columns.map((col, i) => (
-                    <th key={i} className="px-4 py-2 text-left">
+                  {columns.map((col, index) => (
+                    <th key={index} className="px-4 py-2 text-left">
                       <div className="space-y-1.5">
-                        <p className={`font-semibold ${cellColor(roleOfCol(i))}`}>{col || `Col ${i + 1}`}</p>
+                        <p className={`font-semibold ${cellColor(roleOfCol(index))}`}>{col || `Col ${index + 1}`}</p>
                         <select
-                          value={roleOfCol(i)}
-                          onChange={e => assignRole(i, e.target.value)}
+                          value={roleOfCol(index)}
+                          onChange={(event) => assignRole(index, event.target.value)}
                           className="w-full rounded-xl border border-neutral-200 bg-white px-2 py-1 text-xs text-finance-ink dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
                         >
                           <option value="ignorar">Ignorar</option>
                           <option value="fecha">Fecha</option>
-                          <option value="desc">Descripción</option>
-                          <option value="monto">Monto (±)</option>
-                          <option value="debit">Débito (−)</option>
-                          <option value="credit">Crédito (+)</option>
+                          <option value="desc">Descripcion</option>
+                          <option value="monto">Monto (+/-)</option>
+                          <option value="debit">Debito (-)</option>
+                          <option value="credit">Credito (+)</option>
                         </select>
                       </div>
                     </th>
@@ -288,11 +325,11 @@ export default function ColumnMapper({
                 </tr>
               </thead>
               <tbody>
-                {dataRows.slice(0, 4).map((row, ri) => (
-                  <tr key={ri} className="border-b border-neutral-50 last:border-0 dark:border-neutral-800/50">
-                    {columns.map((_, ci) => (
-                      <td key={ci} className={`px-4 py-2 text-xs ${cellColor(roleOfCol(ci))}`}>
-                        {row[ci] ?? ""}
+                {dataRows.slice(0, 4).map((row, rowIndex) => (
+                  <tr key={rowIndex} className="border-b border-neutral-50 last:border-0 dark:border-neutral-800/50">
+                    {columns.map((_, colIndex) => (
+                      <td key={colIndex} className={`px-4 py-2 text-xs ${cellColor(roleOfCol(colIndex))}`}>
+                        {row[colIndex] ?? ""}
                       </td>
                     ))}
                   </tr>
@@ -301,27 +338,25 @@ export default function ColumnMapper({
             </table>
           </div>
 
-          {/* Validation warnings */}
           {!hasFecha && (
             <p className="rounded-xl bg-amber-50 px-4 py-2 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
-              Asigná la columna <strong>Fecha</strong> para continuar.
+              Asigna la columna <strong>Fecha</strong> para continuar.
             </p>
           )}
           {!hasAmount && hasFecha && (
             <p className="rounded-xl bg-amber-50 px-4 py-2 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
-              Asigná al menos una columna de monto: <strong>Monto</strong>, <strong>Débito</strong> o <strong>Crédito</strong>.
+              Asigna al menos una columna de monto: <strong>Monto</strong>, <strong>Debito</strong> o <strong>Credito</strong>.
             </p>
           )}
 
-          {/* Live preview */}
           {transactions.length > 0 && (
             <div className="rounded-2xl bg-finance-tealSoft/50 px-5 py-4 dark:bg-teal-900/20">
               <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-finance-teal dark:text-teal-300">
-                Vista previa — {transactions.length} transacciones detectadas
+                Vista previa - {transactions.length} transacciones detectadas
               </p>
               <div className="space-y-1.5">
-                {transactions.slice(0, 5).map((tx, i) => (
-                  <div key={i} className="flex items-center justify-between text-xs">
+                {transactions.slice(0, 5).map((tx, index) => (
+                  <div key={index} className="flex items-center justify-between text-xs">
                     <span className="text-neutral-500 dark:text-neutral-400">{tx.fecha}</span>
                     <span className="mx-3 flex-1 truncate text-finance-ink dark:text-neutral-200">{tx.desc_banco}</span>
                     <span className={`font-semibold tabular-nums ${tx.monto >= 0 ? "text-finance-teal" : "text-finance-red"}`}>
@@ -330,19 +365,18 @@ export default function ColumnMapper({
                   </div>
                 ))}
                 {transactions.length > 5 && (
-                  <p className="text-xs text-neutral-400">…y {transactions.length - 5} más</p>
+                  <p className="text-xs text-neutral-400">...y {transactions.length - 5} mas</p>
                 )}
               </div>
             </div>
           )}
 
-          {/* Remember format */}
           <div className="rounded-2xl border border-neutral-100 bg-neutral-50 px-5 py-4 dark:border-neutral-800 dark:bg-neutral-800/30">
             <label className="flex cursor-pointer items-start gap-3">
               <input
                 type="checkbox"
                 checked={remember}
-                onChange={e => setRemember(e.target.checked)}
+                onChange={(event) => setRemember(event.target.checked)}
                 className="mt-0.5 rounded accent-finance-purple"
               />
               <div>
@@ -350,7 +384,7 @@ export default function ColumnMapper({
                   Recordar este formato
                 </p>
                 <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                  La próxima vez que subas un archivo de este banco, las columnas se detectarán automáticamente.
+                  La proxima vez que subas un archivo de este banco, las columnas se detectaran automaticamente.
                 </p>
               </div>
             </label>
@@ -358,15 +392,14 @@ export default function ColumnMapper({
               <input
                 type="text"
                 value={bankName}
-                onChange={e => setBankName(e.target.value)}
-                placeholder="Nombre del banco (ej: Itaú, Santander…)"
+                onChange={(event) => setBankName(event.target.value)}
+                placeholder="Nombre del banco (ej: Itau, Santander...)"
                 className="mt-3 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-finance-ink placeholder:text-neutral-400 focus:border-finance-purple focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder:text-neutral-500"
               />
             )}
           </div>
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-between border-t border-neutral-100 px-6 py-4 dark:border-neutral-800">
           <button
             onClick={onCancel}
@@ -379,9 +412,7 @@ export default function ColumnMapper({
             disabled={!canImport || importing}
             className="rounded-full bg-finance-teal px-6 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-40"
           >
-            {importing
-              ? "Importando…"
-              : `Importar ${transactions.length} transacciones`}
+            {importing ? "Importando..." : `Importar ${transactions.length} transacciones`}
           </button>
         </div>
       </div>

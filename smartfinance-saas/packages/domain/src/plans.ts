@@ -11,6 +11,7 @@ export type PlanDefinition = {
     accounts: number;
     uploadsPerMonth: number;
     ocrPagesPerMonth: number;
+    aiRequestsPerMonth: number;
     maxUploadSizeMb: number;
   };
 };
@@ -27,6 +28,7 @@ const PLAN_DEFINITIONS: Record<PlanCode, PlanDefinition> = {
       accounts: 3,
       uploadsPerMonth: 10,
       ocrPagesPerMonth: 25,
+      aiRequestsPerMonth: 30,
       maxUploadSizeMb: 8,
     },
   },
@@ -41,6 +43,7 @@ const PLAN_DEFINITIONS: Record<PlanCode, PlanDefinition> = {
       accounts: 25,
       uploadsPerMonth: 200,
       ocrPagesPerMonth: 600,
+      aiRequestsPerMonth: 800,
       maxUploadSizeMb: 25,
     },
   },
@@ -55,6 +58,7 @@ const PLAN_DEFINITIONS: Record<PlanCode, PlanDefinition> = {
       accounts: 25,
       uploadsPerMonth: 200,
       ocrPagesPerMonth: 600,
+      aiRequestsPerMonth: 800,
       maxUploadSizeMb: 25,
     },
   },

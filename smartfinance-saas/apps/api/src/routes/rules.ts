@@ -1,7 +1,8 @@
 import { Hono } from "hono";
-import { createRuleInputSchema, ruleMutationResponseSchema, ruleSchema, transactionSchema, updateRuleInputSchema } from "@smartfinance/contracts";
-import { applyRuleRetroactively, createRule, deleteRule, listRuleCandidates, listRules, updateRule } from "@smartfinance/database";
+import { amountProfileListResponseSchema, amountProfileRebuildResponseSchema, createRuleInputSchema, ruleInsightSchema, ruleMutationResponseSchema, ruleSchema, transactionSchema, updateRuleInputSchema } from "@smartfinance/contracts";
+import { applyRuleRetroactively, buildRuleInsights, createRule, deleteRule, disableAmountProfile, listAmountProfiles, listRuleCandidates, listRules, rebuildAmountProfiles, updateRule } from "@smartfinance/database";
 import type { ApiBindings, ApiVariables } from "../env";
+import { enhanceRuleInsightsWithAi } from "../services/ai";
 import { jsonError } from "../utils/http";
 
 const rulesRouter = new Hono<{
@@ -13,6 +14,35 @@ rulesRouter.get("/", async (c) => {
   const auth = c.get("auth");
   const rules = await listRules(c.env.DB, auth.userId);
   return c.json(rules.map((rule) => ruleSchema.parse(rule)));
+});
+
+rulesRouter.get("/insights", async (c) => {
+  const auth = c.get("auth");
+  const insights = await enhanceRuleInsightsWithAi(c.env, await buildRuleInsights(c.env.DB, auth.userId));
+  return c.json(insights.map((insight) => ruleInsightSchema.parse(insight)));
+});
+
+rulesRouter.get("/amount-profiles", async (c) => {
+  const auth = c.get("auth");
+  const profiles = await listAmountProfiles(c.env.DB, auth.userId);
+  return c.json(amountProfileListResponseSchema.parse({ profiles }));
+});
+
+rulesRouter.post("/amount-profiles/rebuild", async (c) => {
+  const auth = c.get("auth");
+  const result = await rebuildAmountProfiles(c.env.DB, auth.userId);
+  return c.json(amountProfileRebuildResponseSchema.parse(result));
+});
+
+rulesRouter.post("/amount-profiles/:id/disable", async (c) => {
+  const auth = c.get("auth");
+  const requestId = c.get("requestId");
+  const profileId = Number(c.req.param("id"));
+  if (!Number.isInteger(profileId) || profileId < 1) {
+    return jsonError("Invalid amount profile id", "VALIDATION_ERROR", requestId, 400);
+  }
+  const profiles = await disableAmountProfile(c.env.DB, auth.userId, profileId);
+  return c.json(amountProfileListResponseSchema.parse({ profiles }));
 });
 
 rulesRouter.post("/", async (c) => {

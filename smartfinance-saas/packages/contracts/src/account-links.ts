@@ -22,5 +22,11 @@ export const createAccountLinkInputSchema = z.object({
   preferred_currency: accountCurrencySchema.optional().or(z.literal("")).optional(),
 });
 
+export const reconcileAccountLinkResponseSchema = z.object({
+  reconciled_pairs: z.number().int().nonnegative(),
+  link: accountLinkSchema,
+});
+
 export type AccountLink = z.infer<typeof accountLinkSchema>;
 export type CreateAccountLinkInput = z.infer<typeof createAccountLinkInputSchema>;
+export type ReconcileAccountLinkResponse = z.infer<typeof reconcileAccountLinkResponseSchema>;

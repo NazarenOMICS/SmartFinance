@@ -5,14 +5,24 @@ import { useToast } from "../contexts/ToastContext";
 import { fmtMoney } from "../utils";
 
 function formatSuggestionSource(source) {
+  if (source === "rule_auto") return "Regla automatica";
   if (source === "rule_suggest" || source === "regla") return "Regla";
-  if (source === "heuristica" || source === "keyword" || source === "history") return "Heuristica";
-  if (source === "ollama") return "Ollama";
+  if (source === "amount_profile") return "Monto aprendido";
+  if (source === "history") return "Historial";
+  if (source === "heuristica" || source === "keyword") return "Heuristica";
+  if (source === "cloudflare-ai") return "Cloudflare AI";
+  if (source === "ollama") return "AI local";
   if (source === "ollama_new_category") return "Categoria nueva sugerida";
   if (source === "fallback_new_category") return "Nueva categoria sugerida";
   if (source === "fx_exchange") return "Cambio de moneda";
   if (source === "internal_transfer") return "Transferencia interna";
   return "Sugerencia";
+}
+
+function formatConfidence(confidence) {
+  const value = Number(confidence);
+  if (!Number.isFinite(value)) return null;
+  return `${Math.round(value * 100)}% confianza`;
 }
 
 export default function TransactionReviewDeck({
@@ -237,6 +247,11 @@ export default function TransactionReviewDeck({
             <span className="rounded-full bg-white/70 px-3 py-1 text-xs text-neutral-500 dark:bg-neutral-900/70 dark:text-neutral-300">
               {current.fecha}
             </span>
+            {formatConfidence(current.category_confidence) ? (
+              <span className="rounded-full bg-white/70 px-3 py-1 text-xs text-neutral-500 dark:bg-neutral-900/70 dark:text-neutral-300">
+                {formatConfidence(current.category_confidence)}
+              </span>
+            ) : null}
           </div>
 
           <p className="mt-4 text-4xl font-semibold tracking-tight text-finance-ink dark:text-neutral-100">
@@ -316,6 +331,11 @@ export default function TransactionReviewDeck({
                   </p>
                 </div>
               )}
+              {formatConfidence(current.category_confidence) ? (
+                <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-300">
+                  Confianza estimada: {formatConfidence(current.category_confidence)}
+                </p>
+              ) : null}
             </div>
           )}
         </div>

@@ -1,11 +1,6 @@
 import { createApiClient } from "@smartfinance/client-sdk";
 import { appConfig } from "./config";
-import {
-  convertCurrencyAmount,
-  getExchangeRateMap,
-  getExchangeRateSettingKey,
-  isoMonth,
-} from "./utils";
+import { isoMonth } from "./utils";
 
 let _getToken = null;
 export function setTokenGetter(fn) {
@@ -82,13 +77,6 @@ function deriveMeaningfulPattern(value) {
     .filter((token) => token.length > 2)
     .slice(0, 3);
   return tokens.join(" ").trim();
-}
-
-function calculateDeltaPercent(current, previous) {
-  const prev = Number(previous || 0);
-  const next = Number(current || 0);
-  if (!prev) return next ? 100 : 0;
-  return ((next - prev) / Math.abs(prev)) * 100;
 }
 
 function buildHeaders(options, token) {
@@ -330,168 +318,12 @@ function buildImportReviewState(transactions, categories, settings = {}) {
   };
 }
 
-async function buildSummary(month) {
-  const previousMonth = shiftMonth(month, -1);
-  const [transactions, previousTransactions, categories, settings] = await Promise.all([
-    getTransactionsRich(month),
-    getTransactionsRich(previousMonth).catch(() => []),
-    getCategoriesRich(),
-    sdk.getSettings(),
-  ]);
-
-  const expenseTransactions = transactions.filter((tx) => Number(tx.monto) < 0 && tx.movement_kind !== "internal_transfer");
-  const incomeTransactions = transactions.filter((tx) => Number(tx.monto) > 0 && tx.movement_kind !== "internal_transfer");
-  const previousExpenseTransactions = previousTransactions.filter((tx) => Number(tx.monto) < 0 && tx.movement_kind !== "internal_transfer");
-  const previousIncomeTransactions = previousTransactions.filter((tx) => Number(tx.monto) > 0 && tx.movement_kind !== "internal_transfer");
-  const pendingCount = transactions.filter((tx) => String(tx.categorization_status || "") !== "categorized").length;
-  const incomeTotal = incomeTransactions.reduce((sum, tx) => sum + Number(tx.monto), 0);
-  const expensesTotal = expenseTransactions.reduce((sum, tx) => sum + Math.abs(Number(tx.monto)), 0);
-  const previousIncomeTotal = previousIncomeTransactions.reduce((sum, tx) => sum + Number(tx.monto), 0);
-  const previousExpensesTotal = previousExpenseTransactions.reduce((sum, tx) => sum + Math.abs(Number(tx.monto)), 0);
-
-  const byCategory = categories
-    .filter((category) => category.name !== "Ingreso")
-    .map((category) => {
-      const spent = expenseTransactions
-        .filter((tx) => Number(tx.category_id) === Number(category.id))
-        .reduce((sum, tx) => sum + Math.abs(Number(tx.monto)), 0);
-      return {
-        id: category.id,
-        name: category.name,
-        slug: category.slug,
-        spent,
-        budget: Number(category.budget || 0),
-        color: category.color,
-        type: category.type,
-      };
-    })
-    .filter((item) => item.spent > 0 || item.budget > 0)
-    .sort((a, b) => b.spent - a.spent);
-
-  const fixedSpent = byCategory
-    .filter((item) => item.type === "fijo")
-    .reduce((sum, item) => sum + item.spent, 0);
-  const variableSpent = byCategory
-    .filter((item) => item.type !== "fijo")
-    .reduce((sum, item) => sum + item.spent, 0);
-
-  return {
-    month,
-    currency: settings.display_currency || "UYU",
-    pending_count: pendingCount,
-    totals: {
-      income: incomeTotal,
-      expenses: expensesTotal,
-      margin: incomeTotal - expensesTotal,
-      installments: transactions.filter((tx) => tx.es_cuota).reduce((sum, tx) => sum + Math.abs(Number(tx.monto)), 0),
-      savings_monthly_target: Number(settings.savings_monthly || 0),
-    },
-    deltas: {
-      income: calculateDeltaPercent(incomeTotal, previousIncomeTotal),
-      expenses: calculateDeltaPercent(expensesTotal, previousExpensesTotal),
-    },
-    byCategory,
-    byType: {
-      fijo: fixedSpent,
-      variable: variableSpent,
-    },
-    budgets: byCategory.map((item) => ({
-      id: item.id,
-      category_id: item.id,
-      name: item.name,
-      spent: item.spent,
-      budget: item.budget,
-      color: item.color,
-      type: item.type,
-    })),
-  };
-}
-
-async function buildCategoryTrend(endMonth, months = 4) {
-  const categories = await getCategoriesRich();
-  const monthSeries = await sdk.getTransactionMonthlyEvolution(months, endMonth);
-  const monthKeys = monthSeries.map((item) => item.month);
-  const allTransactions = await Promise.all(monthKeys.map((month) => getTransactionsRich(month)));
-
-  return monthKeys.map((month, index) => {
-    const monthTransactions = allTransactions[index] || [];
-    const byCategory = {};
-    categories.forEach((category) => {
-      const spent = monthTransactions
-        .filter((tx) => Number(tx.monto) < 0 && Number(tx.category_id) === Number(category.id))
-        .reduce((sum, tx) => sum + Math.abs(Number(tx.monto)), 0);
-      if (spent > 0) {
-        byCategory[category.name] = spent;
-      }
-    });
-    return { month, byCategory };
-  });
-}
-
-async function buildConsolidatedAccounts() {
-  const [accounts, settings] = await Promise.all([getAccountsRich(), sdk.getSettings()]);
-  const displayCurrency = settings.display_currency || "UYU";
-  const exchangeRates = getExchangeRateMap(settings);
-  const total = accounts.reduce(
-    (sum, account) => sum + convertCurrencyAmount(Number(account.balance || 0), account.currency, displayCurrency, exchangeRates),
-    0,
-  );
-
-  return {
-    total,
-    currency: displayCurrency,
-    accounts: accounts.map((account) => ({
-      ...account,
-      converted_balance: convertCurrencyAmount(Number(account.balance || 0), account.currency, displayCurrency, exchangeRates),
-    })),
-  };
-}
-
 async function buildProjection(endMonth, months = 12) {
-  const series = await sdk.getTransactionMonthlyEvolution(months, endMonth);
-  const monthlyNet = series.map((point) => ({ month: point.month, value: point.net }));
-  const average = monthlyNet.length
-    ? monthlyNet.reduce((sum, point) => sum + point.value, 0) / monthlyNet.length
-    : 0;
-
-  return {
-    series: monthlyNet,
-    commitments: [],
-    avg_savings: average,
-    avg_monthly_savings: average,
-    monthly_installments: 0,
-    net_savings: average,
-  };
+  return sdk.getSavingsProjection(endMonth, months);
 }
 
 async function buildInsights(month) {
-  const [summary, projection, settings] = await Promise.all([
-    buildSummary(month),
-    buildProjection(month, 6),
-    sdk.getSettings(),
-  ]);
-
-  const averageDaily = summary.totals.expenses / 30;
-  const savingsGoal = Number(settings.savings_goal || 0);
-  const savingsInitial = Number(settings.savings_initial || 0);
-  const etaMonths = projection.avg_monthly_savings > 0
-    ? Math.max(0, Math.ceil((savingsGoal - savingsInitial) / projection.avg_monthly_savings))
-    : null;
-
-  return {
-    biggest_increase: summary.byCategory[0]
-      ? {
-          category: summary.byCategory[0].name,
-          delta_pct: 0,
-          current_amount: summary.byCategory[0].spent,
-          previous_amount: summary.byCategory[0].spent,
-        }
-      : null,
-    average_daily_spend: averageDaily,
-    budget_per_day: Math.max(0, (summary.totals.margin || 0) / 30),
-    remaining_days: 15,
-    eta_months: etaMonths,
-  };
+  return sdk.getSavingsInsights(month);
 }
 
 async function parseUploadedFile(file, period) {
@@ -504,22 +336,8 @@ async function parseUploadedFile(file, period) {
   });
 }
 
-const BANK_FORMATS_KEY = "sf_bank_formats";
-
-function readBankFormats() {
-  try {
-    return JSON.parse(localStorage.getItem(BANK_FORMATS_KEY) || "[]");
-  } catch {
-    return [];
-  }
-}
-
-function writeBankFormats(value) {
-  localStorage.setItem(BANK_FORMATS_KEY, JSON.stringify(value));
-}
-
 export const api = {
-  getDashboard: (month) => buildSummary(month),
+  getDashboard: (month) => sdk.getTransactionSummary(month),
   getSchemaStatus: () => sdk.getSchemaStatus(),
 
   onboard: async () => {
@@ -530,7 +348,7 @@ export const api = {
   completeGuidedCategorizationOnboarding: () => sdk.updateSetting({ key: "guided_categorization_onboarding_completed", value: "1" }),
   skipGuidedCategorizationOnboarding: () => sdk.updateSetting({ key: "guided_categorization_onboarding_skipped", value: "1" }),
 
-  getSummary: (month) => buildSummary(month),
+  getSummary: (month) => sdk.getTransactionSummary(month),
   getTransactions: (month) => getTransactionsRich(month),
   updateTransaction: async (id, body) => {
     const updated = await sdk.updateTransaction(id, body);
@@ -562,12 +380,7 @@ export const api = {
 
     return { ...updated, transaction: updated, rule };
   },
-  markTransactionMovement: async (id, kind) => {
-    const currentMonth = isoMonth();
-    const transactions = await getTransactionsRich(currentMonth);
-    const transaction = transactions.find((item) => Number(item.id) === Number(id));
-    return { transaction: transaction ? { ...transaction, movement_kind: kind } : null };
-  },
+  markTransactionMovement: (id, kind) => sdk.markTransactionMovement(id, { kind }),
   createTransaction: async (body) => {
     const payload = {
       fecha: body.fecha,
@@ -581,95 +394,40 @@ export const api = {
     };
     return sdk.createTransaction(payload);
   },
-  searchTransactions: async (query, limit = 25) => {
-    const normalizedQuery = normalizeMatcher(query);
-    if (normalizedQuery.length < 2) return [];
-
-    const transactions = await getTransactionsWindow(isoMonth(), 12);
-    return transactions
-      .map((transaction) => {
-        const haystack = normalizeMatcher([
-          transaction.desc_banco,
-          transaction.desc_usuario,
-          transaction.category_name,
-          transaction.account_name,
-          transaction.fecha,
-          Math.abs(Number(transaction.monto || 0)),
-        ].filter(Boolean).join(" "));
-        const startsWith = haystack.startsWith(normalizedQuery);
-        const includes = haystack.includes(normalizedQuery);
-        return {
-          score: startsWith ? 3 : includes ? 2 : 0,
-          transaction,
-        };
-      })
-      .filter((item) => item.score > 0)
-      .sort((left, right) => right.score - left.score || String(right.transaction.fecha).localeCompare(String(left.transaction.fecha)))
-      .slice(0, limit)
-      .map((item) => item.transaction);
-  },
-  batchCreateTransactions: async (body) => {
-    const month = body.period || isoMonth();
-    const beforeTransactions = await getTransactionsRich(month);
-    const beforeIds = new Set(beforeTransactions.map((transaction) => Number(transaction.id)));
-    const created = [];
-    let duplicates = 0;
-    let errors = 0;
-    for (const transaction of body.transactions || []) {
-      try {
-        const result = await sdk.createTransaction({
-          ...transaction,
-          account_id: transaction.account_id || body.account_id,
-          entry_type: transaction.entry_type || (Number(transaction.monto) >= 0 ? "income" : "expense"),
-          moneda: transaction.moneda || "UYU",
-        });
-        created.push(result);
-      } catch (error) {
-        if (String(error?.message || "").toLowerCase().includes("exists")) duplicates += 1;
-        else errors += 1;
-      }
-    }
-    const [categories, settings, afterTransactions] = await Promise.all([
-      getCategoriesRich(),
-      sdk.getSettings().catch(() => ({})),
-      getTransactionsRich(month),
-    ]);
-    const importedTransactions = afterTransactions.filter((transaction) => !beforeIds.has(Number(transaction.id)));
-    const reviewState = buildImportReviewState(importedTransactions, categories, settings);
-    return {
-      created: created.length,
-      duplicates,
-      errors,
-      ...reviewState,
-      guided_onboarding_session: null,
-    };
-  },
-  resumePendingGuidedReview: async ({ transaction_ids = [], month = isoMonth() } = {}) => {
-    const [categories, settings, transactions] = await Promise.all([
-      getCategoriesRich(),
-      sdk.getSettings().catch(() => ({})),
-      getTransactionsRich(month),
-    ]);
-    const pendingTransactions = transactions.filter((transaction) => (
-      transaction_ids.includes(Number(transaction.id))
-      && String(transaction.categorization_status || "") !== "categorized"
-    ));
-    return {
-      ...buildImportReviewState(pendingTransactions, categories, settings),
-      guided_onboarding_session: null,
-    };
-  },
-  confirmInternalOperation: async () => ({ ok: true, transaction: null }),
-  rejectInternalOperation: async () => ({ ok: true, transaction: null }),
+  searchTransactions: (query, limit = 25) => sdk.searchTransactions(query, limit),
+  batchCreateTransactions: (body) => sdk.batchImportTransactions(body),
+  resumePendingGuidedReview: ({ transaction_ids = [], month = isoMonth() } = {}) =>
+    sdk.resumePendingGuidedReview({ transaction_ids, month }),
+  confirmInternalOperation: (body) => sdk.confirmInternalOperation(body),
+  rejectInternalOperation: (body) => sdk.rejectInternalOperation(body),
   getEvolution: (end, months = 6) => sdk.getTransactionMonthlyEvolution(months, end),
-  deleteTransaction: async () => {
-    throw new ApiError("Eliminar transacciones todavía no está disponible en SaaS.");
-  },
-  getCandidates: async () => [],
-  confirmCategory: async (transactionIds) => sdk.acceptSuggestions({ transaction_ids: transactionIds }),
-  rejectCategory: async (transactionId) => sdk.rejectSuggestion(transactionId),
-  undoRejectCategory: async () => ({ undone: false }),
-  undoConfirmCategory: async (transactionId, categoryId) => sdk.updateTransaction(transactionId, { category_id: categoryId ?? null }),
+  deleteTransaction: (id) => sdk.deleteTransaction(id),
+  getCandidates: (pattern, categoryId) => sdk.getCandidates(pattern, categoryId),
+  confirmCategory: (transactionIds, categoryId, options = {}) =>
+    sdk.confirmCategorySelection({
+      transaction_ids: transactionIds.map((id) => Number(id)),
+      category_id: Number(categoryId),
+      rule_id: options.ruleId ?? null,
+      origin: options.origin ?? "review",
+    }),
+  rejectCategory: (transactionId, ruleId, options = {}) =>
+    sdk.rejectCategorySelection({
+      transaction_id: Number(transactionId),
+      rule_id: ruleId ?? null,
+      origin: options.origin ?? "review",
+    }),
+  undoRejectCategory: (transactionId, ruleId, options = {}) =>
+    sdk.undoRejectCategorySelection({
+      transaction_id: Number(transactionId),
+      rule_id: ruleId ?? null,
+      origin: options.origin ?? "review",
+    }),
+  undoConfirmCategory: (transactionId, categoryId, options = {}) =>
+    sdk.undoConfirmCategorySelection({
+      transaction_id: Number(transactionId),
+      category_id: categoryId ?? null,
+      origin: options.origin ?? "review",
+    }),
 
   getCategories: () => getCategoriesRich(),
   createCategory: async (body) => {
@@ -717,13 +475,11 @@ export const api = {
   },
   updateAccount: (id, body) => sdk.updateAccount(id, body),
   deleteAccount: (id) => sdk.deleteAccount(id),
-  getConsolidatedAccounts: () => buildConsolidatedAccounts(),
-  getAccountLinks: async () => [],
-  createAccountLink: async () => {
-    throw new ApiError("Account linking todavía no está migrado al SaaS.");
-  },
-  reconcileAccountLink: async () => ({ reconciled_pairs: 0 }),
-  deleteAccountLink: async () => ({ deleted: false }),
+  getConsolidatedAccounts: () => sdk.getConsolidatedAccounts(),
+  getAccountLinks: () => sdk.getAccountLinks(),
+  createAccountLink: (body) => sdk.createAccountLink(body),
+  reconcileAccountLink: (id, body = {}) => sdk.reconcileAccountLink(Number(id), body),
+  deleteAccountLink: (id) => sdk.deleteAccountLink(Number(id)),
 
   getRules: async () => {
     const [rules, categories, accounts] = await Promise.all([
@@ -734,98 +490,69 @@ export const api = {
     return enrichRules(rules, categories, accounts);
   },
   createRule: async (body) => {
-    const result = await sdk.createRule(body);
-    return {
-      ...result.rule,
-      candidates_count: result.application.affected_transactions,
-      duplicate: false,
-    };
+    try {
+      const result = await sdk.createRule(body);
+      return {
+        ...result.rule,
+        candidates_count: await getRuleCandidatesCount(result.rule?.id),
+        duplicate: false,
+      };
+    } catch (error) {
+      if (Number(error?.status) !== 409) throw error;
+      const existing = await findExistingRule(body);
+      if (!existing) throw error;
+      return {
+        ...existing,
+        candidates_count: await getRuleCandidatesCount(existing.id),
+        duplicate: true,
+      };
+    }
   },
   updateRule: async (id, body) => {
     const result = await sdk.updateRule(id, body);
     return result.rule;
   },
-  resetRules: async () => ({ deleted_count: 0, rules_count: 0 }),
+  getRuleInsights: () => sdk.getRuleInsights(),
+  getAmountProfiles: () => sdk.getAmountProfiles(),
+  rebuildAmountProfiles: () => sdk.rebuildAmountProfiles(),
+  disableAmountProfile: (id) => sdk.disableAmountProfile(Number(id)),
+  resetRules: () => sdk.resetRules(),
   deleteRule: (id) => sdk.deleteRule(id),
 
-  getInstallments: async () => [],
-  createInstallment: async () => {
-    throw new ApiError("Cuotas todavía no están migradas al SaaS.");
-  },
-  updateInstallment: async () => {
-    throw new ApiError("Cuotas todavía no están migradas al SaaS.");
-  },
-  deleteInstallment: async () => {
-    throw new ApiError("Cuotas todavía no están migradas al SaaS.");
-  },
-  getCommitments: async () => [],
+  getInstallments: () => sdk.getInstallments(),
+  createInstallment: (body) => sdk.createInstallment(body),
+  updateInstallment: (id, body) => sdk.updateInstallment(Number(id), body),
+  deleteInstallment: (id) => sdk.deleteInstallment(Number(id)),
+  getCommitments: (start, months = 6) => sdk.getInstallmentCommitments(start, months),
 
   getSettings: () => sdk.getSettings(),
   updateSetting: async (key, value) => sdk.updateSetting({ key, value: String(value) }),
-  refreshRates: async () => ({ ok: false, source: "manual" }),
+  refreshRates: () => sdk.refreshRates(),
 
   getProjection: (end, months = 12) => buildProjection(end, months),
   getInsights: (month) => buildInsights(month),
-  getRecurring: async () => [],
-  getCategoryTrend: (month, months = 3) => buildCategoryTrend(month, months),
+  getRecurring: (month) => sdk.getRecurring(month),
+  getCategoryTrend: (month, months = 3) => sdk.getCategoryTrend(month, months),
 
   getUploads: (period) => sdk.getUploads(period || isoMonth()),
   uploadFile: async (formData) => {
     const file = formData.get("file");
-    const accountId = formData.get("account_id") || undefined;
-    const period = String(formData.get("period") || isoMonth());
-
     if (!(file instanceof File)) {
       throw new ApiError("No se encontró archivo para subir.");
     }
 
-    const intent = await sdk.createUploadIntent({
-      original_filename: file.name,
-      mime_type: file.type || "application/octet-stream",
-      size_bytes: file.size,
-      period,
-      account_id: accountId ? String(accountId) : undefined,
-      source: "web",
+    return requestCompat("/api/upload", {
+      method: "POST",
+      body: formData,
+      timeoutMs: Math.max(appConfig.apiTimeoutMs, 90000),
     });
-
-    await sdk.markUploadUploaded(intent.upload.id);
-
-    const lowerName = file.name.toLowerCase();
-    if (lowerName.endsWith(".csv") || lowerName.endsWith(".txt")) {
-      const preview = await parseUploadedFile(file, period);
-      return sdk.processUpload({
-        upload_id: intent.upload.id,
-        transactions: preview.transactions,
-      });
-    }
-
-    return {
-      upload_id: intent.upload.id,
-      new_transactions: 0,
-      duplicates_skipped: 0,
-      auto_categorized: 0,
-      pending_review: 0,
-      unsupported: true,
-    };
   },
 
-  getBankFormats: async () => readBankFormats(),
-  getBankFormat: async (key) => readBankFormats().find((item) => item.key === key) || null,
-  saveBankFormat: async (body) => {
-    const current = readBankFormats().filter((item) => item.key !== body.key);
-    const next = [...current, { ...body }];
-    writeBankFormats(next);
-    return body;
-  },
-  deleteBankFormat: async (key) => {
-    writeBankFormats(readBankFormats().filter((item) => item.key !== key));
-    return { deleted: true };
-  },
+  getBankFormats: () => sdk.getBankFormats(),
+  getBankFormat: (key) => sdk.getBankFormat(key),
+  suggestBankFormat: (body) => sdk.suggestBankFormat(body),
+  saveBankFormat: (body) => sdk.saveBankFormat(body),
+  deleteBankFormat: (key) => sdk.deleteBankFormat(key),
 
-  assistantChat: async ({ month, question }) => {
-    const summary = await buildSummary(month);
-    return {
-      answer: `Todavía no migramos el asistente conversacional. Como referencia rápida: ingresos ${summary.totals.income}, gastos ${summary.totals.expenses} y margen ${summary.totals.margin}. Pregunta: ${question}`,
-    };
-  },
+  assistantChat: ({ month, question }) => sdk.assistantChat({ month, question }),
 };

@@ -2,7 +2,44 @@ import { useMemo, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../contexts/ToastContext";
 
-export default function GuidedCategorizationDeck({ groups, onComplete, onFollowLater, onSkip, onAcceptedGroup }) {
+function formatSuggestionSource(source) {
+  if (!source) return "Motor de revision";
+  if (source === "cloudflare-ai") return "Cloudflare AI";
+  if (source === "ollama") return "AI local";
+  if (source === "rule_auto") return "Regla automatica";
+  if (source === "rule_suggest" || source === "regla") return "Regla existente";
+  if (source === "history") return "Historial";
+  if (source === "keyword" || source === "heuristica") return "Heuristica";
+  return "Motor de revision";
+}
+
+function describeGuidedGoal(group) {
+  const source = String(group?.suggestion_source || "");
+  if (source === "cloudflare-ai" || source === "ollama") {
+    return "Validar aprendizaje asistido antes de automatizar";
+  }
+  if (source === "history") {
+    return "Convertir este patron repetido en memoria confiable";
+  }
+  if (source === "keyword" || source === "heuristica") {
+    return "Confirmar la heuristica antes de escalarla";
+  }
+  return "Evitar mala categorizacion silenciosa";
+}
+
+function formatConfidence(confidence) {
+  const value = Number(confidence);
+  if (!Number.isFinite(value)) return null;
+  return `${Math.round(value * 100)}% confianza`;
+}
+
+export default function GuidedCategorizationDeck({
+  groups,
+  onComplete,
+  onFollowLater,
+  onSkip,
+  onAcceptedGroup,
+}) {
   const { addToast } = useToast();
   const [index, setIndex] = useState(0);
   const [history, setHistory] = useState([]);
@@ -71,14 +108,17 @@ export default function GuidedCategorizationDeck({ groups, onComplete, onFollowL
         ruleId: ruleState.activeRule.id,
         origin: "guided_onboarding",
       });
-      setHistory((prev) => [...prev, {
-        type: "accept",
-        transactionIds: current.transaction_ids,
-        categoryId: current.category_id,
-        ruleId: ruleState.activeRule.id,
-        previousRule: ruleState.previousRule,
-        createdRule: ruleState.created,
-      }]);
+      setHistory((prev) => [
+        ...prev,
+        {
+          type: "accept",
+          transactionIds: current.transaction_ids,
+          categoryId: current.category_id,
+          ruleId: ruleState.activeRule.id,
+          previousRule: ruleState.previousRule,
+          createdRule: ruleState.created,
+        },
+      ]);
       onAcceptedGroup?.(current);
       addToast("success", `${current.count} movimiento${current.count !== 1 ? "s" : ""} quedan en "${current.category_name}".`);
       next();
@@ -99,13 +139,16 @@ export default function GuidedCategorizationDeck({ groups, onComplete, onFollowL
           api.rejectCategory(transactionId, ruleState.activeRule.id, { origin: "guided_onboarding" })
         )
       );
-      setHistory((prev) => [...prev, {
-        type: "reject",
-        transactionIds: current.transaction_ids,
-        ruleId: ruleState.activeRule.id,
-        previousRule: ruleState.previousRule,
-        createdRule: ruleState.created,
-      }]);
+      setHistory((prev) => [
+        ...prev,
+        {
+          type: "reject",
+          transactionIds: current.transaction_ids,
+          ruleId: ruleState.activeRule.id,
+          previousRule: ruleState.previousRule,
+          createdRule: ruleState.created,
+        },
+      ]);
       addToast("info", `No vamos a aprender "${current.pattern}" automaticamente por ahora.`);
       next();
     } catch (error) {
@@ -157,7 +200,9 @@ export default function GuidedCategorizationDeck({ groups, onComplete, onFollowL
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-sm"
-      onClick={(event) => { if (event.target === event.currentTarget) onFollowLater?.(); }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onFollowLater?.();
+      }}
     >
       <div className="max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-[32px] bg-white p-6 shadow-2xl dark:bg-neutral-900">
         <div className="flex items-start justify-between gap-4">
@@ -167,7 +212,8 @@ export default function GuidedCategorizationDeck({ groups, onComplete, onFollowL
               Ayudanos a evitar errores escondidos
             </h3>
             <p className="mt-2 max-w-xl text-sm leading-6 text-neutral-500 dark:text-neutral-300">
-              Antes de ir al dashboard, revisemos unos patrones claros. Así evitamos que una mala categoría quede enterrada en tus métricas.
+              Antes de ir al dashboard, revisemos unos patrones claros. Asi evitamos que una mala categoria
+              quede enterrada en tus metricas.
             </p>
           </div>
           <button
@@ -196,13 +242,21 @@ export default function GuidedCategorizationDeck({ groups, onComplete, onFollowL
                 {current.risk_label}
               </span>
             ) : null}
+            <span className="rounded-full bg-white/70 px-3 py-1 text-xs text-neutral-500 dark:bg-neutral-900/70 dark:text-neutral-300">
+              {formatSuggestionSource(current.suggestion_source)}
+            </span>
+            {formatConfidence(current.suggested_rule_confidence) ? (
+              <span className="rounded-full bg-white/70 px-3 py-1 text-xs text-neutral-500 dark:bg-neutral-900/70 dark:text-neutral-300">
+                {formatConfidence(current.suggested_rule_confidence)}
+              </span>
+            ) : null}
           </div>
 
           <h4 className="mt-4 font-display text-2xl text-finance-ink dark:text-neutral-100">
             {current.pattern} {"->"} {current.category_name}
           </h4>
           <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-300">
-            {current.guided_reason || "Patrón claro para aprender más rápido"}.
+            {current.guided_reason || "Patron claro para aprender mas rapido"}.
           </p>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
@@ -215,13 +269,13 @@ export default function GuidedCategorizationDeck({ groups, onComplete, onFollowL
             <div className="rounded-2xl bg-white/80 px-4 py-3 dark:bg-neutral-900/80">
               <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-400">Aprendizaje</p>
               <p className="mt-1 text-sm font-semibold text-finance-ink dark:text-neutral-100">
-                {current.suggested_rule_mode === "auto" ? "Regla automática" : "Regla en modo sugerencia"}
+                {current.suggested_rule_mode === "auto" ? "Regla automatica" : "Regla en modo sugerencia"}
               </p>
             </div>
             <div className="rounded-2xl bg-white/80 px-4 py-3 dark:bg-neutral-900/80">
               <p className="text-[11px] uppercase tracking-[0.16em] text-neutral-400">Objetivo</p>
               <p className="mt-1 text-sm font-semibold text-finance-ink dark:text-neutral-100">
-                Evitar mala categorización silenciosa
+                {describeGuidedGoal(current)}
               </p>
             </div>
           </div>
@@ -238,7 +292,10 @@ export default function GuidedCategorizationDeck({ groups, onComplete, onFollowL
           </div>
           <div className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
             {visibleSamples.map((sample) => (
-              <div key={sample} className="rounded-2xl bg-white/80 px-4 py-3 text-sm text-finance-ink dark:bg-neutral-900/80 dark:text-neutral-100">
+              <div
+                key={sample}
+                className="rounded-2xl bg-white/80 px-4 py-3 text-sm text-finance-ink dark:bg-neutral-900/80 dark:text-neutral-100"
+              >
                 {sample}
               </div>
             ))}

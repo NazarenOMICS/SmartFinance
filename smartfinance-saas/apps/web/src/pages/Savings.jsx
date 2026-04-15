@@ -115,7 +115,7 @@ export default function Savings({ month, settings, refreshSettings }) {
             </select>
           </label>
         </div>
-        <button onClick={handleSave} className="self-end rounded-full bg-finance-purple px-5 py-3 font-semibold text-white transition hover:opacity-90">
+        <button data-testid="savings-save-button" onClick={handleSave} className="self-end rounded-full bg-finance-purple px-5 py-3 font-semibold text-white transition hover:opacity-90">
           Guardar
         </button>
       </div>

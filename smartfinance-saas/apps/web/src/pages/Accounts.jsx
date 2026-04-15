@@ -4,7 +4,6 @@ import { useToast } from "../contexts/ToastContext";
 import MetricCard from "../components/MetricCard";
 import {
   CURRENCY_LABELS,
-  convertCurrencyAmount,
   fmtMoney,
   getExchangeRateMap,
   getExchangeRateSettingKey,
@@ -318,6 +317,9 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
   const displayCurrency = settings.display_currency || "UYU";
   const exchangeRateMode = settings.exchange_rate_mode || "auto";
   const exchangeRates = getExchangeRateMap(settings);
+  const consolidatedAccountById = new Map(
+    (state.consolidated?.accounts || []).map((account) => [account.id, account]),
+  );
 
   return (
     <div className="space-y-6">
@@ -435,6 +437,7 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
             <div key={account.id}>
               <div className="grid grid-cols-[1.4fr_80px_140px_130px_80px] gap-4 py-4">
                 <input
+                  data-testid={`account-name-${account.id}`}
                   className="w-full rounded-xl border border-transparent bg-transparent px-2 py-1 font-semibold text-finance-ink hover:border-neutral-200 focus:border-finance-purple focus:outline-none dark:hover:border-neutral-700"
                   value={nameDrafts[account.id] ?? account.name}
                   onChange={(event) => setNameDrafts((prev) => ({ ...prev, [account.id]: event.target.value }))}
@@ -442,6 +445,7 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
                 />
                 <span className="text-neutral-500">{account.currency}</span>
                 <input
+                  data-testid={`account-balance-${account.id}`}
                   className="rounded-xl border border-neutral-200 px-3 py-2 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
                   type="number"
                   value={localBalances[account.id] ?? account.balance}
@@ -449,7 +453,11 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
                   onBlur={() => handleBalanceBlur(account.id)}
                 />
                 <span className="font-semibold text-finance-ink">
-                  {fmtMoney(convertCurrencyAmount(account.balance, account.currency, displayCurrency, exchangeRates), displayCurrency)}
+                  {fmtMoney(
+                    consolidatedAccountById.get(account.id)?.converted_balance
+                      ?? account.balance,
+                    displayCurrency,
+                  )}
                 </span>
                 <button
                   onClick={() => (confirm.pending === account.id ? handleDeleteAccount(account.id) : confirm.ask(account.id))}
@@ -505,7 +513,7 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
             value={newAccount.balance}
             onChange={(event) => setNewAccount((prev) => ({ ...prev, balance: event.target.value }))}
           />
-          <button className="rounded-full bg-finance-ink px-5 py-3 font-semibold text-white">
+          <button data-testid="accounts-create-button" className="rounded-full bg-finance-ink px-5 py-3 font-semibold text-white">
             Agregar
           </button>
         </div>
@@ -516,7 +524,7 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
           <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Link de cuentas</p>
           {linkMessage ? <p className="mt-3 text-sm text-neutral-500">{linkMessage}</p> : null}
           <div className="mt-4 grid gap-4 md:grid-cols-[1fr_1fr]">
-            <select className="rounded-2xl border border-neutral-200 px-4 py-3" value={linkForm.account_a_id} onChange={(event) => setLinkForm((prev) => { const next = { ...prev, account_a_id: event.target.value }; return { ...next, preferred_currency: resolveAutoPreferredCurrency(next) }; })}>
+            <select data-testid="account-link-account-a" className="rounded-2xl border border-neutral-200 px-4 py-3" value={linkForm.account_a_id} onChange={(event) => setLinkForm((prev) => { const next = { ...prev, account_a_id: event.target.value }; return { ...next, preferred_currency: resolveAutoPreferredCurrency(next) }; })}>
               <option value="">Cuenta A</option>
               {state.accounts.map((account) => (
                 <option key={account.id} value={account.id}>
@@ -524,7 +532,7 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
                 </option>
               ))}
             </select>
-            <select className="rounded-2xl border border-neutral-200 px-4 py-3" value={linkForm.account_b_id} onChange={(event) => setLinkForm((prev) => { const next = { ...prev, account_b_id: event.target.value }; return { ...next, preferred_currency: resolveAutoPreferredCurrency(next) }; })}>
+            <select data-testid="account-link-account-b" className="rounded-2xl border border-neutral-200 px-4 py-3" value={linkForm.account_b_id} onChange={(event) => setLinkForm((prev) => { const next = { ...prev, account_b_id: event.target.value }; return { ...next, preferred_currency: resolveAutoPreferredCurrency(next) }; })}>
               <option value="">Cuenta B</option>
               {state.accounts
                 .filter((account) => account.id !== linkForm.account_a_id)
@@ -536,10 +544,11 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
             </select>
           </div>
           <div className="mt-3">
-            <select
-              className="w-full rounded-2xl border border-neutral-200 px-4 py-3 text-sm text-finance-ink dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
-              value={linkForm.preferred_currency}
-              onChange={(event) => setLinkForm((prev) => ({ ...prev, preferred_currency: event.target.value }))}
+              <select
+                data-testid="account-link-preferred-currency"
+                className="w-full rounded-2xl border border-neutral-200 px-4 py-3 text-sm text-finance-ink dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                value={linkForm.preferred_currency}
+                onChange={(event) => setLinkForm((prev) => ({ ...prev, preferred_currency: event.target.value }))}
             >
               <option value="">Excluir ambas piernas de ingresos/gastos (defecto)</option>
               {[...new Set(
@@ -552,16 +561,16 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
             </select>
           </div>
           <div className="mt-4 flex flex-wrap gap-3">
-            <button className="rounded-full bg-finance-purple px-5 py-3 font-semibold text-white">Linkear y conciliar</button>
+            <button data-testid="account-links-create-button" className="rounded-full bg-finance-purple px-5 py-3 font-semibold text-white">Linkear y conciliar</button>
           </div>
         </form>
 
         <div className="rounded-[32px] border border-white/70 bg-white/90 p-6 shadow-panel">
           <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Links activos</p>
           <div className="mt-4 space-y-3">
-            {state.links.length === 0 ? <p className="text-neutral-500">Todavia no hay cuentas vinculadas.</p> : null}
+            {state.links.length === 0 ? <p data-testid="account-links-empty" className="text-neutral-500">Todavia no hay cuentas vinculadas.</p> : null}
             {state.links.map((link) => (
-              <div key={link.id} className="flex items-center justify-between rounded-2xl bg-finance-cream/75 px-4 py-4">
+              <div data-testid={`account-link-row-${link.id}`} key={link.id} className="flex items-center justify-between rounded-2xl bg-finance-cream/75 px-4 py-4">
                 <div>
                   <p className="font-semibold text-finance-ink">
                     {link.account_a_name} ({link.account_a_currency}) {"<->"} {link.account_b_name} ({link.account_b_currency})

@@ -10,9 +10,10 @@ import {
   uploadSchema,
 } from "@smartfinance/contracts";
 import { extractTransactionsFromCsv, extractTransactionsFromText } from "@smartfinance/domain";
-import { createUploadIntentRecord, getUsageSnapshot, listUploadsByMonth, markUploadStatus, processUploadTransactions } from "@smartfinance/database";
+import { createUploadIntentRecord, getUploadById, getUsageSnapshot, listUploadsByMonth, markUploadStatus, processUploadTransactions } from "@smartfinance/database";
 import { getSettingsObject } from "@smartfinance/database";
 import type { ApiBindings, ApiVariables } from "../env";
+import { getUploadBinary, storeUploadBinary } from "../services/upload-storage";
 import { jsonError } from "../utils/http";
 
 const uploadsRouter = new Hono<{
@@ -53,7 +54,7 @@ uploadsRouter.post("/intent", async (c) => {
   const upload = await createUploadIntentRecord(c.env.DB, auth.userId, body.data);
   const payload = uploadIntentSchema.parse({
     upload,
-    upload_url: null,
+    upload_url: new URL(`/api/uploads/${upload?.id}/content`, c.req.url).toString(),
     method: "PUT",
     headers: {},
     max_upload_size_mb: usage.usage.max_upload_size_mb,
@@ -88,6 +89,7 @@ uploadsRouter.post("/preview", async (c) => {
   return c.json(uploadPreviewResultSchema.parse({
     transactions: preview.transactions,
     unmatched: preview.unmatched,
+    detected_format: preview.detectedFormat ?? null,
     totals: {
       parsed: preview.transactions.length,
       unmatched: preview.unmatched.length,
@@ -109,6 +111,76 @@ uploadsRouter.post("/:id/mark-uploaded", async (c) => {
   }
 
   return c.json(uploadSchema.parse(upload));
+});
+
+uploadsRouter.put("/:id/content", async (c) => {
+  const auth = c.get("auth");
+  const requestId = c.get("requestId");
+  const uploadId = Number(c.req.param("id"));
+  if (!Number.isInteger(uploadId) || uploadId < 1) {
+    return jsonError("Invalid upload id", "VALIDATION_ERROR", requestId, 400);
+  }
+
+  const upload = await getUploadById(c.env.DB, auth.userId, uploadId);
+  if (!upload) {
+    return jsonError("Upload not found", "UPLOAD_NOT_FOUND", requestId, 404);
+  }
+
+  const content = await c.req.arrayBuffer();
+  if (!content.byteLength) {
+    return jsonError("Upload content is required", "VALIDATION_ERROR", requestId, 400);
+  }
+
+  const stored = await storeUploadBinary(c.env, uploadSchema.parse(upload), content);
+
+  const updated = await markUploadStatus(c.env.DB, auth.userId, uploadId, { status: "uploaded" });
+  if (!updated) {
+    return jsonError("Upload not found", "UPLOAD_NOT_FOUND", requestId, 404);
+  }
+
+  return c.json(uploadSchema.parse(updated));
+});
+
+uploadsRouter.get("/:id/content", async (c) => {
+  const auth = c.get("auth");
+  const requestId = c.get("requestId");
+  const uploadId = Number(c.req.param("id"));
+  if (!Number.isInteger(uploadId) || uploadId < 1) {
+    return jsonError("Invalid upload id", "VALIDATION_ERROR", requestId, 400);
+  }
+
+  const upload = await getUploadById(c.env.DB, auth.userId, uploadId);
+  if (!upload) {
+    return jsonError("Upload not found", "UPLOAD_NOT_FOUND", requestId, 404);
+  }
+
+  const object = await getUploadBinary(c.env, upload.storage_key);
+  if (!object.found) {
+    const storageDisabled = object.reason === "storage_disabled";
+    const storageMissing = object.reason === "missing_bucket";
+    return jsonError(
+      storageDisabled
+        ? "Binary upload storage is disabled for this environment"
+        : storageMissing
+          ? "Upload storage is not configured"
+          : "Upload file not found",
+      storageDisabled
+        ? "UPLOAD_STORAGE_DISABLED"
+        : storageMissing
+          ? "R2_NOT_CONFIGURED"
+          : "UPLOAD_FILE_NOT_FOUND",
+      requestId,
+      storageDisabled || storageMissing ? 503 : 404,
+    );
+  }
+
+  return new Response(object.object.body, {
+    status: 200,
+    headers: {
+      "content-type": object.object.httpMetadata?.contentType || upload.mime_type || "application/octet-stream",
+      "content-disposition": `inline; filename="${upload.original_filename}"`,
+    },
+  });
 });
 
 uploadsRouter.post("/process", async (c) => {

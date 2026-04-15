@@ -219,8 +219,6 @@ function AppInner({ userId = "local", displayName: displayNameProp = "Naza", clo
   const [dark, setDark] = useState(() => localStorage.getItem("sf_dark") === "true");
   const [pendingCount, setPendingCount] = useState(0);
   const [onboardStatus, setOnboardStatus] = useState(null);
-  const [legacyAvailable, setLegacyAvailable] = useState(false);
-  const [claimingLegacy, setClaimingLegacy] = useState(false);
   const [apiDown, setApiDown] = useState(false);
   const [schemaStatus, setSchemaStatus] = useState(null);
   const [bootError, setBootError] = useState(null);
@@ -249,6 +247,50 @@ function AppInner({ userId = "local", displayName: displayNameProp = "Naza", clo
     }
     localStorage.setItem("sf_dark", dark);
   }, [dark]);
+
+  useEffect(() => {
+    async function reportClientIssue(kind, payload) {
+      try {
+        await fetch(`${appConfig.apiBaseUrl}/api/system/client-error`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            kind,
+            path: window.location.pathname,
+            message: payload?.message || String(payload || "Unknown client error"),
+            stack: payload?.stack || null,
+            user_id: userId || null,
+          }),
+        });
+      } catch {
+        // Avoid recursive browser error loops.
+      }
+    }
+
+    function onError(event) {
+      reportClientIssue("window.error", {
+        message: event?.message,
+        stack: event?.error?.stack,
+      });
+    }
+
+    function onUnhandledRejection(event) {
+      const reason = event?.reason;
+      reportClientIssue("window.unhandledrejection", {
+        message: reason?.message || String(reason || "Unhandled rejection"),
+        stack: reason?.stack,
+      });
+    }
+
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onUnhandledRejection);
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onUnhandledRejection);
+    };
+  }, [userId]);
 
   useEffect(() => {
     const titles = {
@@ -410,15 +452,6 @@ function AppInner({ userId = "local", displayName: displayNameProp = "Naza", clo
 
     try {
       const onboardResult = await api.onboard();
-
-      if (onboardResult.status === "created") {
-        try {
-          await api.claimLegacy();
-          setLegacyAvailable(false);
-        } catch {
-          // No legacy data to claim.
-        }
-      }
 
       await refreshSettings();
 
@@ -819,6 +852,7 @@ function AppInner({ userId = "local", displayName: displayNameProp = "Naza", clo
             <button
               key={item.id}
               onClick={() => setTab(item.id)}
+              data-testid={`tab-${item.id}`}
               className={`shrink-0 rounded-full px-4 py-2.5 text-sm font-semibold transition ${
                 tab === item.id
                   ? "bg-finance-purple text-white shadow-sm"
@@ -929,8 +963,43 @@ function AppInner({ userId = "local", displayName: displayNameProp = "Naza", clo
 
 const PUBLISHABLE_KEY = appConfig.clerkPublishableKey;
 
+function CloudConfigWarning() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-finance-cream px-4 dark:bg-neutral-950">
+      <div
+        data-testid="cloud-config-warning"
+        className="w-full max-w-xl rounded-[32px] border border-white/70 bg-white/90 p-8 shadow-panel dark:border-white/10 dark:bg-neutral-900/90"
+      >
+        <div className="flex flex-col items-center gap-4 text-center">
+          <BrandMark size="md" />
+          <div>
+            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Configuracion requerida</p>
+            <h1 className="mt-2 font-display text-3xl text-finance-ink dark:text-neutral-100">
+              Falta conectar Clerk en la web
+            </h1>
+            <p className="mt-3 text-sm leading-6 text-neutral-500 dark:text-neutral-300">
+              Esta build apunta a una API cloud con autenticacion obligatoria, pero no tiene
+              <code className="mx-1 rounded bg-finance-cream px-1.5 py-0.5 text-xs text-finance-ink dark:bg-neutral-800 dark:text-neutral-100">
+                VITE_CLERK_PUBLISHABLE_KEY
+              </code>
+              configurada.
+            </p>
+            <p className="mt-3 text-sm leading-6 text-neutral-500 dark:text-neutral-300">
+              Configura esa variable en Pages y republica la web para habilitar login real.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   if (!PUBLISHABLE_KEY) {
+    if (import.meta.env.PROD && appConfig.expectsCloudAuth) {
+      return <CloudConfigWarning />;
+    }
+
     // Modo local: sin auth, single-tenant
     return (
       <ToastProvider>

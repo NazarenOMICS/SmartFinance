@@ -1,6 +1,7 @@
 import { allRows, type D1DatabaseLike } from "./client";
 import { getSettingsObject } from "./settings";
 import { getInstallmentCommitments, listInstallments } from "./installments";
+import { filterTransactionsForMetricFlows, getPreferredCurrencyByLinkId } from "./metrics";
 
 function shiftMonth(month: string, delta: number) {
   const [year, monthNumber] = month.split("-").map(Number);
@@ -135,12 +136,16 @@ export async function getConsolidatedAccounts(db: D1DatabaseLike, userId: string
 
 export async function getLegacyCategoryTrend(db: D1DatabaseLike, userId: string, endMonth: string, months: number) {
   const startMonth = shiftMonth(endMonth, -(months - 1));
-  const transactions = await listTransactionsWindow(db, userId, startMonth, endMonth);
+  const [transactions, preferredCurrencyByLinkId] = await Promise.all([
+    listTransactionsWindow(db, userId, startMonth, endMonth),
+    getPreferredCurrencyByLinkId(db, userId),
+  ]);
+  const metricTransactions = filterTransactionsForMetricFlows(transactions, preferredCurrencyByLinkId);
   const monthKeys = Array.from({ length: months }, (_, index) => shiftMonth(startMonth, index));
 
   return monthKeys.map((month) => {
-    const byCategory = transactions
-      .filter((transaction) => transaction.period === month && Number(transaction.monto) < 0 && transaction.movement_kind !== "internal_transfer" && transaction.movement_kind !== "fx_exchange")
+    const byCategory = metricTransactions
+      .filter((transaction) => transaction.period === month && Number(transaction.monto) < 0)
       .reduce<Record<string, number>>((acc, transaction) => {
         const key = transaction.category_name || "Sin categoria";
         acc[key] = (acc[key] || 0) + Math.abs(Number(transaction.monto));
@@ -209,12 +214,16 @@ export async function getSavingsProjection(db: D1DatabaseLike, userId: string, e
   const currency = settings.savings_currency || settings.display_currency || "UYU";
   const exchangeRates = getExchangeRateMap(settings);
   const startMonth = shiftMonth(endMonth, -(Math.max(months, 6) - 1));
-  const transactions = await listTransactionsWindow(db, userId, startMonth, endMonth);
-  const commitments = await getInstallmentCommitments(db, userId, shiftMonth(endMonth, 1), Math.max(6, Math.min(months, 12)));
+  const [transactions, commitments, preferredCurrencyByLinkId] = await Promise.all([
+    listTransactionsWindow(db, userId, startMonth, endMonth),
+    getInstallmentCommitments(db, userId, shiftMonth(endMonth, 1), Math.max(6, Math.min(months, 12))),
+    getPreferredCurrencyByLinkId(db, userId),
+  ]);
+  const metricTransactions = filterTransactionsForMetricFlows(transactions, preferredCurrencyByLinkId);
   const historicalMonths = Array.from({ length: 6 }, (_, index) => shiftMonth(endMonth, -(5 - index)));
 
   const monthlySavings = historicalMonths.map((month) => {
-    const monthTransactions = transactions.filter((transaction) => transaction.period === month && transaction.movement_kind !== "internal_transfer" && transaction.movement_kind !== "fx_exchange");
+    const monthTransactions = metricTransactions.filter((transaction) => transaction.period === month);
     const income = monthTransactions
       .filter((transaction) => Number(transaction.monto) > 0)
       .reduce((sum, transaction) => sum + convertCurrencyAmount(Number(transaction.monto), transaction.moneda, currency, exchangeRates), 0);

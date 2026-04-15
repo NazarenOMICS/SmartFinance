@@ -25,7 +25,21 @@ export const updateAccountInputSchema = z.object({
   opening_balance: z.number().optional(),
 });
 
+export const consolidatedAccountSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  currency: accountCurrencySchema,
+  balance: z.number(),
+  converted_balance: z.number(),
+});
+
+export const consolidatedAccountsSchema = z.object({
+  total: z.number(),
+  currency: accountCurrencySchema,
+  accounts: z.array(consolidatedAccountSchema),
+});
+
 export type Account = z.infer<typeof accountSchema>;
 export type CreateAccountInput = z.infer<typeof createAccountInputSchema>;
 export type UpdateAccountInput = z.infer<typeof updateAccountInputSchema>;
-
+export type ConsolidatedAccounts = z.infer<typeof consolidatedAccountsSchema>;

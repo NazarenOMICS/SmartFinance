@@ -17,6 +17,7 @@ export const usageResponseSchema = z.object({
     accounts: usageMetricSchema,
     uploads_this_month: usageMetricSchema,
     ocr_pages_this_month: usageMetricSchema,
+    ai_requests_this_month: usageMetricSchema,
     max_upload_size_mb: z.number().positive(),
   }),
 });

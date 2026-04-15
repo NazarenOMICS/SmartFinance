@@ -12,7 +12,7 @@ function resolveApiBaseUrl() {
   if (explicit) return explicit;
 
   if (import.meta.env.PROD) {
-    return "https://smartfinance-saas-api.nazarenocabrerati.workers.dev";
+    return "https://smartfinance-saas-api-production.nazarenocabrerati.workers.dev";
   }
 
   return "";
@@ -22,4 +22,7 @@ export const appConfig = Object.freeze({
   apiBaseUrl: resolveApiBaseUrl(),
   apiTimeoutMs: parseTimeout(import.meta.env.VITE_API_TIMEOUT_MS, 15000),
   clerkPublishableKey: String(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || ""),
+  expectsCloudAuth:
+    Boolean(resolveApiBaseUrl()) &&
+    !/^https?:\/\/(localhost|127\.0\.0\.1)(?::\d+)?$/i.test(resolveApiBaseUrl()),
 });

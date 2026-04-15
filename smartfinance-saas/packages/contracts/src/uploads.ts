@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { monthStringSchema } from "./transactions";
+import { booleanishSchema } from "./common";
 
 export const uploadSourceSchema = z.enum(["web", "mobile", "import"]);
 export const uploadStatusSchema = z.enum(["pending", "uploaded", "processing", "processed", "needs_review"]);
@@ -16,6 +17,18 @@ export const uploadSchema = z.object({
   tx_count: z.number().int().nonnegative(),
   source: uploadSourceSchema,
   status: uploadStatusSchema,
+  parser: z.string().nullable().optional(),
+  detected_format: z.string().nullable().optional(),
+  parse_failure_reason: z.string().nullable().optional(),
+  ai_assisted: booleanishSchema.optional(),
+  ai_provider: z.string().nullable().optional(),
+  ai_model: z.string().nullable().optional(),
+  extracted_candidates: z.number().int().nonnegative().optional(),
+  duplicates_skipped: z.number().int().nonnegative().optional(),
+  auto_categorized_count: z.number().int().nonnegative().optional(),
+  suggested_count: z.number().int().nonnegative().optional(),
+  pending_review_count: z.number().int().nonnegative().optional(),
+  unmatched_count: z.number().int().nonnegative().optional(),
   created_at: z.string(),
 });
 
@@ -57,6 +70,11 @@ export const uploadProcessResultSchema = z.object({
   auto_categorized: z.number().int().nonnegative(),
   suggested: z.number().int().nonnegative(),
   pending_review: z.number().int().nonnegative(),
+  review_groups: z.array(z.record(z.unknown())).default([]),
+  guided_review_groups: z.array(z.record(z.unknown())).default([]),
+  transaction_review_queue: z.array(z.record(z.unknown())).default([]),
+  guided_onboarding_required: z.boolean().default(false),
+  remaining_transaction_ids: z.array(z.number()).default([]),
 });
 
 export const uploadPreviewInputSchema = z.object({
@@ -68,6 +86,7 @@ export const uploadPreviewInputSchema = z.object({
 export const uploadPreviewResultSchema = z.object({
   transactions: z.array(uploadImportedTransactionInputSchema),
   unmatched: z.array(z.string()),
+  detected_format: z.string().nullable().optional(),
   totals: z.object({
     parsed: z.number().int().nonnegative(),
     unmatched: z.number().int().nonnegative(),

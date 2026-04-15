@@ -75,7 +75,7 @@ export default function Assistant({ month, dataVersion }) {
             onChange={(event) => setQuestion(event.target.value)}
             placeholder="Preguntame por gastos, runway o margen"
           />
-          <button className="rounded-full bg-finance-purple px-5 py-3 font-semibold text-white" disabled={loading}>
+          <button data-testid="assistant-submit-button" className="rounded-full bg-finance-purple px-5 py-3 font-semibold text-white" disabled={loading}>
             {loading ? "Pensando..." : "Preguntar"}
           </button>
         </form>

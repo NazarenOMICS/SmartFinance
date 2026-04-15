@@ -42,6 +42,13 @@ export const recurringExpenseSchema = z.object({
   months_seen: z.array(monthStringSchema),
   category_name: z.string().nullable(),
   category_color: z.string().nullable().optional(),
+  suggested_category_id: z.number().int().positive().nullable().optional(),
+  suggested_category_name: z.string().nullable().optional(),
+  suggested_category_color: z.string().nullable().optional(),
+  suggested_rule_mode: z.enum(["auto", "suggest"]).nullable().optional(),
+  suggestion_confidence: z.number().min(0).max(1).nullable().optional(),
+  suggestion_reason: z.string().nullable().optional(),
+  suggestion_provider: z.string().nullable().optional(),
 });
 
 export const categoryTrendPointSchema = z.object({

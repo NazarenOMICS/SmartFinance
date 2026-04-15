@@ -3,6 +3,8 @@ import { healthResponseSchema, schemaStatusSchema, usageResponseSchema } from "@
 import { getSchemaStatus, getUsageSnapshot } from "@smartfinance/database";
 import type { ApiBindings, ApiVariables } from "../env";
 import { getRuntimeEnv } from "../env";
+import { reportError } from "../services/error-reporting";
+import { getLocalTestUserId, resetLocalTestDataset } from "../services/local-test-data";
 
 const systemRouter = new Hono<{
   Bindings: ApiBindings;
@@ -39,6 +41,44 @@ systemRouter.get("/system/limits", async (c) => {
   });
 
   return c.json(payload);
+});
+
+systemRouter.post("/system/test/reset", async (c) => {
+  const runtime = getRuntimeEnv(c.env);
+  if (runtime.APP_ENV !== "local") {
+    return c.json({ error: "Not found" }, 404);
+  }
+
+  const result = await resetLocalTestDataset(c.env.DB, getLocalTestUserId());
+  return c.json({
+    ...result,
+    request_id: c.get("requestId"),
+  });
+});
+
+systemRouter.post("/system/client-error", async (c) => {
+  const requestId = c.get("requestId");
+  const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
+  if (!body || typeof body.message !== "string" || !body.message.trim()) {
+    return c.json({ error: "Invalid client error payload", code: "VALIDATION_ERROR", request_id: requestId }, 400);
+  }
+
+  c.executionCtx.waitUntil(
+    reportError(c.env, {
+      request_id: requestId,
+      path: String(body.path || ""),
+      method: "CLIENT",
+      user_id: typeof body.user_id === "string" ? body.user_id : null,
+      message: body.message,
+      source: "web",
+      extra: {
+        stack: typeof body.stack === "string" ? body.stack : null,
+        kind: typeof body.kind === "string" ? body.kind : "browser_error",
+      },
+    }),
+  );
+
+  return c.json({ ok: true, request_id: requestId });
 });
 
 export default systemRouter;

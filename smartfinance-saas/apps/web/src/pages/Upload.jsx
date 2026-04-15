@@ -317,6 +317,25 @@ function isImageImport(fileName = "") {
   return /\.(png|jpe?g|webp)$/i.test(String(fileName || ""));
 }
 
+function formatUploadParser(parser) {
+  if (parser === "csv") return "CSV";
+  if (parser === "text") return "Texto";
+  if (parser === "ai") return "AI";
+  if (parser === "hybrid") return "Hibrido";
+  if (parser === "unsupported") return "Manual";
+  return "Import";
+}
+
+function uploadStatusTone(status) {
+  if (status === "needs_review") {
+    return "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300";
+  }
+  if (status === "processing" || status === "uploaded" || status === "pending") {
+    return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300";
+  }
+  return "bg-finance-tealSoft text-finance-teal dark:bg-teal-900/30 dark:text-teal-300";
+}
+
 function buildInitialManualForm(month) {
   return {
     fecha: `${month}-01`,
@@ -348,7 +367,10 @@ function SavedFormats({ onDeleted }) {
       addToast("success", `Formato "${name || key}" eliminado.`);
       onDeleted?.();
     } catch (e) {
-      addToast("error", e.message);
+      addToast(
+        e?.code === "ACCOUNT_CURRENCY_MISMATCH" ? "warning" : "error",
+        e.message
+      );
     }
   }
 
@@ -443,7 +465,11 @@ export default function Upload({
     const requestId = ++loadRequestIdRef.current;
     setLoading(true);
     try {
-      const [nextAccounts, nextHistory, nextCategories] = await Promise.all([api.getAccounts(), api.getUploads(), api.getCategories()]);
+      const [nextAccounts, nextHistory, nextCategories] = await Promise.all([
+        api.getAccounts(),
+        api.getUploads(uploadForm.period || month),
+        api.getCategories(),
+      ]);
       if (loadRequestIdRef.current !== requestId) return;
       setAccounts(nextAccounts);
       setHistory(nextHistory);
@@ -464,7 +490,7 @@ export default function Upload({
 
   useEffect(() => {
     load();
-  }, []);
+  }, [uploadForm.period]);
 
   useEffect(() => {
     setUploadForm((prev) => ({ ...prev, period: month }));
@@ -642,7 +668,10 @@ export default function Upload({
         addToast("warning", "No se encontraron transacciones en el archivo.");
       }
     } catch (e) {
-      addToast("error", e.message);
+      addToast(
+        e?.code === "ACCOUNT_CURRENCY_MISMATCH" ? "warning" : "error",
+        e.message
+      );
     } finally {
       setParsing(false);
     }
@@ -655,6 +684,11 @@ export default function Upload({
     if (!manualForm.monto) { addToast("warning", "Ingresá un monto."); return; }
     if (manualForm.entry_type === "internal_transfer" && !manualForm.target_account_id) {
       addToast("warning", "Para transferencia interna, elegí la cuenta destino."); return;
+    }
+    const accountCurrency = accounts.find((account) => account.id === selectedAccount)?.currency;
+    if (accountCurrency && manualForm.moneda !== accountCurrency) {
+      addToast("warning", `La cuenta seleccionada es ${accountCurrency}. Usá esa moneda o elegí otra cuenta.`);
+      return;
     }
     try {
       const payload = {
@@ -691,6 +725,17 @@ export default function Upload({
       ...displayedTransactionReviewQueue.map((item) => item.transaction_id),
     ].map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0))
   );
+  const pendingReviewSummary = [
+    displayedGuidedReviewGroups.length > 0
+      ? { label: "Guiado", value: displayedGuidedReviewGroups.length }
+      : null,
+    displayedRuleReviewGroups.length > 0
+      ? { label: "Reglas", value: displayedRuleReviewGroups.length }
+      : null,
+    displayedTransactionReviewQueue.length > 0
+      ? { label: "1 a 1", value: displayedTransactionReviewQueue.length }
+      : null,
+  ].filter(Boolean);
 
   useEffect(() => {
     if (!userId) return;
@@ -995,6 +1040,7 @@ export default function Upload({
             />
             <button
               disabled={parsing || !selectedAccount}
+              data-testid="upload-process-button"
               className="rounded-full bg-finance-purple px-5 py-3 font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
             >
               Procesar
@@ -1002,7 +1048,7 @@ export default function Upload({
           </div>
 
           {feedback && (
-            <div className={`mt-5 rounded-2xl p-4 text-sm space-y-1 ${
+            <div data-testid="upload-feedback" className={`mt-5 rounded-2xl p-4 text-sm space-y-1 ${
               feedback.new_transactions === 0 && feedback.duplicates_skipped === 0
                 ? "bg-finance-amberSoft text-finance-ink dark:bg-amber-900/30 dark:text-amber-200"
                 : "bg-finance-purpleSoft text-finance-ink dark:bg-purple-900/30 dark:text-purple-200"
@@ -1019,6 +1065,50 @@ export default function Upload({
                   <p>Duplicados salteados: {feedback.duplicates_skipped}</p>
                   <p>Auto-categorizadas: {feedback.auto_categorized}</p>
                   <p>Pendientes de categorizar: {feedback.pending_review}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {feedback.parser ? (
+                      <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-semibold text-finance-ink dark:bg-neutral-900/60 dark:text-neutral-100">
+                        Parser: {formatUploadParser(feedback.parser)}
+                      </span>
+                    ) : null}
+                    {feedback.detected_format ? (
+                      <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-semibold text-finance-ink dark:bg-neutral-900/60 dark:text-neutral-100">
+                        Formato: {feedback.detected_format}
+                      </span>
+                    ) : null}
+                    {Number.isFinite(Number(feedback.extracted_candidates)) ? (
+                      <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-semibold text-finance-ink dark:bg-neutral-900/60 dark:text-neutral-100">
+                        Extraidas: {Number(feedback.extracted_candidates)}
+                      </span>
+                    ) : null}
+                    {Number(feedback.unmatched_count || 0) > 0 ? (
+                      <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-semibold text-finance-ink dark:bg-neutral-900/60 dark:text-neutral-100">
+                        Ambiguas: {Number(feedback.unmatched_count)}
+                      </span>
+                    ) : null}
+                  </div>
+                  {feedback.ai_assisted ? (
+                    <p className="text-xs text-neutral-500 dark:text-purple-200/80">
+                      AI assist: usamos {feedback.ai_provider || "el provider configurado"} para rescatar transacciones del archivo.
+                    </p>
+                  ) : null}
+                  {pendingReviewSummary.length > 0 ? (
+                    <div className="mt-3 space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-neutral-500 dark:text-purple-200/80">
+                        Te queda por revisar
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {pendingReviewSummary.map((item) => (
+                          <span
+                            key={item.label}
+                            className="rounded-full bg-white/70 px-3 py-1 text-xs font-semibold text-finance-ink dark:bg-neutral-900/60 dark:text-neutral-100"
+                          >
+                            {item.label}: {item.value}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </>
               )}
             </div>
@@ -1069,7 +1159,9 @@ export default function Upload({
               <select
                 value={manualForm.moneda}
                 onChange={(e) => setManualForm((p) => ({ ...p, moneda: e.target.value }))}
-                className="rounded-2xl border border-neutral-200 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                disabled={Boolean(selectedAccountData)}
+                title={selectedAccountData ? "La moneda queda fijada por la cuenta seleccionada." : undefined}
+                className="rounded-2xl border border-neutral-200 px-4 py-3 disabled:bg-neutral-100 disabled:text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:disabled:bg-neutral-800/60"
               >
                 {SUPPORTED_CURRENCY_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -1078,6 +1170,11 @@ export default function Upload({
                 ))}
               </select>
             </div>
+            {selectedAccountData && (
+              <p className="text-xs text-neutral-500">
+                La moneda se toma de la cuenta seleccionada: <strong>{selectedAccountData.currency}</strong>. Para cargar otra moneda, cambiá de cuenta.
+              </p>
+            )}
             {manualForm.entry_type === "internal_transfer" && (() => {
               const linkedOptions = selectedAccountData?.linked_accounts || [];
               return (
@@ -1112,7 +1209,7 @@ export default function Upload({
                 </>
               );
             })()}
-            <button className="rounded-full bg-finance-ink px-5 py-3 font-semibold text-white transition hover:opacity-90 dark:bg-white dark:text-finance-ink">
+            <button data-testid="manual-transaction-submit" className="rounded-full bg-finance-ink px-5 py-3 font-semibold text-white transition hover:opacity-90 dark:bg-white dark:text-finance-ink">
               Guardar transacción
             </button>
           </div>
@@ -1125,11 +1222,15 @@ export default function Upload({
         selectedCurrency={selectedAccountData?.currency || "UYU"}
         month={uploadForm.period}
         onImported={(result) => {
+          const pendingCount = Number(result?.remaining_transaction_ids?.length || 0);
           setFeedback({
             new_transactions: result?.created || 0,
             duplicates_skipped: result?.duplicates || 0,
-            auto_categorized: 0,
-            pending_review: 0,
+            auto_categorized: Math.max(Number(result?.created || 0) - pendingCount, 0),
+            pending_review: pendingCount,
+            parser: "csv",
+            extracted_candidates: result?.created || 0,
+            unmatched_count: 0,
           });
           applyImportReviewState(result);
           load();
@@ -1147,16 +1248,44 @@ export default function Upload({
         <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Historial de uploads</p>
         <div className="mt-5 space-y-3">
           {history.map((item) => (
-            <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-finance-cream/75 px-4 py-4 dark:bg-neutral-800/75">
+            <div data-testid={`upload-history-${item.id}`} key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-finance-cream/75 px-4 py-4 dark:bg-neutral-800/75">
               <div>
-                <p className="font-semibold text-finance-ink">{item.filename}</p>
+                <p className="font-semibold text-finance-ink">{item.original_filename || item.filename}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {item.parser ? (
+                    <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-finance-ink dark:bg-neutral-900/70 dark:text-neutral-100">
+                      {formatUploadParser(item.parser)}
+                    </span>
+                  ) : null}
+                  {item.detected_format ? (
+                    <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-finance-ink dark:bg-neutral-900/70 dark:text-neutral-100">
+                      {item.detected_format}
+                    </span>
+                  ) : null}
+                  {item.ai_assisted ? (
+                    <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-finance-ink dark:bg-neutral-900/70 dark:text-neutral-100">
+                      AI assist
+                    </span>
+                  ) : null}
+                  {Number(item.pending_review_count || 0) > 0 ? (
+                    <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-finance-ink dark:bg-neutral-900/70 dark:text-neutral-100">
+                      Pendientes: {Number(item.pending_review_count)}
+                    </span>
+                  ) : null}
+                  {Number(item.auto_categorized_count || 0) > 0 ? (
+                    <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-finance-ink dark:bg-neutral-900/70 dark:text-neutral-100">
+                      Auto: {Number(item.auto_categorized_count)}
+                    </span>
+                  ) : null}
+                  {Number(item.duplicates_skipped || 0) > 0 ? (
+                    <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-finance-ink dark:bg-neutral-900/70 dark:text-neutral-100">
+                      Duplicados: {Number(item.duplicates_skipped)}
+                    </span>
+                  ) : null}
+                </div>
                 <p className="text-sm text-neutral-500">{item.account_name || "Sin cuenta"} · {item.period} · {item.tx_count} transacciones</p>
               </div>
-              <span className={`rounded-full px-3 py-1 text-sm font-semibold ${
-                item.status === "needs_mapping"
-                  ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
-                  : "bg-finance-tealSoft text-finance-teal dark:bg-teal-900/30 dark:text-teal-300"
-              }`}>
+              <span className={`rounded-full px-3 py-1 text-sm font-semibold ${uploadStatusTone(item.status)}`}>
                 {item.status === "needs_mapping" ? "Sin mapeo" : item.status}
               </span>
             </div>

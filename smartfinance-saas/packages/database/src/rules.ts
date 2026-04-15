@@ -1,6 +1,8 @@
 import type { CreateRuleInput, UpdateRuleInput } from "@smartfinance/contracts";
 import {
+  calculateAmountSimilarity,
   calculateLearnedRuleConfidence,
+  deriveCounterpartyKey,
   deriveRulePattern,
   normalizeRulePattern,
   selectBestRuleMatch,
@@ -26,6 +28,37 @@ export type RuleRow = {
   created_at: string;
 };
 
+export type RuleInsightRow = {
+  kind: "duplicate_scope" | "overlap" | "weak_auto";
+  title: string;
+  description: string;
+  rule_ids: number[];
+  recommended_action: "merge" | "disable" | "lower_to_suggest" | "review";
+  priority: "high" | "medium" | "low";
+};
+
+export type AmountProfileRow = {
+  id: number;
+  counterparty_key: string;
+  normalized_pattern: string;
+  category_id: number;
+  category_name: string | null;
+  account_id: string | null;
+  currency: "UYU" | "USD" | "EUR" | "ARS";
+  direction: "any" | "expense" | "income";
+  amount_median: number;
+  amount_min: number;
+  amount_max: number;
+  amount_p25: number | null;
+  amount_p75: number | null;
+  sample_count: number;
+  confidence: number;
+  status: "active" | "disabled";
+  last_seen_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
 type RuleScope = {
   account_id?: string | null;
   currency?: "UYU" | "USD" | "EUR" | "ARS" | null;
@@ -39,6 +72,10 @@ type CategorizationDecision = {
   categoryConfidence: number | null;
   categoryRuleId: number | null;
   matchedRule: RuleRow | null;
+  amountProfileId?: number | null;
+  amountProfile?: AmountProfileRow | null;
+  amountSimilarity?: number | null;
+  conflictCandidates?: Array<Record<string, unknown>>;
 };
 
 type RuleApplicationSummary = {
@@ -47,12 +84,24 @@ type RuleApplicationSummary = {
   suggested_transactions: number;
 };
 
+type CategoryMatchRow = {
+  id: number;
+  slug?: string | null;
+  name: string;
+  type: string | null;
+  color: string | null;
+};
+
 function normalizeRuleScope(scope: RuleScope = {}) {
   return {
     account_id: scope.account_id ?? null,
     currency: scope.currency ?? null,
     direction: scope.direction ?? "any",
   };
+}
+
+function buildScopeKey(rule: Pick<RuleRow, "account_id" | "currency" | "direction">) {
+  return [rule.account_id || "", rule.currency || "", rule.direction || "any"].join("::");
 }
 
 async function getRuleThresholds(db: D1DatabaseLike, userId: string) {
@@ -64,6 +113,766 @@ async function getRuleThresholds(db: D1DatabaseLike, userId: string) {
     autoThreshold: Number.isFinite(autoThreshold) ? autoThreshold : 0.9,
     suggestThreshold: Number.isFinite(suggestThreshold) ? suggestThreshold : 0.72,
   };
+}
+
+async function getAmountProfileSettings(db: D1DatabaseLike, userId: string) {
+  const settings = await getSettingsObject(db, userId);
+  const autoThreshold = Number(settings.categorizer_amount_auto_threshold || "0.92");
+  const suggestThreshold = Number(settings.categorizer_amount_suggest_threshold || "0.74");
+
+  return {
+    enabled: String(settings.categorizer_amount_profiles_enabled ?? "1") !== "0",
+    autoThreshold: Number.isFinite(autoThreshold) ? autoThreshold : 0.92,
+    suggestThreshold: Number.isFinite(suggestThreshold) ? suggestThreshold : 0.74,
+  };
+}
+
+const CATEGORY_KEYWORD_ALIASES: Record<string, string[]> = {
+  supermercado: ["supermercado", "devoto", "disco", "tienda inglesa", "geant", "frog", "kinko"],
+  transporte: ["uber", "cabify", "bolt", "didi", "taxi", "peaje", "parking", "nafta", "combustible"],
+  suscripciones: ["spotify", "netflix", "openai", "chatgpt", "anthropic", "claude", "youtube", "apple.com/bill"],
+  restaurantes: ["mcdonald", "burger", "restaurant", "restaurante", "bar", "cafe", "cafeteria", "mostaza", "la pasiva"],
+  delivery: ["pedidosya", "rappi", "uber eats"],
+  servicios: ["ute", "ose", "antel", "internet", "energia", "agua", "gas"],
+  alquiler: ["alquiler", "arrendamiento"],
+  salud: ["farmashop", "farmacia", "clinica", "medico", "laboratorio", "hospital"],
+  ingreso: ["sueldo", "nomina", "salary", "haberes", "ingreso"],
+};
+
+const REINTEGRO_KEYWORDS = [
+  "devolucion",
+  "devol",
+  "reintegro",
+  "reversa",
+  "reverso",
+  "cashback",
+  "contracargo",
+  "reversal",
+];
+
+const TRANSFER_KEYWORDS = [
+  "supernet tc",
+  "compra de dolares",
+  "venta de dolares",
+  "compra dolares",
+  "venta dolares",
+  "compra divisa",
+  "venta divisa",
+  "compra moneda extranjera",
+  "venta moneda extranjera",
+  "cambio divisas",
+  "cambio de moneda",
+  "transferencia propia",
+  "transferencia entre cuentas",
+  "transferencia interna",
+  "movimiento entre cuentas",
+  "transferencia inmediata",
+  "transferencia realizada",
+  "transf recibida",
+  "debito debin",
+  "credito debin",
+];
+
+const PERSON_TRANSFER_HINTS = [
+  "transferencia enviada",
+  "transferencia inmediata a",
+  "transferencia realizada a",
+  "transf recibida",
+  "trf plaza",
+  "trf. plaza",
+];
+
+const SUPERNET_INCOME_HINTS = [
+  "credito por operacion en supernet p--/",
+  "credito por operacion en supernet p ",
+  "credito por operacion en supernet p-/",
+];
+
+const EDUCATION_HINTS = [
+  "educuniversida",
+  "educacion universitaria",
+  "cuota ort",
+  "ort centro",
+  " universidad ",
+  " facultad ",
+  " curso ",
+];
+
+const CARD_PURCHASE_HINTS = [
+  "compra con tarjeta",
+  "compra tarjeta",
+  "compra con debito",
+  "compra con credito",
+  "compra internacional",
+  "dlo.",
+];
+
+function normalizeMatcher(value: string) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function listCategoriesForMatching(db: D1DatabaseLike, userId: string) {
+  return allRows<CategoryMatchRow>(
+    db,
+    "SELECT id, slug, name, type, color FROM categories WHERE user_id = ? ORDER BY sort_order ASC, id ASC",
+    [userId],
+  );
+}
+
+async function findHistoryCategoryMatch(
+  db: D1DatabaseLike,
+  userId: string,
+  input: {
+    descBanco: string;
+    accountId?: string | null;
+    currency?: string | null;
+    entryType: "expense" | "income";
+  },
+) {
+  const pattern = normalizeRulePattern(deriveRulePattern(input.descBanco) || input.descBanco);
+  if (!pattern) return null;
+
+  const row = await firstRow<{
+    category_id: number;
+    matches: number;
+  }>(
+    db,
+    `
+      SELECT
+        category_id,
+        COUNT(*) AS matches
+      FROM transactions
+      WHERE user_id = ?
+        AND category_id IS NOT NULL
+        AND movement_kind = 'normal'
+        AND LOWER(desc_banco) LIKE '%' || ? || '%'
+        AND (? IS NULL OR account_id = ? OR account_id IS NULL)
+        AND (? IS NULL OR moneda = ?)
+        AND ((? = 'expense' AND monto < 0) OR (? = 'income' AND monto > 0))
+      GROUP BY category_id
+      ORDER BY matches DESC, category_id ASC
+      LIMIT 1
+    `,
+    [
+      userId,
+      pattern,
+      input.accountId ?? null,
+      input.accountId ?? null,
+      input.currency ?? null,
+      input.currency ?? null,
+      input.entryType,
+      input.entryType,
+    ],
+  );
+
+  if (!row?.category_id || Number(row.matches || 0) < 2) {
+    return null;
+  }
+
+  return {
+    categoryId: Number(row.category_id),
+    confidence: Math.min(0.78 + (Number(row.matches) - 2) * 0.04, 0.9),
+    source: "history",
+  };
+}
+
+async function findKeywordCategoryMatch(db: D1DatabaseLike, userId: string, descBanco: string) {
+  const categories = await listCategoriesForMatching(db, userId);
+  const categoryBySlug = new Map(
+    categories.map((category) => [normalizeMatcher(category.name), category]),
+  );
+  const normalizedDescription = ` ${normalizeMatcher(descBanco)} `;
+
+  for (const [slug, aliases] of Object.entries(CATEGORY_KEYWORD_ALIASES)) {
+    if (!aliases.some((alias) => normalizedDescription.includes(` ${normalizeMatcher(alias)} `))) {
+      continue;
+    }
+    const category = categoryBySlug.get(slug)
+      || categories.find((item) => normalizeMatcher(item.name).includes(slug))
+      || null;
+    if (!category) continue;
+    return {
+      categoryId: Number(category.id),
+      confidence: slug === "delivery" || slug === "suscripciones" ? 0.82 : 0.74,
+      source: "keyword",
+    };
+  }
+
+  return null;
+}
+
+function quantile(sortedValues: number[], q: number) {
+  if (sortedValues.length === 0) return null;
+  if (sortedValues.length === 1) return sortedValues[0];
+  const position = (sortedValues.length - 1) * q;
+  const base = Math.floor(position);
+  const rest = position - base;
+  const next = sortedValues[base + 1];
+  if (next === undefined) return sortedValues[base];
+  return Number((sortedValues[base] + rest * (next - sortedValues[base])).toFixed(2));
+}
+
+function buildAmountBucket(amount: number, currency: string) {
+  const absolute = Math.abs(Number(amount || 0));
+  const step = currency === "USD" || currency === "EUR" ? 25 : currency === "ARS" ? 10000 : 1000;
+  return `${currency}:${Math.round(absolute / step) * step}`;
+}
+
+function amountProfileReason(profile: AmountProfileRow, similarity: number) {
+  const roundedMedian = Math.round(Number(profile.amount_median || 0));
+  const percent = Math.round(similarity * 100);
+  return `Parece ${profile.category_name || "esta categoria"}: ${profile.counterparty_key} con monto parecido a ${profile.sample_count} pago(s) anteriores, mediana ${roundedMedian} ${profile.currency}, similitud ${percent}%.`;
+}
+
+export async function listAmountProfiles(db: D1DatabaseLike, userId: string) {
+  return allRows<AmountProfileRow>(
+    db,
+    `
+      SELECT
+        profiles.id,
+        profiles.counterparty_key,
+        profiles.normalized_pattern,
+        profiles.category_id,
+        categories.name AS category_name,
+        profiles.account_id,
+        profiles.currency,
+        profiles.direction,
+        profiles.amount_median,
+        profiles.amount_min,
+        profiles.amount_max,
+        profiles.amount_p25,
+        profiles.amount_p75,
+        profiles.sample_count,
+        profiles.confidence,
+        profiles.status,
+        profiles.last_seen_at,
+        profiles.created_at,
+        profiles.updated_at
+      FROM categorization_profiles profiles
+      LEFT JOIN categories
+        ON categories.user_id = profiles.user_id
+       AND categories.id = profiles.category_id
+      WHERE profiles.user_id = ?
+      ORDER BY profiles.updated_at DESC, profiles.sample_count DESC, profiles.confidence DESC
+    `,
+    [userId],
+  );
+}
+
+export async function disableAmountProfile(db: D1DatabaseLike, userId: string, profileId: number) {
+  await runStatement(
+    db,
+    "UPDATE categorization_profiles SET status = 'disabled', updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND id = ?",
+    [userId, profileId],
+  );
+  return listAmountProfiles(db, userId);
+}
+
+async function upsertAmountProfile(
+  db: D1DatabaseLike,
+  userId: string,
+  input: {
+    counterpartyKey: string;
+    categoryId: number;
+    accountId?: string | null;
+    currency: "UYU" | "USD" | "EUR" | "ARS";
+    direction: "expense" | "income";
+    amounts: number[];
+  },
+) {
+  const values = input.amounts
+    .map((value) => Math.abs(Number(value)))
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .sort((left, right) => left - right);
+  if (values.length === 0) return null;
+
+  const median = quantile(values, 0.5) ?? values[0];
+  const p25 = quantile(values, 0.25);
+  const p75 = quantile(values, 0.75);
+  const confidence = Math.min(0.97, Number((0.68 + Math.log10(values.length + 1) * 0.18).toFixed(2)));
+  const existing = await firstRow<{ id: number }>(
+    db,
+    `
+      SELECT id
+      FROM categorization_profiles
+      WHERE user_id = ?
+        AND counterparty_key = ?
+        AND category_id = ?
+        AND IFNULL(account_id, '') = IFNULL(?, '')
+        AND currency = ?
+        AND direction = ?
+      LIMIT 1
+    `,
+    [userId, input.counterpartyKey, input.categoryId, input.accountId ?? null, input.currency, input.direction],
+  );
+
+  if (existing) {
+    await runStatement(
+      db,
+      `
+        UPDATE categorization_profiles
+        SET amount_median = ?,
+            amount_min = ?,
+            amount_max = ?,
+            amount_p25 = ?,
+            amount_p75 = ?,
+            sample_count = ?,
+            confidence = MAX(confidence, ?),
+            status = CASE WHEN status = 'disabled' THEN 'disabled' ELSE 'active' END,
+            last_seen_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = ? AND id = ?
+      `,
+      [
+        median,
+        values[0],
+        values[values.length - 1],
+        p25,
+        p75,
+        values.length,
+        confidence,
+        userId,
+        existing.id,
+      ],
+    );
+  } else {
+    await runStatement(
+      db,
+      `
+        INSERT INTO categorization_profiles (
+          user_id, counterparty_key, normalized_pattern, category_id, account_id, currency, direction,
+          amount_median, amount_min, amount_max, amount_p25, amount_p75, sample_count, confidence, status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+      `,
+      [
+        userId,
+        input.counterpartyKey,
+        input.counterpartyKey,
+        input.categoryId,
+        input.accountId ?? null,
+        input.currency,
+        input.direction,
+        median,
+        values[0],
+        values[values.length - 1],
+        p25,
+        p75,
+        values.length,
+        confidence,
+      ],
+    );
+  }
+
+  return firstRow<AmountProfileRow>(
+    db,
+    `
+      SELECT
+        profiles.id,
+        profiles.counterparty_key,
+        profiles.normalized_pattern,
+        profiles.category_id,
+        categories.name AS category_name,
+        profiles.account_id,
+        profiles.currency,
+        profiles.direction,
+        profiles.amount_median,
+        profiles.amount_min,
+        profiles.amount_max,
+        profiles.amount_p25,
+        profiles.amount_p75,
+        profiles.sample_count,
+        profiles.confidence,
+        profiles.status,
+        profiles.last_seen_at,
+        profiles.created_at,
+        profiles.updated_at
+      FROM categorization_profiles profiles
+      LEFT JOIN categories
+        ON categories.user_id = profiles.user_id
+       AND categories.id = profiles.category_id
+      WHERE profiles.user_id = ?
+        AND profiles.counterparty_key = ?
+        AND profiles.category_id = ?
+        AND IFNULL(profiles.account_id, '') = IFNULL(?, '')
+        AND profiles.currency = ?
+        AND profiles.direction = ?
+      LIMIT 1
+    `,
+    [userId, input.counterpartyKey, input.categoryId, input.accountId ?? null, input.currency, input.direction],
+  );
+}
+
+export async function syncAmountProfileFromCategorizedDescription(
+  db: D1DatabaseLike,
+  userId: string,
+  input: {
+    descBanco: string;
+    amount: number;
+    categoryId: number;
+    accountId?: string | null;
+    currency: "UYU" | "USD" | "EUR" | "ARS";
+    direction: "expense" | "income";
+  },
+) {
+  const counterpartyKey = deriveCounterpartyKey(input.descBanco);
+  if (!counterpartyKey || !input.categoryId) {
+    return { status: "skipped" as const };
+  }
+
+  const rows = await allRows<{ desc_banco: string; monto: number }>(
+    db,
+    `
+      SELECT desc_banco, monto
+      FROM transactions
+      WHERE user_id = ?
+        AND category_id = ?
+        AND movement_kind = 'normal'
+        AND categorization_status = 'categorized'
+        AND moneda = ?
+        AND (? IS NULL OR account_id = ?)
+        AND ((? = 'expense' AND monto < 0) OR (? = 'income' AND monto > 0))
+      ORDER BY fecha DESC, id DESC
+      LIMIT 500
+    `,
+    [
+      userId,
+      input.categoryId,
+      input.currency,
+      input.accountId ?? null,
+      input.accountId ?? null,
+      input.direction,
+      input.direction,
+    ],
+  );
+
+  const amounts = rows
+    .filter((row) => deriveCounterpartyKey(row.desc_banco) === counterpartyKey)
+    .map((row) => Number(row.monto));
+
+  const amountSet = new Set(amounts.map((amount) => Math.abs(Number(amount)).toFixed(2)));
+  const inputAmountKey = Math.abs(Number(input.amount)).toFixed(2);
+  if (!amountSet.has(inputAmountKey)) {
+    amounts.push(input.amount);
+  }
+
+  const profile = await upsertAmountProfile(db, userId, {
+    counterpartyKey,
+    categoryId: input.categoryId,
+    accountId: input.accountId ?? null,
+    currency: input.currency,
+    direction: input.direction,
+    amounts,
+  });
+
+  return { status: profile ? "updated" as const : "skipped" as const, profile };
+}
+
+async function isAmountProfileRejectedForTransaction(
+  db: D1DatabaseLike,
+  userId: string,
+  profileId: number,
+  descBanco: string,
+  amount: number,
+  currency: string,
+) {
+  const normalizedDescription = normalizeRulePattern(descBanco);
+  if (!normalizedDescription) return false;
+  const row = await firstRow<{ id: number }>(
+    db,
+    `
+      SELECT id
+      FROM categorization_profile_rejections
+      WHERE user_id = ?
+        AND profile_id = ?
+        AND desc_banco_normalized = ?
+        AND amount_bucket = ?
+      LIMIT 1
+    `,
+    [userId, profileId, normalizedDescription, buildAmountBucket(amount, currency)],
+  );
+  return Boolean(row);
+}
+
+export async function rejectAmountProfileForTransaction(
+  db: D1DatabaseLike,
+  userId: string,
+  input: { descBanco: string; amount: number; currency: string; accountId?: string | null; direction: "expense" | "income" },
+) {
+  const suggestion = await findAmountProfileCategoryMatch(db, userId, input);
+  if (!suggestion?.profile) return;
+  const normalizedDescription = normalizeRulePattern(input.descBanco);
+  if (!normalizedDescription) return;
+
+  await runStatement(
+    db,
+    `
+      INSERT INTO categorization_profile_rejections (user_id, profile_id, desc_banco_normalized, amount_bucket)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(user_id, profile_id, desc_banco_normalized, amount_bucket) DO NOTHING
+    `,
+    [userId, suggestion.profile.id, normalizedDescription, buildAmountBucket(input.amount, input.currency)],
+  );
+}
+
+export async function findAmountProfileCategoryMatch(
+  db: D1DatabaseLike,
+  userId: string,
+  input: { descBanco: string; amount: number; currency: string; accountId?: string | null; entryType?: "expense" | "income"; direction?: "expense" | "income" },
+) {
+  const settings = await getAmountProfileSettings(db, userId);
+  if (!settings.enabled) return null;
+
+  const counterpartyKey = deriveCounterpartyKey(input.descBanco);
+  const direction = input.direction || input.entryType || (Number(input.amount) >= 0 ? "income" : "expense");
+  if (!counterpartyKey) return null;
+
+  const profiles = await allRows<AmountProfileRow>(
+    db,
+    `
+      SELECT
+        profiles.id,
+        profiles.counterparty_key,
+        profiles.normalized_pattern,
+        profiles.category_id,
+        categories.name AS category_name,
+        profiles.account_id,
+        profiles.currency,
+        profiles.direction,
+        profiles.amount_median,
+        profiles.amount_min,
+        profiles.amount_max,
+        profiles.amount_p25,
+        profiles.amount_p75,
+        profiles.sample_count,
+        profiles.confidence,
+        profiles.status,
+        profiles.last_seen_at,
+        profiles.created_at,
+        profiles.updated_at
+      FROM categorization_profiles profiles
+      LEFT JOIN categories
+        ON categories.user_id = profiles.user_id
+       AND categories.id = profiles.category_id
+      WHERE profiles.user_id = ?
+        AND profiles.counterparty_key = ?
+        AND profiles.currency = ?
+        AND profiles.direction = ?
+        AND profiles.status = 'active'
+        AND profiles.sample_count >= 2
+        AND (profiles.account_id IS NULL OR profiles.account_id = ?)
+    `,
+    [userId, counterpartyKey, input.currency, direction, input.accountId ?? null],
+  );
+
+  const scored = [];
+  for (const profile of profiles) {
+    if (await isAmountProfileRejectedForTransaction(db, userId, profile.id, input.descBanco, input.amount, input.currency)) {
+      continue;
+    }
+    const similarity = calculateAmountSimilarity(input.amount, profile.amount_median, input.currency);
+    if (similarity < 0.52) continue;
+
+    let confidence = 0.42;
+    confidence += similarity * 0.34;
+    confidence += Math.min(0.1, Number(profile.sample_count || 0) * 0.025);
+    confidence += Number(profile.confidence || 0.74) * 0.1;
+    if (profile.account_id && profile.account_id === (input.accountId ?? null)) confidence += 0.04;
+    confidence = Number(Math.min(0.98, confidence).toFixed(3));
+
+    scored.push({
+      profile,
+      similarity,
+      confidence,
+      reason: amountProfileReason(profile, similarity),
+    });
+  }
+
+  scored.sort((left, right) => right.confidence - left.confidence || right.similarity - left.similarity);
+  const best = scored[0];
+  if (!best) return null;
+
+  const conflicts = scored
+    .filter((candidate) => candidate.profile.category_id !== best.profile.category_id)
+    .filter((candidate) => best.confidence - candidate.confidence <= 0.08)
+    .slice(0, 3)
+    .map((candidate) => ({
+      profile_id: candidate.profile.id,
+      category_id: candidate.profile.category_id,
+      category_name: candidate.profile.category_name,
+      amount_median: candidate.profile.amount_median,
+      sample_count: candidate.profile.sample_count,
+      confidence: candidate.confidence,
+      amount_similarity: candidate.similarity,
+    }));
+
+  return {
+    categoryId: best.profile.category_id,
+    confidence: best.confidence,
+    source: "amount_profile",
+    profile: best.profile,
+    similarity: best.similarity,
+    reason: best.reason,
+    conflictCandidates: conflicts,
+    hasConflict: conflicts.length > 0,
+  };
+}
+
+export async function rebuildAmountProfiles(db: D1DatabaseLike, userId: string) {
+  await runStatement(db, "DELETE FROM categorization_profiles WHERE user_id = ?", [userId]);
+  await runStatement(db, "DELETE FROM categorization_profile_rejections WHERE user_id = ?", [userId]);
+
+  const rows = await allRows<{
+    desc_banco: string;
+    monto: number;
+    moneda: "UYU" | "USD" | "EUR" | "ARS";
+    category_id: number;
+    account_id: string | null;
+    entry_type: string;
+  }>(
+    db,
+    `
+      SELECT desc_banco, monto, moneda, category_id, account_id, entry_type
+      FROM transactions
+      WHERE user_id = ?
+        AND category_id IS NOT NULL
+        AND movement_kind = 'normal'
+        AND categorization_status = 'categorized'
+      ORDER BY fecha ASC, id ASC
+    `,
+    [userId],
+  );
+
+  for (const row of rows) {
+    await syncAmountProfileFromCategorizedDescription(db, userId, {
+      descBanco: row.desc_banco,
+      amount: Number(row.monto),
+      categoryId: Number(row.category_id),
+      accountId: row.account_id,
+      currency: row.moneda,
+      direction: row.entry_type === "income" || Number(row.monto) > 0 ? "income" : "expense",
+    });
+  }
+
+  const profiles = await listAmountProfiles(db, userId);
+  return {
+    rebuilt_count: profiles.length,
+    profiles,
+  };
+}
+
+async function findCategoryBySlugOrName(db: D1DatabaseLike, userId: string, slugsOrNames: string[]) {
+  const categories = await listCategoriesForMatching(db, userId);
+  const wanted = slugsOrNames.map(normalizeMatcher);
+  return categories.find((category) =>
+    wanted.includes(normalizeMatcher(category.slug || ""))
+    || wanted.includes(normalizeMatcher(category.name)),
+  ) || null;
+}
+
+function descriptionIncludesAny(descBanco: string, keywords: string[]) {
+  const normalized = ` ${normalizeMatcher(descBanco)} `;
+  return keywords.some((keyword) => normalized.includes(` ${normalizeMatcher(keyword)} `) || normalized.includes(normalizeMatcher(keyword)));
+}
+
+function hasCommercePurchaseContext(descBanco: string) {
+  if (descriptionIncludesAny(descBanco, CARD_PURCHASE_HINTS)) return true;
+  const keywordSlugs = ["supermercado", "transporte", "suscripciones", "restaurantes", "delivery", "servicios", "salud"];
+  const normalizedDescription = ` ${normalizeMatcher(descBanco)} `;
+  return keywordSlugs.some((slug) =>
+    (CATEGORY_KEYWORD_ALIASES[slug] || []).some((alias) => normalizedDescription.includes(` ${normalizeMatcher(alias)} `)),
+  );
+}
+
+async function findLegacyHeuristicCategoryMatch(
+  db: D1DatabaseLike,
+  userId: string,
+  input: { descBanco: string; amount: number; currency: string; entryType: "expense" | "income" },
+) {
+  const descBanco = input.descBanco;
+
+  if (input.amount > 0 && descriptionIncludesAny(descBanco, SUPERNET_INCOME_HINTS)) {
+    const category = await findCategoryBySlugOrName(db, userId, ["ingreso"]);
+    if (category) return { categoryId: Number(category.id), confidence: 0.95, source: "supernet_income" };
+  }
+
+  if (input.amount > 0 && descriptionIncludesAny(descBanco, REINTEGRO_KEYWORDS)) {
+    const category = await findCategoryBySlugOrName(db, userId, ["reintegro", "ingreso"]);
+    if (category) return { categoryId: Number(category.id), confidence: 0.9, source: "refund" };
+  }
+
+  if (!hasCommercePurchaseContext(descBanco) && descriptionIncludesAny(descBanco, [...TRANSFER_KEYWORDS, ...PERSON_TRANSFER_HINTS])) {
+    const category = await findCategoryBySlugOrName(db, userId, ["transferencia"]);
+    if (category) return { categoryId: Number(category.id), confidence: 0.88, source: "transfer" };
+  }
+
+  if (descriptionIncludesAny(descBanco, EDUCATION_HINTS)) {
+    const category = await findCategoryBySlugOrName(db, userId, ["educacion"]);
+    if (category) return { categoryId: Number(category.id), confidence: 0.84, source: "education" };
+  }
+
+  return null;
+}
+
+async function suggestCategoryWithOllama(
+  db: D1DatabaseLike,
+  userId: string,
+  descBanco: string,
+  amount: number,
+  currency: string,
+) {
+  const settings = await getSettingsObject(db, userId);
+  if (String(settings.categorizer_ollama_enabled || "0") !== "1") {
+    return null;
+  }
+
+  const baseUrl = String(settings.categorizer_ollama_url || "").trim();
+  if (!baseUrl) return null;
+
+  const model = String(settings.categorizer_ollama_model || "qwen2.5:3b").trim();
+  const categories = await listCategoriesForMatching(db, userId);
+  if (categories.length === 0) return null;
+
+  const categoryList = categories.map((category) => category.name).join(", ");
+  const prompt = [
+    "Elegi la categoria mas probable para un movimiento bancario.",
+    `Descripcion: ${descBanco}`,
+    `Monto: ${amount}`,
+    `Moneda: ${currency}`,
+    `Categorias disponibles: ${categoryList}`,
+    'Respondeme solo JSON con {"category_name":"...","confidence":0.0}',
+  ].join("\n");
+
+  try {
+    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        prompt,
+        stream: false,
+        format: "json",
+      }),
+    });
+    if (!response.ok) return null;
+    const payload = await response.json() as { response?: string };
+    const parsed = JSON.parse(String(payload.response || "{}")) as { category_name?: string; confidence?: number };
+    const matchedCategory = categories.find((category) => normalizeMatcher(category.name) === normalizeMatcher(parsed.category_name || ""));
+    if (!matchedCategory) return null;
+    return {
+      categoryId: Number(matchedCategory.id),
+      confidence: Math.max(0.55, Math.min(Number(parsed.confidence || 0.7), 0.92)),
+      source: "ollama",
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function listRules(db: D1DatabaseLike, userId: string) {
@@ -95,6 +904,84 @@ export async function listRules(db: D1DatabaseLike, userId: string) {
     `,
     [userId],
   );
+}
+
+export async function buildRuleInsights(db: D1DatabaseLike, userId: string) {
+  const rules = await listRules(db, userId);
+  const insights: RuleInsightRow[] = [];
+
+  const exactGroups = new Map<string, RuleRow[]>();
+  for (const rule of rules) {
+    const key = `${rule.normalized_pattern}::${rule.category_id ?? "none"}::${buildScopeKey(rule)}`;
+    const list = exactGroups.get(key) || [];
+    list.push(rule);
+    exactGroups.set(key, list);
+  }
+
+  exactGroups.forEach((group) => {
+    if (group.length < 2) return;
+    const sorted = [...group].sort((left, right) => Number(right.match_count || 0) - Number(left.match_count || 0));
+    insights.push({
+      kind: "duplicate_scope",
+      title: `Hay ${group.length} reglas duplicadas para "${sorted[0].pattern}"`,
+      description: "Tenes varias reglas con el mismo patron, categoria y scope. Conviene dejar una sola para evitar drift y mantenimiento innecesario.",
+      rule_ids: sorted.map((item) => Number(item.id)),
+      recommended_action: "merge",
+      priority: group.length >= 3 ? "high" : "medium",
+    });
+  });
+
+  const scopedRules = new Map<string, RuleRow[]>();
+  for (const rule of rules) {
+    const key = `${rule.category_id ?? "none"}::${buildScopeKey(rule)}`;
+    const list = scopedRules.get(key) || [];
+    list.push(rule);
+    scopedRules.set(key, list);
+  }
+
+  scopedRules.forEach((group) => {
+    const sorted = [...group].sort((left, right) => right.normalized_pattern.length - left.normalized_pattern.length);
+    for (let index = 0; index < sorted.length; index += 1) {
+      const current = sorted[index];
+      for (let compareIndex = index + 1; compareIndex < sorted.length; compareIndex += 1) {
+        const candidate = sorted[compareIndex];
+        if (!current.normalized_pattern || !candidate.normalized_pattern) continue;
+        if (!current.normalized_pattern.includes(candidate.normalized_pattern)) continue;
+        if (candidate.normalized_pattern.length < 4) continue;
+        if (Number(candidate.match_count || 0) > Number(current.match_count || 0)) continue;
+
+        insights.push({
+          kind: "overlap",
+          title: `La regla "${candidate.pattern}" puede quedar absorbida por "${current.pattern}"`,
+          description: "Hay una regla mas corta que pisa el mismo caso que otra mas especifica. Conviene revisarlas juntas para evitar categorizaciones ambiguas.",
+          rule_ids: [Number(current.id), Number(candidate.id)],
+          recommended_action: "review",
+          priority: candidate.mode === "auto" ? "high" : "medium",
+        });
+        break;
+      }
+    }
+  });
+
+  rules.forEach((rule) => {
+    if (rule.mode !== "auto") return;
+    if (Number(rule.confidence || 0) >= 0.84 && Number(rule.match_count || 0) >= 3) return;
+    insights.push({
+      kind: "weak_auto",
+      title: `La regla auto "${rule.pattern}" todavia es fragil`,
+      description: "Esta regla esta automatizando con poca evidencia. Bajarla a suggest puede evitar falsos positivos mientras aprende mejor.",
+      rule_ids: [Number(rule.id)],
+      recommended_action: "lower_to_suggest",
+      priority: Number(rule.match_count || 0) <= 1 ? "high" : "medium",
+    });
+  });
+
+  return insights
+    .slice(0, 12)
+    .sort((left, right) => {
+      const order = { high: 0, medium: 1, low: 2 };
+      return order[left.priority] - order[right.priority];
+    });
 }
 
 export async function getRuleById(db: D1DatabaseLike, userId: string, ruleId: number) {
@@ -363,6 +1250,10 @@ export async function classifyTransactionByRules(
       categoryConfidence: null,
       categoryRuleId: null,
       matchedRule: null,
+      amountProfileId: null,
+      amountProfile: null,
+      amountSimilarity: null,
+      conflictCandidates: [],
     };
   }
 
@@ -373,39 +1264,138 @@ export async function classifyTransactionByRules(
     direction: input.entryType,
   });
 
-  if (!matchedRule || matchedRule.category_id === null) {
+  const thresholds = await getRuleThresholds(db, userId);
+  if (matchedRule && matchedRule.category_id !== null) {
+    const confidence = Number(matchedRule.confidence || 0.72);
+
+    if (matchedRule.mode === "auto" || confidence >= thresholds.autoThreshold) {
+      return {
+        categoryId: matchedRule.category_id,
+        categorizationStatus: "categorized",
+        categorySource: "rule_auto",
+        categoryConfidence: confidence,
+        categoryRuleId: matchedRule.id,
+        matchedRule,
+        amountProfileId: null,
+        amountProfile: null,
+        amountSimilarity: null,
+        conflictCandidates: [],
+      };
+    }
+
+    if (confidence >= thresholds.suggestThreshold) {
+      return {
+        categoryId: matchedRule.category_id,
+        categorizationStatus: "suggested",
+        categorySource: "rule_suggest",
+        categoryConfidence: confidence,
+        categoryRuleId: matchedRule.id,
+        matchedRule,
+        amountProfileId: null,
+        amountProfile: null,
+        amountSimilarity: null,
+        conflictCandidates: [],
+      };
+    }
+  }
+
+  const amountProfileMatch = await findAmountProfileCategoryMatch(db, userId, {
+    descBanco: input.descBanco,
+    amount: input.amount,
+    currency: input.currency,
+    accountId: input.accountId ?? null,
+    direction: input.entryType,
+  });
+  const amountProfileSettings = await getAmountProfileSettings(db, userId);
+  if (amountProfileMatch && amountProfileMatch.confidence >= amountProfileSettings.suggestThreshold) {
+    const canAutoCategorize = !amountProfileMatch.hasConflict
+      && amountProfileMatch.profile.sample_count >= 3
+      && amountProfileMatch.confidence >= amountProfileSettings.autoThreshold;
     return {
-      categoryId: null,
-      categorizationStatus: "uncategorized",
-      categorySource: null,
-      categoryConfidence: null,
+      categoryId: amountProfileMatch.categoryId,
+      categorizationStatus: canAutoCategorize ? "categorized" : "suggested",
+      categorySource: "amount_profile",
+      categoryConfidence: amountProfileMatch.confidence,
       categoryRuleId: null,
       matchedRule: null,
+      amountProfileId: amountProfileMatch.profile.id,
+      amountProfile: amountProfileMatch.profile,
+      amountSimilarity: amountProfileMatch.similarity,
+      conflictCandidates: amountProfileMatch.conflictCandidates,
     };
   }
 
-  const thresholds = await getRuleThresholds(db, userId);
-  const confidence = Number(matchedRule.confidence || 0.72);
-
-  if (matchedRule.mode === "auto" || confidence >= thresholds.autoThreshold) {
+  const legacyHeuristicMatch = await findLegacyHeuristicCategoryMatch(db, userId, {
+    descBanco: input.descBanco,
+    amount: input.amount,
+    currency: input.currency,
+    entryType: input.entryType,
+  });
+  if (legacyHeuristicMatch && legacyHeuristicMatch.confidence >= thresholds.suggestThreshold) {
     return {
-      categoryId: matchedRule.category_id,
-      categorizationStatus: "categorized",
-      categorySource: "rule_auto",
-      categoryConfidence: confidence,
-      categoryRuleId: matchedRule.id,
-      matchedRule,
+      categoryId: legacyHeuristicMatch.categoryId,
+      categorizationStatus: legacyHeuristicMatch.confidence >= thresholds.autoThreshold ? "categorized" : "suggested",
+      categorySource: legacyHeuristicMatch.source,
+      categoryConfidence: legacyHeuristicMatch.confidence,
+      categoryRuleId: null,
+      matchedRule: null,
+      amountProfileId: null,
+      amountProfile: null,
+      amountSimilarity: null,
+      conflictCandidates: [],
     };
   }
 
-  if (confidence >= thresholds.suggestThreshold) {
+  const historyMatch = await findHistoryCategoryMatch(db, userId, {
+    descBanco: input.descBanco,
+    accountId: input.accountId ?? null,
+    currency: input.currency ?? null,
+    entryType: input.entryType,
+  });
+  if (historyMatch && historyMatch.confidence >= thresholds.suggestThreshold) {
     return {
-      categoryId: matchedRule.category_id,
+      categoryId: historyMatch.categoryId,
       categorizationStatus: "suggested",
-      categorySource: "rule_suggest",
-      categoryConfidence: confidence,
-      categoryRuleId: matchedRule.id,
-      matchedRule,
+      categorySource: historyMatch.source,
+      categoryConfidence: historyMatch.confidence,
+      categoryRuleId: null,
+      matchedRule: null,
+      amountProfileId: null,
+      amountProfile: null,
+      amountSimilarity: null,
+      conflictCandidates: [],
+    };
+  }
+
+  const keywordMatch = await findKeywordCategoryMatch(db, userId, input.descBanco);
+  if (keywordMatch && keywordMatch.confidence >= thresholds.suggestThreshold) {
+    return {
+      categoryId: keywordMatch.categoryId,
+      categorizationStatus: keywordMatch.confidence >= thresholds.autoThreshold ? "categorized" : "suggested",
+      categorySource: keywordMatch.source,
+      categoryConfidence: keywordMatch.confidence,
+      categoryRuleId: null,
+      matchedRule: null,
+      amountProfileId: null,
+      amountProfile: null,
+      amountSimilarity: null,
+      conflictCandidates: [],
+    };
+  }
+
+  const ollamaMatch = await suggestCategoryWithOllama(db, userId, input.descBanco, input.amount, input.currency);
+  if (ollamaMatch && ollamaMatch.confidence >= 0.55) {
+    return {
+      categoryId: ollamaMatch.categoryId,
+      categorizationStatus: "suggested",
+      categorySource: ollamaMatch.source,
+      categoryConfidence: ollamaMatch.confidence,
+      categoryRuleId: null,
+      matchedRule: null,
+      amountProfileId: null,
+      amountProfile: null,
+      amountSimilarity: null,
+      conflictCandidates: [],
     };
   }
 
@@ -416,6 +1406,10 @@ export async function classifyTransactionByRules(
     categoryConfidence: null,
     categoryRuleId: null,
     matchedRule: null,
+    amountProfileId: null,
+    amountProfile: null,
+    amountSimilarity: null,
+    conflictCandidates: [],
   };
 }
 

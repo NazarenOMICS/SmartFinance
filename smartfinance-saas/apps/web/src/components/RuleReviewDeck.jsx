@@ -17,11 +17,8 @@ export default function RuleReviewDeck({ groups, onDone, onClose, onAcceptedGrou
   }, [groups.length, index]);
 
   function next() {
-    if (index + 1 >= groups.length) {
-      onDone?.();
-    } else {
-      setIndex((prev) => prev + 1);
-    }
+    if (index + 1 >= groups.length) onDone?.();
+    else setIndex((prev) => prev + 1);
   }
 
   async function handleAccept() {
@@ -31,19 +28,25 @@ export default function RuleReviewDeck({ groups, onDone, onClose, onAcceptedGrou
       const rule = await api.createRule({
         pattern: current.pattern,
         category_id: current.category_id,
-        mode: "auto",
-        confidence: 0.94,
+        mode: current.suggested_rule_mode || "auto",
+        confidence: current.suggested_rule_confidence || 0.94,
+        source: current.suggestion_source === "cloudflare-ai" ? "guided" : "learned",
       });
+
       await api.confirmCategory(current.transaction_ids, current.category_id, {
         ruleId: rule.id,
         origin: "upload_review",
       });
-      setHistory((prev) => [...prev, {
-        type: "accept",
-        ruleId: rule.id,
-        transactionIds: current.transaction_ids,
-        categoryId: current.category_id,
-      }]);
+
+      setHistory((prev) => [
+        ...prev,
+        {
+          type: "accept",
+          ruleId: rule.id,
+          transactionIds: current.transaction_ids,
+          categoryId: current.category_id,
+        },
+      ]);
       onAcceptedGroup?.(current);
       addToast("success", `${current.count} movimiento${current.count !== 1 ? "s" : ""} pasan a "${current.category_name}".`);
       next();
@@ -66,9 +69,11 @@ export default function RuleReviewDeck({ groups, onDone, onClose, onAcceptedGrou
     setSaving(true);
     try {
       if (last.type === "accept") {
-        await Promise.all(last.transactionIds.map((transactionId) =>
-          api.undoConfirmCategory(transactionId, last.categoryId, { origin: "upload_review" })
-        ));
+        await Promise.all(
+          last.transactionIds.map((transactionId) =>
+            api.undoConfirmCategory(transactionId, last.categoryId, { origin: "upload_review" }),
+          ),
+        );
         if (last.ruleId) {
           await api.deleteRule(last.ruleId);
         }
@@ -85,17 +90,39 @@ export default function RuleReviewDeck({ groups, onDone, onClose, onAcceptedGrou
   if (!current) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose?.();
+      }}
+    >
       <div className="max-h-[88vh] w-full max-w-xl overflow-y-auto rounded-[30px] bg-white p-6 shadow-2xl dark:bg-neutral-900">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Revisión inteligente</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-neutral-400">Revision inteligente</p>
             <h3 className="mt-1 font-display text-2xl text-finance-ink dark:text-neutral-100">
               {current.pattern} {"->"} {current.category_name}
             </h3>
             <p className="mt-2 text-sm leading-6 text-neutral-500 dark:text-neutral-300">
-              Encontramos {current.count} movimiento{current.count !== 1 ? "s" : ""} parecidos. ¿Querés que los usemos para crear una regla y categorizarlos así?
+              {current.reason || `Encontramos ${current.count} movimiento${current.count !== 1 ? "s" : ""} parecidos. Queres usarlos para crear una regla y categorizarlos asi?`}
             </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {current.priority ? (
+                <span className="rounded-full bg-finance-purpleSoft px-2.5 py-1 text-[11px] font-semibold text-finance-purple dark:bg-purple-900/30 dark:text-purple-300">
+                  Prioridad {current.priority}
+                </span>
+              ) : null}
+              {current.suggested_rule_mode ? (
+                <span className="rounded-full bg-finance-cream px-2.5 py-1 text-[11px] font-semibold text-finance-ink dark:bg-neutral-800 dark:text-neutral-200">
+                  Regla {current.suggested_rule_mode === "auto" ? "auto" : "suggest"}
+                </span>
+              ) : null}
+              {typeof current.suggested_rule_confidence === "number" ? (
+                <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-neutral-500 dark:bg-neutral-800 dark:text-neutral-300">
+                  Confianza {Math.round(current.suggested_rule_confidence * 100)}%
+                </span>
+              ) : null}
+            </div>
           </div>
           <button
             type="button"
@@ -124,7 +151,10 @@ export default function RuleReviewDeck({ groups, onDone, onClose, onAcceptedGrou
           </div>
           <div className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
             {visibleSamples.map((sample) => (
-              <div key={sample} className="rounded-2xl bg-white/80 px-4 py-3 text-sm text-finance-ink dark:bg-neutral-900/80 dark:text-neutral-100">
+              <div
+                key={sample}
+                className="rounded-2xl bg-white/80 px-4 py-3 text-sm text-finance-ink dark:bg-neutral-900/80 dark:text-neutral-100"
+              >
                 {sample}
               </div>
             ))}
@@ -154,7 +184,7 @@ export default function RuleReviewDeck({ groups, onDone, onClose, onAcceptedGrou
             disabled={saving}
             className="flex-1 rounded-2xl bg-finance-purple py-3 font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
           >
-            Si, usar esta regla
+            {current.suggested_rule_mode === "suggest" ? "Si, sugerir esta regla" : "Si, usar esta regla"}
           </button>
         </div>
       </div>

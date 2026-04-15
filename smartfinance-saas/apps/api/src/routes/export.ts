@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { monthStringSchema } from "@smartfinance/contracts";
-import { listTransactionsByMonth } from "@smartfinance/database";
+import { getUsageSnapshot, listTransactionsByMonth } from "@smartfinance/database";
 import type { ApiBindings, ApiVariables } from "../env";
 import { jsonError } from "../utils/http";
 
@@ -23,6 +23,11 @@ exportRouter.get("/csv", async (c) => {
   const parsedMonth = monthStringSchema.safeParse(c.req.query("month"));
   if (!parsedMonth.success) {
     return jsonError("month query param is required", "VALIDATION_ERROR", requestId, 400);
+  }
+
+  const usage = await getUsageSnapshot(c.env.DB, auth.userId);
+  if (!usage.capabilities.exports_enabled) {
+    return jsonError("CSV export is available on paid plans", "EXPORT_LIMIT_REACHED", requestId, 403);
   }
 
   const rows = await listTransactionsByMonth(c.env.DB, auth.userId, parsedMonth.data);

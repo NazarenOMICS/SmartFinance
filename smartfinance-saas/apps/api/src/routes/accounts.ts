@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { createAccountInputSchema, updateAccountInputSchema } from "@smartfinance/contracts";
-import { createAccount, deleteAccount, deleteAccountCascade, getConsolidatedAccounts, listAccountsWithLinks, updateAccount } from "@smartfinance/database";
+import { createAccount, deleteAccount, deleteAccountCascade, getConsolidatedAccounts, getUsageSnapshot, listAccountsWithLinks, updateAccount } from "@smartfinance/database";
 import type { ApiBindings, ApiVariables } from "../env";
 import { jsonError } from "../utils/http";
 
@@ -28,6 +28,10 @@ accountsRouter.post("/", async (c) => {
   }
 
   try {
+    const usage = await getUsageSnapshot(c.env.DB, auth.userId);
+    if (usage.usage.accounts.used >= usage.usage.accounts.limit) {
+      return jsonError("Account limit reached for current plan", "ACCOUNT_LIMIT_REACHED", requestId, 409);
+    }
     const account = await createAccount(c.env.DB, auth.userId, body.data);
     return c.json(account, 201);
   } catch {

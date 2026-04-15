@@ -6,12 +6,21 @@
   "scripts": {
     "dev:web": "corepack pnpm --filter @smartfinance/web dev",
     "dev:api": "corepack pnpm --filter @smartfinance/api dev",
+    "dev:web:e2e": "corepack pnpm --filter @smartfinance/web dev --host 127.0.0.1 --port 5174",
+    "dev:api:e2e": "node ./scripts/dev-api-e2e.mjs",
     "build": "corepack pnpm --filter @smartfinance/web build",
     "typecheck": "corepack pnpm -r --if-present typecheck",
     "test": "vitest run",
-    "check": "corepack pnpm typecheck && corepack pnpm test && corepack pnpm build"
+    "test:e2e": "playwright test --project=local",
+    "test:e2e:staging": "playwright test --project=staging-api --project=staging-ui",
+    "auth:staging:login": "node ./scripts/save-clerk-storage-state.mjs",
+    "auth:staging:token": "node ./scripts/extract-clerk-token.mjs",
+    "diagnose-import-parity": "node --experimental-strip-types ./scripts/diagnose-import-parity.mjs",
+    "check": "corepack pnpm typecheck && corepack pnpm test && corepack pnpm build",
+    "smoke:deploy": "node ./scripts/smoke-deploy.mjs"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/node": "^22.13.1",
     "typescript": "^5.7.3",
     "vitest": "^3.0.5"
