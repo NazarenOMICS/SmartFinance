@@ -3,6 +3,7 @@ import { suggestCategoryWithOllama } from "./ollama.js";
 import { findGlobalAliasMatch } from "./global-learning.js";
 import { detectInternalOperation } from "./internal-operations.js";
 import { hasAmbiguousMerchantHint, matchCanonicalCategory, normalizePatternValue, normalizeText } from "./taxonomy.js";
+import { normalizeBankDescription, extractMerchant, classifyTransaction as classifyTxDomain } from "../vendor/categorization.js";
 
 const CATEGORY_PROPOSAL_COLORS = ["#534AB7", "#1D9E75", "#D85A30", "#378ADD", "#BA7517", "#639922", "#E24B4A", "#888780", "#9B59B6", "#2ECC71"];
 
@@ -360,14 +361,10 @@ export async function findCandidatesForRule(db, pattern, categoryId, userId) {
      ORDER BY id DESC
      LIMIT 1`
   ).get(userId, normalizedPattern, Number(categoryId));
-  const excludeClause = rule ? `
-       AND t.id NOT IN (
-         SELECT transaction_id
-         FROM rule_exclusions
-         WHERE user_id = ?
-           AND rule_id = ?
-       )` : "";
-  const params = rule ? [userId, normalizedPattern, userId, rule.id] : [userId, normalizedPattern];
+  // No filter for rejected descriptions yet (rule_rejections stores desc_banco_normalized, not transaction_id)
+  // TODO: implement rejection filtering once rule_rejections adoption is complete
+  const excludeClause = "";
+  const params = [userId, normalizedPattern];
   return db.prepare(
     `SELECT t.id, t.fecha, t.desc_banco, t.monto, t.moneda,
             t.categorization_status, t.category_source, t.category_confidence, t.category_rule_id,

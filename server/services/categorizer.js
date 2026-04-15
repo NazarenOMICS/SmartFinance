@@ -1,4 +1,5 @@
 const { buildSeedRules, normalizePatternValue, matchCanonicalCategory } = require("./taxonomy");
+const { normalizeBankDescription, extractMerchant, classifyTransaction: classifyTxDomain } = require("../vendor/categorization");
 
 const REINTEGRO_KEYWORDS = [
   "devolucion", "devol", "reintegro", "reversa", "reverso",
@@ -107,9 +108,9 @@ function isGenericRulePattern(pattern) {
 function getRules(db) {
   return db.prepare(
     `SELECT id, pattern, normalized_pattern, category_id, match_count, mode, confidence, source,
-            account_id, currency, direction, merchant_key
+            account_id, currency, direction, merchant_key, merchant_scope, account_scope, currency_scope, last_matched_at
      FROM rules
-     ORDER BY LENGTH(normalized_pattern) DESC, confidence DESC, match_count DESC, id ASC`
+     ORDER BY merchant_key IS NULL ASC, confidence DESC, match_count DESC, last_matched_at DESC, id ASC`
   ).all();
 }
 
@@ -166,8 +167,20 @@ function isRuleRejectedForDescription(db, ruleId, descBanco) {
 
 function findMatchingRule(db, descBanco) {
   const rules = getRules(db);
+  const merchantKey = extractMerchantKey(descBanco);
   let best = null;
   let suppressedByDisabledRule = false;
+
+  if (merchantKey) {
+    for (const rule of rules) {
+      if ((rule.merchant_key || rule.normalized_pattern) !== merchantKey) continue;
+      if (rule.mode === "disabled") {
+        suppressedByDisabledRule = true;
+        continue;
+      }
+      return rule;
+    }
+  }
 
   for (const rule of rules) {
     if (!matchesRule(descBanco, rule)) continue;
@@ -236,6 +249,11 @@ function buildPatternFromDescription(descBanco) {
   return normalizePatternValue(tokens.slice(0, 2).join(" ").trim());
 }
 
+function extractMerchantKey(descBanco) {
+  const result = extractMerchant(descBanco, []);
+  return result.merchant_key;
+}
+
 function findCandidatesForRule(db, pattern) {
   const normalizedPattern = normalizePatternValue(pattern);
   return db.prepare(
@@ -253,42 +271,73 @@ function getCandidatesForPattern(db, pattern) {
   return findCandidatesForRule(db, pattern);
 }
 
-function ensureRuleForManualCategorization(db, descBanco, categoryId) {
-  const normalizedPattern = buildPatternFromDescription(descBanco);
-  if (!normalizedPattern || isGenericRulePattern(normalizedPattern)) {
-    return { created: false, conflict: false, rule: null };
+function ensureRuleForManualCategorization(db, transactionOrDescription, categoryId, scopePreference = null) {
+  const transaction = typeof transactionOrDescription === "string"
+    ? { desc_banco: transactionOrDescription, monto: -1, moneda: null, account_id: null }
+    : transactionOrDescription;
+  const merchantKey = extractMerchantKey(transaction.desc_banco);
+  if (!merchantKey) {
+    return { created: false, conflict: false, rule: null, skipped: true, skipped_reason: "generic_or_empty_merchant" };
   }
 
-  const existing = db.prepare(
-    `SELECT id, pattern, normalized_pattern, category_id, mode, confidence
+  const normalizedPattern = merchantKey;
+  const useAccountScope = scopePreference === "account" || (!scopePreference && transaction.account_id);
+  const accountId = useAccountScope ? (transaction.account_id || null) : null;
+  const currency = transaction.moneda || null;
+  const direction = Number(transaction.monto || 0) >= 0 ? "income" : "expense";
+  const before = db.prepare(
+    `SELECT id, category_id
      FROM rules
-     WHERE normalized_pattern = ?
-       AND COALESCE(account_id, '') = ''
-       AND COALESCE(currency, '') = ''
-       AND direction = 'any'
+     WHERE merchant_scope = ?
+       AND account_scope = ?
+       AND currency_scope = ?
+       AND direction = ?
      LIMIT 1`
-  ).get(normalizedPattern);
+  ).get(merchantKey, accountId || "", currency || "", direction);
 
-  if (existing) {
-    if (existing.category_id !== Number(categoryId)) {
-      return { created: false, conflict: true, rule: existing };
-    }
-    return { created: false, conflict: false, rule: existing };
-  }
-
-  const result = db.prepare(
+  db.prepare(
     `INSERT INTO rules (
       pattern, normalized_pattern, category_id, match_count, mode, confidence, source,
-      account_id, currency, direction, merchant_key, last_matched_at
-    ) VALUES (?, ?, ?, 0, 'suggest', 0.82, 'manual', NULL, NULL, 'any', ?, NULL)`
-  ).run(normalizedPattern, normalizedPattern, Number(categoryId), normalizedPattern);
+      account_id, account_scope, currency, currency_scope, direction, merchant_key, merchant_scope, last_matched_at, updated_at
+    ) VALUES (?, ?, ?, 1, 'auto', 0.9, 'manual', ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+    ON CONFLICT(merchant_scope, account_scope, currency_scope, direction)
+    DO UPDATE SET
+      category_id = excluded.category_id,
+      pattern = excluded.pattern,
+      normalized_pattern = excluded.normalized_pattern,
+      merchant_key = excluded.merchant_key,
+      match_count = rules.match_count + 1,
+      confidence = MAX(rules.confidence, excluded.confidence),
+      source = 'manual',
+      last_matched_at = datetime('now'),
+      updated_at = datetime('now')`
+  ).run(
+    normalizedPattern.toUpperCase(),
+    normalizedPattern,
+    Number(categoryId),
+    accountId,
+    accountId || "",
+    currency,
+    currency || "",
+    direction,
+    merchantKey,
+    merchantKey
+  );
+
+  const rule = db.prepare(
+    `SELECT id, pattern, normalized_pattern, category_id, mode, confidence, source,
+            account_id, currency, direction, merchant_key
+     FROM rules
+     WHERE merchant_scope = ? AND account_scope = ? AND currency_scope = ? AND direction = ?
+     LIMIT 1`
+  ).get(merchantKey, accountId || "", currency || "", direction);
 
   const candidates = findCandidatesForRule(db, normalizedPattern);
   return {
-    created: true,
-    conflict: false,
+    created: !before,
+    conflict: Boolean(before && before.category_id !== Number(categoryId)),
     candidates_count: candidates.length,
-    rule: { id: result.lastInsertRowid, pattern: normalizedPattern, normalized_pattern: normalizedPattern, category_id: Number(categoryId) }
+    rule
   };
 }
 
@@ -315,8 +364,8 @@ function ensureDefaultRules(db) {
   const insert = db.prepare(
     `INSERT OR IGNORE INTO rules (
       pattern, normalized_pattern, category_id, match_count, mode, confidence, source,
-      account_id, currency, direction, merchant_key, last_matched_at
-    ) VALUES (?, ?, ?, 0, ?, ?, 'seed', NULL, NULL, ?, ?, NULL)`
+      account_id, account_scope, currency, currency_scope, direction, merchant_key, merchant_scope, last_matched_at, updated_at
+    ) VALUES (?, ?, ?, 0, ?, ?, 'seed', NULL, '', NULL, '', ?, ?, ?, NULL, datetime('now'))`
   );
 
   const tx = db.transaction((rules) => {
@@ -330,7 +379,8 @@ function ensureDefaultRules(db) {
         rule.mode,
         rule.confidence,
         rule.direction,
-        rule.merchant_key
+        rule.merchant_key,
+        rule.merchant_key || rule.normalized_pattern
       );
     }
   });
@@ -344,6 +394,7 @@ module.exports = {
   bumpRule,
   ensureDefaultRules,
   ensureRuleForManualCategorization,
+  extractMerchantKey,
   findCandidatesForRule,
   findMatchingRule,
   getCandidatesForPattern,
