@@ -64,29 +64,31 @@ router.post("/", async (c) => {
     if (!account) return c.json({ error: "account not found" }, 404);
   }
 
-  const existing = await db.prepare(
+  const merchantScope = normalizedPattern;
+  const accountScope = account_id || "";
+  const currencyScope = currency || "";
+  const before = await db.prepare(
     `SELECT id, category_id
      FROM rules
-     WHERE user_id = ?
-       AND normalized_pattern = ?
-       AND COALESCE(account_id, '') = COALESCE(?, '')
-       AND COALESCE(currency, '') = COALESCE(?, '')
-       AND direction = ?
+     WHERE user_id = ? AND merchant_scope = ? AND account_scope = ? AND currency_scope = ? AND direction = ?
      LIMIT 1`
-  ).get(userId, normalizedPattern, account_id, currency, direction);
-  if (existing) {
-    if (existing.category_id === Number(category_id)) {
-      const rule = await db.prepare("SELECT * FROM rules WHERE id = ? AND user_id = ?").get(existing.id, userId);
-      return c.json({ ...rule, candidates_count: 0, duplicate: true }, 200);
-    }
-    return c.json({ error: `Pattern "${pattern}" already exists for a different category. Delete the existing rule first.` }, 409);
-  }
+  ).get(userId, merchantScope, accountScope, currencyScope, direction);
 
-  const result = await db.prepare(
+  await db.prepare(
     `INSERT INTO rules (
       pattern, normalized_pattern, category_id, match_count, user_id, mode, confidence, source,
-      account_id, currency, direction, merchant_key
-    ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`
+      account_id, account_scope, currency, currency_scope, direction, merchant_key, merchant_scope, updated_at
+    ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(user_id, merchant_scope, account_scope, currency_scope, direction)
+    DO UPDATE SET
+      pattern = excluded.pattern,
+      normalized_pattern = excluded.normalized_pattern,
+      category_id = excluded.category_id,
+      mode = excluded.mode,
+      confidence = MAX(rules.confidence, excluded.confidence),
+      source = excluded.source,
+      merchant_key = excluded.merchant_key,
+      updated_at = datetime('now')`
   ).run(
     String(pattern).trim(),
     normalizedPattern,
@@ -96,17 +98,22 @@ router.post("/", async (c) => {
     normalizedConfidence,
     source,
     account_id,
+    accountScope,
     currency,
+    currencyScope,
     direction,
-    normalizedPattern
+    normalizedPattern,
+    merchantScope
   );
 
   const candidates_count = (await findCandidatesForRule(db, pattern, category_id, userId)).length;
-  const rule = await db.prepare("SELECT * FROM rules WHERE id = ? AND user_id = ?").get(result.lastInsertRowid, userId);
+  const rule = await db.prepare(
+    "SELECT * FROM rules WHERE user_id = ? AND merchant_scope = ? AND account_scope = ? AND currency_scope = ? AND direction = ?"
+  ).get(userId, merchantScope, accountScope, currencyScope, direction);
   if (source === "manual" || source === "guided") {
     await recordGlobalPatternLearning(db, userId, String(pattern).trim(), category_id, "confirm");
   }
-  return c.json({ ...rule, candidates_count }, 201);
+  return c.json({ ...rule, candidates_count, duplicate: Boolean(before) }, before ? 200 : 201);
 });
 
 router.put("/:id", async (c) => {
@@ -148,6 +155,48 @@ router.post("/reset", async (c) => {
   });
 });
 
+router.post("/:id/apply-retroactively", async (c) => {
+  const userId = c.get("userId");
+  const id = Number(c.req.param("id"));
+  const db = getDb(c.env);
+  const rule = await db.prepare("SELECT * FROM rules WHERE id = ? AND user_id = ?").get(id, userId);
+  if (!rule) return c.json({ error: "rule not found" }, 404);
+  const result = await db.prepare(
+    `UPDATE transactions
+     SET category_id = ?,
+         categorization_status = CASE WHEN ? = 'auto' THEN 'categorized' ELSE 'suggested' END,
+         category_source = CASE WHEN ? = 'auto' THEN 'rule_auto' ELSE 'rule_suggest' END,
+         category_confidence = ?,
+         category_rule_id = ?
+     WHERE user_id = ?
+       AND categorization_status != 'categorized'
+       AND merchant_key = ?`
+  ).run(rule.category_id, rule.mode, rule.mode, rule.confidence, rule.id, userId, rule.merchant_key || rule.normalized_pattern);
+  const affected = Number(result.changes || 0);
+  const summary = {
+    affected_transactions: affected,
+    categorized_transactions: rule.mode === "auto" ? affected : 0,
+    suggested_transactions: rule.mode === "auto" ? 0 : affected,
+  };
+  const jobId = `rule_${id}_${Date.now()}`;
+  await db.prepare(
+    `INSERT INTO categorization_jobs (id, user_id, type, status, total, processed, result_json, updated_at)
+     VALUES (?, ?, 'apply_rule_retroactively', 'completed', ?, ?, ?, datetime('now'))`
+  ).run(jobId, userId, affected, affected, JSON.stringify(summary));
+  return c.json({ job_id: jobId, status: "completed", ...summary }, 202);
+});
+
+router.get("/jobs/:id", async (c) => {
+  const userId = c.get("userId");
+  const jobId = String(c.req.param("id") || "");
+  const db = getDb(c.env);
+  const job = await db.prepare(
+    "SELECT * FROM categorization_jobs WHERE user_id = ? AND id = ? LIMIT 1"
+  ).get(userId, jobId);
+  if (!job) return c.json({ error: "job not found" }, 404);
+  return c.json({ ...job, result: JSON.parse(job.result_json || "{}") });
+});
+
 router.delete("/:id", async (c) => {
   const userId = c.get("userId");
   const id = Number(c.req.param("id"));
@@ -155,7 +204,8 @@ router.delete("/:id", async (c) => {
   const existing = await db.prepare("SELECT id FROM rules WHERE id = ? AND user_id = ?").get(id, userId);
   if (!existing) return c.json({ error: "rule not found" }, 404);
   await c.env.DB.batch([
-    c.env.DB.prepare("DELETE FROM rule_exclusions WHERE user_id = ? AND rule_id = ?").bind(userId, id),
+    c.env.DB.prepare("DELETE FROM rule_rejections WHERE user_id = ? AND rule_id = ?").bind(userId, id),
+    c.env.DB.prepare("DELETE FROM rule_match_log WHERE user_id = ? AND rule_id = ?").bind(userId, id),
     c.env.DB.prepare("DELETE FROM rules WHERE id = ? AND user_id = ?").bind(id, userId),
   ]);
   return new Response(null, { status: 204 });

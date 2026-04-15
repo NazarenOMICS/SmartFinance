@@ -110,25 +110,34 @@ router.delete("/:id", async (c) => {
     "SELECT * FROM categories WHERE id = ? AND user_id = ?"
   ).get(id, userId);
   if (!existing) return c.json({ error: "category not found" }, 404);
-  if (existing.origin === "seed") {
-    await hideSeedCategory(db, userId, existing.slug);
+
+  const txCount = await db.prepare(
+    "SELECT COUNT(*) AS count FROM transactions WHERE category_id = ? AND user_id = ?"
+  ).get(id, userId);
+  if (Number(txCount?.count || 0) > 0) {
+    return c.json({ error: "category_has_transactions" }, 409);
   }
 
-  await c.env.DB.batch([
-    c.env.DB.prepare(
-      `UPDATE transactions
-       SET category_id = NULL,
-           categorization_status = 'uncategorized',
-           category_source = NULL,
-           category_confidence = NULL,
-           category_rule_id = NULL
-       WHERE category_id = ? AND user_id = ?`
-    ).bind(id, userId),
-    c.env.DB.prepare("DELETE FROM rule_exclusions WHERE user_id = ? AND rule_id IN (SELECT id FROM rules WHERE category_id = ? AND user_id = ?)").bind(userId, id, userId),
-    c.env.DB.prepare("DELETE FROM rules WHERE category_id = ? AND user_id = ?").bind(id, userId),
-    c.env.DB.prepare("DELETE FROM categories WHERE id = ? AND user_id = ?").bind(id, userId),
-  ]);
-  return new Response(null, { status: 204 });
+  try {
+    if (existing.origin === "seed") {
+      await hideSeedCategory(db, userId, existing.slug);
+    }
+
+    await c.env.DB.batch([
+      c.env.DB.prepare("DELETE FROM rule_match_log WHERE user_id = ? AND category_id = ?").bind(userId, id),
+      c.env.DB.prepare("DELETE FROM rule_rejections WHERE user_id = ? AND rule_id IN (SELECT id FROM rules WHERE category_id = ? AND user_id = ?)").bind(userId, id, userId),
+      c.env.DB.prepare("DELETE FROM rules WHERE category_id = ? AND user_id = ?").bind(id, userId),
+      c.env.DB.prepare("DELETE FROM merchant_dictionary WHERE user_id = ? AND default_category_id = ?").bind(userId, id),
+      c.env.DB.prepare("DELETE FROM categories WHERE id = ? AND user_id = ?").bind(id, userId),
+    ]);
+    const stillThere = await db.prepare("SELECT id FROM categories WHERE id = ? AND user_id = ?").get(id, userId);
+    if (stillThere) return c.json({ error: "CATEGORY_DELETE_FAILED" }, 500);
+    return new Response(null, { status: 204 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "category delete failed";
+    const isConstraint = /constraint|foreign key/i.test(message);
+    return c.json({ error: isConstraint ? "CATEGORY_HAS_DEPENDENCIES" : "CATEGORY_DELETE_FAILED" }, isConstraint ? 409 : 500);
+  }
 });
 
 export default router;

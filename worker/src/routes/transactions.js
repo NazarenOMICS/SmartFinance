@@ -352,7 +352,7 @@ router.post("/reject-category", async (c) => {
   if (!rule) return c.json({ error: "rule not found" }, 404);
 
   await c.env.DB.prepare(
-    `INSERT INTO rule_exclusions (user_id, rule_id, transaction_id)
+    `INSERT INTO rule_rejections (user_id, rule_id, transaction_id)
      VALUES (?, ?, ?)
      ON CONFLICT(user_id, rule_id, transaction_id) DO NOTHING`
   ).bind(userId, Number(rule_id), Number(transaction_id)).run();
@@ -377,7 +377,7 @@ router.post("/undo-reject-category", async (c) => {
 
   const db = getDb(c.env);
   await db.prepare(
-    "DELETE FROM rule_exclusions WHERE user_id = ? AND rule_id = ? AND transaction_id = ?"
+    "DELETE FROM rule_rejections WHERE user_id = ? AND rule_id = ? AND transaction_id = ?"
   ).run(userId, Number(rule_id), Number(transaction_id));
   await markTransactionSuggested(db, userId, transaction_id, {
     source: "rule_suggest",
@@ -943,7 +943,7 @@ router.delete("/:id", async (c) => {
   if (!tx) return c.json({ error: "transaction not found" }, 404);
   const stmts = [
     c.env.DB.prepare("DELETE FROM categorization_events WHERE user_id = ? AND transaction_id = ?").bind(userId, id),
-    c.env.DB.prepare("DELETE FROM rule_exclusions WHERE user_id = ? AND transaction_id = ?").bind(userId, id),
+    c.env.DB.prepare("DELETE FROM rule_rejections WHERE user_id = ? AND transaction_id = ?").bind(userId, id),
   ];
   if (tx.linked_transaction_id) {
     stmts.push(
