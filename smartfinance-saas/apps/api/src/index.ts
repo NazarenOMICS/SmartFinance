@@ -31,6 +31,15 @@ const app = new Hono<{
   Variables: ApiVariables;
 }>();
 
+app.use("*", async (c, next) => {
+  c.header("X-Content-Type-Options", "nosniff");
+  c.header("Referrer-Policy", "strict-origin-when-cross-origin");
+  c.header("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  c.header("X-Frame-Options", "DENY");
+  c.header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+  await next();
+});
+
 function getAllowedOrigins(env: ApiBindings) {
   const runtime = getRuntimeEnv(env);
   const configured = String(runtime.ALLOWED_ORIGINS || "")
@@ -98,7 +107,18 @@ const billingWebhookRateLimit = createRateLimitMiddleware({
   code: "WEBHOOK_RATE_LIMITED",
   message: "Webhook rate limit reached.",
 });
+const clientErrorRateLimit = createRateLimitMiddleware({
+  metric: "client_error",
+  limit: 20,
+  windowSeconds: 60,
+  code: "CLIENT_ERROR_RATE_LIMITED",
+  message: "Too many client error reports. Please wait a minute.",
+});
 
+app.use("/api/system/client-error", authMiddleware);
+app.use("/api/system/client-error/*", authMiddleware);
+app.use("/api/system/client-error", clientErrorRateLimit);
+app.use("/api/system/client-error/*", clientErrorRateLimit);
 app.use("/api/system/limits", authMiddleware);
 app.use("/api/system/limits/*", authMiddleware);
 app.use("/api/usage", authMiddleware);

@@ -59,21 +59,28 @@ systemRouter.post("/system/test/reset", async (c) => {
 systemRouter.post("/system/client-error", async (c) => {
   const requestId = c.get("requestId");
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
-  if (!body || typeof body.message !== "string" || !body.message.trim()) {
+  const message = typeof body?.message === "string" ? body.message.trim() : "";
+  const path = typeof body?.path === "string" ? body.path.slice(0, 300) : "";
+  const stack = typeof body?.stack === "string" ? body.stack.slice(0, 4000) : null;
+  const kind = typeof body?.kind === "string" && /^(browser_error|unhandled_rejection|react_error|api_error)$/.test(body.kind)
+    ? body.kind
+    : "browser_error";
+
+  if (!message || message.length > 500) {
     return c.json({ error: "Invalid client error payload", code: "VALIDATION_ERROR", request_id: requestId }, 400);
   }
 
   c.executionCtx.waitUntil(
     reportError(c.env, {
       request_id: requestId,
-      path: String(body.path || ""),
+      path,
       method: "CLIENT",
-      user_id: typeof body.user_id === "string" ? body.user_id : null,
-      message: body.message,
+      user_id: c.get("auth")?.userId || null,
+      message,
       source: "web",
       extra: {
-        stack: typeof body.stack === "string" ? body.stack : null,
-        kind: typeof body.kind === "string" ? body.kind : "browser_error",
+        stack,
+        kind,
       },
     }),
   );

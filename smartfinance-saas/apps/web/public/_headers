@@ -1,0 +1,7 @@
+/*
+  Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  X-Frame-Options: DENY
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://*.clerk.services; connect-src 'self' https://smartfinance-saas-api-production.nazarenocabrerati.workers.dev https://smartfinance-saas-api-staging.nazarenocabrerati.workers.dev https://*.clerk.accounts.dev https://*.clerk.com https://*.clerk.services wss://*.clerk.accounts.dev wss://*.clerk.com; frame-src https://*.clerk.accounts.dev https://*.clerk.com https://*.clerk.services; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.clerk.accounts.dev https://*.clerk.com https://*.clerk.services; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'

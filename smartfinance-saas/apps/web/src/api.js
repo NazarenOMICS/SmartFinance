@@ -1,1 +1,1 @@
-export { api, setTokenGetter } from "./api-adapter";
+export { api, getTokenGetter, setTokenGetter } from "./api-adapter";

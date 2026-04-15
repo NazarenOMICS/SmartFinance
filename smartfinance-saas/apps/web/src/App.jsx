@@ -8,7 +8,7 @@ import {
   useAuth,
   useUser,
 } from "@clerk/clerk-react";
-import { api, setTokenGetter } from "./api";
+import { api, getTokenGetter, setTokenGetter } from "./api";
 import { ToastProvider } from "./contexts/ToastContext";
 import BrandMark from "./components/BrandMark";
 import Onboarding from "./components/Onboarding";
@@ -251,17 +251,20 @@ function AppInner({ userId = "local", displayName: displayNameProp = "Naza", clo
   useEffect(() => {
     async function reportClientIssue(kind, payload) {
       try {
+        const tokenGetter = getTokenGetter();
+        const token = tokenGetter ? await tokenGetter() : null;
+        if (!token) return;
         await fetch(`${appConfig.apiBaseUrl}/api/system/client-error`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             kind,
             path: window.location.pathname,
             message: payload?.message || String(payload || "Unknown client error"),
             stack: payload?.stack || null,
-            user_id: userId || null,
           }),
         });
       } catch {
@@ -270,7 +273,7 @@ function AppInner({ userId = "local", displayName: displayNameProp = "Naza", clo
     }
 
     function onError(event) {
-      reportClientIssue("window.error", {
+      reportClientIssue("browser_error", {
         message: event?.message,
         stack: event?.error?.stack,
       });
@@ -278,7 +281,7 @@ function AppInner({ userId = "local", displayName: displayNameProp = "Naza", clo
 
     function onUnhandledRejection(event) {
       const reason = event?.reason;
-      reportClientIssue("window.unhandledrejection", {
+      reportClientIssue("unhandled_rejection", {
         message: reason?.message || String(reason || "Unhandled rejection"),
         stack: reason?.stack,
       });

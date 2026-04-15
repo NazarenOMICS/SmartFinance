@@ -18,6 +18,19 @@ test("@staging-api api smoke verifica publico, schema y auth protegida", async (
   const protectedAccounts = await request.get(`${remoteApiUrl}/api/accounts`);
   expect(protectedAccounts.status()).toBe(401);
 
+  const clientError = await request.post(`${remoteApiUrl}/api/system/client-error`, {
+    data: { message: "unauthenticated smoke" },
+  });
+  expect(clientError.status()).toBe(401);
+
+  const badOrigin = await request.get(`${remoteApiUrl}/api/health`, {
+    headers: { Origin: "https://evil.example" },
+  });
+  expect(badOrigin.headers()["access-control-allow-origin"]).toBeUndefined();
+  expect(badOrigin.headers()["x-content-type-options"]).toBe("nosniff");
+  expect(badOrigin.headers()["x-frame-options"]).toBe("DENY");
+  expect(badOrigin.headers()["content-security-policy"]).toBeTruthy();
+
   const protectedSummary = await request.get(`${remoteApiUrl}/api/transactions/summary?month=2026-04`);
   expect(protectedSummary.status()).toBe(401);
 
@@ -56,10 +69,27 @@ test("@staging-api api smoke autenticado valida endpoints clave cuando hay token
     },
   });
   expect(assistant.ok()).toBeTruthy();
+
+  const clientError = await request.post(`${remoteApiUrl}/api/system/client-error`, {
+    headers: {
+      ...authHeaders,
+      "Content-Type": "application/json",
+    },
+    data: {
+      message: "authenticated smoke",
+      kind: "browser_error",
+      path: "/smoke",
+    },
+  });
+  expect(clientError.ok()).toBeTruthy();
 });
 
 test("@staging-ui ui smoke valida shell remota o alerta de configuracion", async ({ page }) => {
   await page.goto(remoteWebUrl, { waitUntil: "domcontentloaded" });
+  const response = await page.request.get(remoteWebUrl);
+  expect(response.headers()["x-content-type-options"]).toBe("nosniff");
+  expect(response.headers()["x-frame-options"]).toBe("DENY");
+  expect(response.headers()["content-security-policy"]).toBeTruthy();
 
   const loadingCopy = page.getByText(/Conectando con el servidor/i);
   await loadingCopy.waitFor({ state: "visible", timeout: 15000 }).catch(() => {});

@@ -12,6 +12,8 @@ const apiEnvSchema = z.object({
   AUTH_MODE: z.enum(["development", "clerk"]).default("development"),
   UPLOAD_BINARY_STORAGE: z.enum(["disabled", "r2"]).default("disabled"),
   CLERK_JWKS_URL: optionalUrlSchema,
+  CLERK_ISSUER_URL: optionalUrlSchema,
+  CLERK_ALLOWED_AZP: optionalStringSchema,
   STRIPE_SECRET_KEY: optionalStringSchema,
   STRIPE_WEBHOOK_SECRET: optionalStringSchema,
   STRIPE_PRICE_PRO_MONTHLY: optionalStringSchema,
@@ -35,6 +37,14 @@ const apiEnvSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["CLERK_JWKS_URL"],
       message: "CLERK_JWKS_URL is required when AUTH_MODE=clerk",
+    });
+  }
+
+  if (env.AUTH_MODE === "clerk" && !env.CLERK_ISSUER_URL) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["CLERK_ISSUER_URL"],
+      message: "CLERK_ISSUER_URL is required when AUTH_MODE=clerk",
     });
   }
 
