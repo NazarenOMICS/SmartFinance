@@ -111,6 +111,47 @@ describe("categorization pipeline", () => {
     expect(decision.categoryId).toBe(22);
   });
 
+  it("lets a user learned merchant override the built-in seed category", () => {
+    const decision = classifyTransaction(
+      { desc_banco: "MCDONALD'S 8 DE OCTUBRE", monto: -620, moneda: "UYU", account_id: "santander_uyu" },
+      [
+        {
+          id: 10,
+          pattern: "MCDONALDS",
+          normalized_pattern: "mcdonalds",
+          merchant_key: "mcdonalds",
+          merchant_scope: "mcdonalds",
+          category_id: 1,
+          mode: "suggest",
+          source: "seed",
+          confidence: 0.99,
+          match_count: 200,
+        },
+        {
+          id: 11,
+          pattern: "MCDONALDS",
+          normalized_pattern: "mcdonalds",
+          merchant_key: "mcdonalds",
+          merchant_scope: "mcdonalds",
+          account_id: "santander_uyu",
+          currency: "UYU",
+          direction: "expense",
+          category_id: 99,
+          mode: "auto",
+          source: "learned",
+          confidence: 0.9,
+          match_count: 1,
+        },
+      ],
+      [],
+      { categorizer_auto_threshold: 0.8, categorizer_suggest_threshold: 0.6 },
+    );
+
+    expect(decision.categorizationStatus).toBe("categorized");
+    expect(decision.categoryId).toBe(99);
+    expect(decision.categoryRuleId).toBe(11);
+  });
+
   it("keeps UYU import merchants stable for review clustering", () => {
     const cases = [
       ["DLO.UBER.RIDES 2204", "uber"],

@@ -238,14 +238,45 @@ export function scoreRuleMatch(tx, rule, dictionary = []) {
     const score = (base * confidence * recencyFactor(rule.last_matched_at)) + matches + scopeBonus(rule, tx) - safeModePenalty;
     return { score: Math.min(0.99, Number(score.toFixed(4))), layer };
 }
+function ruleSourcePriority(rule) {
+    const source = String(rule.source || "").toLowerCase();
+    if (source === "manual" || source === "learned" || source === "guided")
+        return 3;
+    if (source === "seed")
+        return 1;
+    return 2;
+}
+function ruleScopeSpecificity(rule) {
+    return (rule.account_id ? 1 : 0) + (rule.currency ? 1 : 0) + ((rule.direction || "any") !== "any" ? 1 : 0);
+}
+function ruleMerchantKey(rule) {
+    return normalizeRulePattern(String(rule.merchant_key || rule.merchant_scope || ""));
+}
+function shouldPreferRule(candidate, current) {
+    if (candidate.layer === "merchant_exact" && current.layer === "merchant_exact" && ruleMerchantKey(candidate.rule) === ruleMerchantKey(current.rule)) {
+        const sourceDelta = ruleSourcePriority(candidate.rule) - ruleSourcePriority(current.rule);
+        if (sourceDelta !== 0)
+            return sourceDelta > 0;
+        const scopeDelta = ruleScopeSpecificity(candidate.rule) - ruleScopeSpecificity(current.rule);
+        if (scopeDelta !== 0)
+            return scopeDelta > 0;
+    }
+    if (candidate.score !== current.score)
+        return candidate.score > current.score;
+    const fallbackSourceDelta = ruleSourcePriority(candidate.rule) - ruleSourcePriority(current.rule);
+    if (fallbackSourceDelta !== 0)
+        return fallbackSourceDelta > 0;
+    return ruleScopeSpecificity(candidate.rule) > ruleScopeSpecificity(current.rule);
+}
 export function matchRules(tx, rules = [], dictionary = []) {
     let best = null;
     for (const rule of rules) {
         const scored = scoreRuleMatch(tx, rule, dictionary);
         if (typeof scored === "number")
             continue;
-        if (best === null || scored.score > best.score) {
-            best = { rule, score: scored.score, layer: scored.layer };
+        const candidate = { rule, score: scored.score, layer: scored.layer };
+        if (best === null || shouldPreferRule(candidate, best)) {
+            best = candidate;
         }
     }
     return best;

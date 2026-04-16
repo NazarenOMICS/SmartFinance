@@ -471,7 +471,42 @@ transactionsRouter.post("/:id/accept-suggestion", async (c) => {
     return jsonError("Transaction not found", "TRANSACTION_NOT_FOUND", requestId, 404);
   }
 
-  return c.json(transactionSchema.parse(transaction));
+  const parsedTransaction = transactionSchema.parse(transaction);
+  if (parsedTransaction.category_id !== null) {
+    const confirmedCategoryId = parsedTransaction.category_id;
+    c.executionCtx.waitUntil((async () => {
+      try {
+        const syncResult = await syncRuleFromCategorizedDescription(c.env.DB, auth.userId, {
+          descBanco: parsedTransaction.desc_banco,
+          categoryId: confirmedCategoryId,
+          accountId: parsedTransaction.account_id,
+          currency: parsedTransaction.moneda,
+          direction: parsedTransaction.entry_type === "income" ? "income" : "expense",
+          scopePreference: parsedTransaction.account_id ? "account" : "global",
+        });
+
+        if (syncResult?.rule) {
+          await logRuleMatch(c.env.DB, auth.userId, {
+            transactionId,
+            ruleId: Number(syncResult.rule.id),
+            categoryId: confirmedCategoryId,
+            layer: "manual",
+            confidence: Number(syncResult.rule.confidence ?? 0.9),
+            reason: "User accepted suggestion and confirmed merchant rule",
+          });
+        }
+      } catch (error) {
+        log("error", "categorization.accept_suggestion_learning_failed", {
+          request_id: requestId,
+          user_id: auth.userId,
+          transaction_id: transactionId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    })());
+  }
+
+  return c.json(parsedTransaction);
 });
 
 transactionsRouter.post("/:id/reject-suggestion", async (c) => {
@@ -499,6 +534,40 @@ transactionsRouter.post("/review/accept", async (c) => {
   }
 
   const transactions = await acceptSuggestedTransactions(c.env.DB, auth.userId, parsedBody.data.transaction_ids);
+  c.executionCtx.waitUntil((async () => {
+    for (const transaction of transactions) {
+      try {
+        const parsedTransaction = transactionSchema.parse(transaction);
+        if (parsedTransaction.category_id === null) continue;
+        const confirmedCategoryId = parsedTransaction.category_id;
+        const syncResult = await syncRuleFromCategorizedDescription(c.env.DB, auth.userId, {
+          descBanco: parsedTransaction.desc_banco,
+          categoryId: confirmedCategoryId,
+          accountId: parsedTransaction.account_id,
+          currency: parsedTransaction.moneda,
+          direction: parsedTransaction.entry_type === "income" ? "income" : "expense",
+          scopePreference: parsedTransaction.account_id ? "account" : "global",
+        });
+        if (syncResult?.rule) {
+          await logRuleMatch(c.env.DB, auth.userId, {
+            transactionId: Number(parsedTransaction.id),
+            ruleId: Number(syncResult.rule.id),
+            categoryId: confirmedCategoryId,
+            layer: "manual",
+            confidence: Number(syncResult.rule.confidence ?? 0.9),
+            reason: "User accepted review suggestion and confirmed merchant rule",
+          });
+        }
+      } catch (error) {
+        log("error", "categorization.review_accept_learning_failed", {
+          request_id: requestId,
+          user_id: auth.userId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  })());
+
   return c.json(transactionBatchResultSchema.parse({
     processed: transactions.length,
     transactions,
@@ -596,6 +665,40 @@ transactionsRouter.post("/confirm-category", async (c) => {
   }
 
   const result = await confirmCategorySelection(c.env.DB, auth.userId, body.data.transaction_ids, body.data.category_id);
+  c.executionCtx.waitUntil((async () => {
+    for (const transaction of result.transactions) {
+      try {
+        const parsedTransaction = transactionSchema.parse(transaction);
+        if (parsedTransaction.category_id === null) continue;
+        const confirmedCategoryId = parsedTransaction.category_id;
+        const syncResult = await syncRuleFromCategorizedDescription(c.env.DB, auth.userId, {
+          descBanco: parsedTransaction.desc_banco,
+          categoryId: confirmedCategoryId,
+          accountId: parsedTransaction.account_id,
+          currency: parsedTransaction.moneda,
+          direction: parsedTransaction.entry_type === "income" ? "income" : "expense",
+          scopePreference: parsedTransaction.account_id ? "account" : "global",
+        });
+        if (syncResult?.rule) {
+          await logRuleMatch(c.env.DB, auth.userId, {
+            transactionId: Number(parsedTransaction.id),
+            ruleId: Number(syncResult.rule.id),
+            categoryId: confirmedCategoryId,
+            layer: "manual",
+            confidence: Number(syncResult.rule.confidence ?? 0.9),
+            reason: "User confirmed category and taught merchant rule",
+          });
+        }
+      } catch (error) {
+        log("error", "categorization.confirm_category_learning_failed", {
+          request_id: requestId,
+          user_id: auth.userId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  })());
+
   return c.json({
     confirmed: result.confirmed,
     transactions: result.transactions.map((transaction) => transactionSchema.parse(transaction)),
