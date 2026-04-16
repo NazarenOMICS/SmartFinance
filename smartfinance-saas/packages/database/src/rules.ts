@@ -1772,7 +1772,7 @@ export async function syncRuleFromCategorizedDescription(
         merchant_key = excluded.merchant_key,
         category_id = excluded.category_id,
         source = 'learned',
-        mode = CASE WHEN rules.mode = 'disabled' THEN 'suggest' ELSE rules.mode END,
+        mode = CASE WHEN rules.mode = 'disabled' THEN 'suggest' ELSE 'auto' END,
         confidence = MAX(rules.confidence, excluded.confidence),
         match_count = rules.match_count + 1,
         last_matched_at = CURRENT_TIMESTAMP,

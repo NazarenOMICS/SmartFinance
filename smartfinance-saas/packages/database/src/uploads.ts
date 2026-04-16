@@ -81,6 +81,24 @@ function buildInClause(values: string[]) {
   return values.map(() => "?").join(", ");
 }
 
+async function hasPriorAccountUpload(db: D1DatabaseLike, userId: string, accountId: string | null, uploadId: number) {
+  if (!accountId) return false;
+  const row = await firstRow<{ count: number }>(
+    db,
+    `
+      SELECT COUNT(*) AS count
+      FROM uploads
+      WHERE user_id = ?
+        AND account_id = ?
+        AND id < ?
+        AND tx_count > 0
+        AND status IN ('processed', 'needs_review')
+    `,
+    [userId, accountId, uploadId],
+  );
+  return Number(row?.count || 0) > 0;
+}
+
 type FastUploadTransaction = {
   id: number;
   fecha: string;
@@ -105,6 +123,7 @@ type FastUploadTransaction = {
 function buildFastImportReviewState(
   transactions: FastUploadTransaction[],
   settings: Record<string, string>,
+  options: { allowGroupedReview?: boolean } = {},
 ) {
   const pending = transactions.filter((transaction) => transaction.categorization_status !== "categorized");
   const grouped = new Map<string, {
@@ -141,13 +160,16 @@ function buildFastImportReviewState(
     grouped.set(key, current);
   }
 
-  const reviewGroups = [...grouped.values()]
-    .filter((group) => group.count >= 2)
-    .sort((left, right) => right.count - left.count)
-    .map((group) => ({
-      ...group,
-      reason: "Encontramos varios movimientos parecidos con la misma categoria sugerida.",
-    }));
+  const allowGroupedReview = options.allowGroupedReview !== false;
+  const reviewGroups = allowGroupedReview
+    ? [...grouped.values()]
+      .filter((group) => group.count >= 2)
+      .sort((left, right) => right.count - left.count)
+      .map((group) => ({
+        ...group,
+        reason: "Encontramos varios movimientos parecidos con la misma categoria sugerida.",
+      }))
+    : [];
 
   const guidedReviewGroups = reviewGroups
     .filter((group) => group.count >= 3)
@@ -165,6 +187,7 @@ function buildFastImportReviewState(
     .filter((transaction) => !groupedIds.has(transaction.id))
     .map((transaction) => ({
       ...transaction,
+      transaction_id: transaction.id,
       suggested_category_id: transaction.category_id,
       suggested_category_name: transaction.category_name,
       suggestion_source: transaction.category_source || (transaction.category_id ? "rule_suggest" : "manual_review"),
@@ -429,6 +452,7 @@ export async function processUploadTransactions(db: D1DatabaseLike, userId: stri
   }
 
   const settings = await getSettingsObject(db, userId);
+  const accountHasPriorUpload = await hasPriorAccountUpload(db, userId, upload.account_id, input.upload_id);
   const [rules, dictionary, categories, allRejections] = await Promise.all([
     listRules(db, userId),
     listMerchantDictionary(db, userId),
@@ -505,8 +529,9 @@ export async function processUploadTransactions(db: D1DatabaseLike, userId: stri
       settings,
       dictionary,
     );
-    const categorizationStatus = classification.categorizationStatus === "categorized" ? "categorized"
+    const categorizationStatus = classification.categorizationStatus === "categorized" && accountHasPriorUpload ? "categorized"
       : classification.categorizationStatus === "suggested" ? "suggested"
+      : classification.categorizationStatus === "categorized" ? "suggested"
       : "uncategorized";
     const categoryId = classification.categoryId ?? null;
     const category = categoryId == null ? null : categoryById.get(Number(categoryId)) || null;
@@ -618,7 +643,9 @@ export async function processUploadTransactions(db: D1DatabaseLike, userId: stri
     status: pendingReview > 0 ? "needs_review" : "processed",
     tx_count: created,
   });
-  const reviewState = buildFastImportReviewState(createdTransactions, settings);
+  const reviewState = buildFastImportReviewState(createdTransactions, settings, {
+    allowGroupedReview: accountHasPriorUpload,
+  });
 
   return {
     upload: nextUpload,

@@ -54,6 +54,11 @@ function getPrimaryDescription(transaction) {
   return "Movimiento sin descripcion";
 }
 
+function getTransactionId(transaction) {
+  const id = Number(transaction?.transaction_id ?? transaction?.id);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
 export default function TransactionReviewDeck({
   items,
   categories,
@@ -68,7 +73,6 @@ export default function TransactionReviewDeck({
   const [saving, setSaving] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const [selectedTargetAccountId, setSelectedTargetAccountId] = useState("");
-  const [customDescription, setCustomDescription] = useState("");
   const [dismissedInternalIds, setDismissedInternalIds] = useState([]);
 
   const otherCategory = useMemo(
@@ -77,11 +81,12 @@ export default function TransactionReviewDeck({
   );
 
   const current = items[index] || null;
+  const currentTransactionId = getTransactionId(current);
   const progress = useMemo(() => {
     if (items.length === 0) return 0;
     return ((index + 1) / items.length) * 100;
   }, [items.length, index]);
-  const isInternalOperationActive = Boolean(current?.internal_operation_kind) && !dismissedInternalIds.includes(current?.transaction_id);
+  const isInternalOperationActive = Boolean(current?.internal_operation_kind) && !dismissedInternalIds.includes(currentTransactionId);
   const availableCounterpartyAccounts = useMemo(
     () => accounts.filter((account) => account.id !== current?.internal_operation_from_account_id && account.id !== current?.account_id),
     [accounts, current?.internal_operation_from_account_id, current?.account_id]
@@ -98,20 +103,11 @@ export default function TransactionReviewDeck({
 
   useEffect(() => {
     setSelectedCategoryId(current?.suggested_category_id ? String(current.suggested_category_id) : "");
-  }, [current?.transaction_id, current?.suggested_category_id]);
-
-  useEffect(() => {
-    if (!current) {
-      setCustomDescription("");
-      return;
-    }
-    const preferredDescription = cleanDescription(current.desc_usuario);
-    setCustomDescription(preferredDescription || (!isWeakDescription(current.desc_banco) ? cleanDescription(current.desc_banco) : ""));
-  }, [current?.transaction_id, current?.desc_usuario, current?.desc_banco]);
+  }, [currentTransactionId, current?.suggested_category_id]);
 
   useEffect(() => {
     setSelectedTargetAccountId(current?.internal_operation_to_account_id ? String(current.internal_operation_to_account_id) : "");
-  }, [current?.transaction_id, current?.internal_operation_to_account_id]);
+  }, [currentTransactionId, current?.internal_operation_to_account_id]);
 
   function next() {
     if (index + 1 >= items.length) {
@@ -123,17 +119,18 @@ export default function TransactionReviewDeck({
 
   async function applyCategory(categoryId, options = {}) {
     if (!current || saving || !categoryId) return;
+    const transactionId = getTransactionId(current);
+    if (!transactionId) {
+      addToast("error", "No pudimos identificar esta transaccion. Cerrá la revision y volvé a abrirla.");
+      return;
+    }
     setSaving(true);
     try {
-      const cleanCustomDescription = cleanDescription(customDescription);
       const payload = { category_id: Number(categoryId) };
-      if (cleanCustomDescription && cleanCustomDescription !== cleanDescription(current.desc_usuario)) {
-        payload.desc_usuario = cleanCustomDescription;
-      }
-      const result = await api.updateTransaction(current.transaction_id, payload);
+      const result = await api.updateTransaction(transactionId, payload);
       setHistory((prev) => [...prev, {
         type: "apply",
-        transactionId: current.transaction_id,
+        transactionId,
         previousCategoryId: current.category_id ?? null,
         previousDescription: current.desc_usuario ?? null,
         createdRuleId: result?.rule?.created ? result?.rule?.rule?.id : null,
@@ -150,6 +147,11 @@ export default function TransactionReviewDeck({
 
   async function handleConfirmInternalOperation(kindOverride) {
     if (!current || saving || !current.internal_operation_kind) return;
+    const transactionId = getTransactionId(current);
+    if (!transactionId) {
+      addToast("error", "No pudimos identificar esta transaccion. Cerrá la revision y volvé a abrirla.");
+      return;
+    }
     const targetTransactionId = current.internal_operation_target_transaction_id || null;
     const toAccountId = selectedTargetAccountId || current.internal_operation_to_account_id || null;
     if (!targetTransactionId && !toAccountId) {
@@ -161,7 +163,7 @@ export default function TransactionReviewDeck({
     try {
       await api.confirmInternalOperation({
         kind: kindOverride,
-        source_transaction_id: current.transaction_id,
+        source_transaction_id: transactionId,
         target_transaction_id: targetTransactionId,
         from_account_id: current.internal_operation_from_account_id || current.account_id || null,
         to_account_id: toAccountId,
@@ -178,10 +180,15 @@ export default function TransactionReviewDeck({
 
   async function handleRejectInternalOperation() {
     if (!current || saving) return;
+    const transactionId = getTransactionId(current);
+    if (!transactionId) {
+      addToast("error", "No pudimos identificar esta transaccion. Cerrá la revision y volvé a abrirla.");
+      return;
+    }
     setSaving(true);
     try {
-      await api.rejectInternalOperation({ source_transaction_id: current.transaction_id });
-      setDismissedInternalIds((prev) => [...prev, current.transaction_id]);
+      await api.rejectInternalOperation({ source_transaction_id: transactionId });
+      setDismissedInternalIds((prev) => [...prev, transactionId]);
       addToast("info", "Perfecto. Ahora podes categorizarlo como un movimiento normal.");
     } catch (error) {
       addToast("error", error.message);
@@ -194,6 +201,10 @@ export default function TransactionReviewDeck({
     if (!current || saving) return;
     if (isInternalOperationActive) {
       await handleConfirmInternalOperation(current.internal_operation_kind);
+      return;
+    }
+    if (selectedCategoryId && String(selectedCategoryId) !== String(current.suggested_category_id || "")) {
+      await applyCategory(selectedCategoryId);
       return;
     }
     if (current.suggested_category_id) {
@@ -262,6 +273,7 @@ export default function TransactionReviewDeck({
   const rawBankDescription = cleanDescription(current.desc_banco);
   const hasWeakBankDescription = isWeakDescription(rawBankDescription);
   const accountLabel = cleanDescription(current.account_name) || cleanDescription(current.account_id) || "Sin cuenta";
+  const selectedCategoryOverridesSuggestion = Boolean(selectedCategoryId) && String(selectedCategoryId) !== String(current.suggested_category_id || "");
 
   return (
     <div
@@ -423,16 +435,6 @@ export default function TransactionReviewDeck({
         </div>
 
         <div className="mt-5 rounded-[26px] border border-neutral-200 bg-white/80 p-5 dark:border-neutral-700 dark:bg-neutral-950/60">
-          <label className="block">
-            <span className="text-xs uppercase tracking-[0.18em] text-neutral-400">Nombre para recordar</span>
-            <input
-              value={customDescription}
-              onChange={(event) => setCustomDescription(event.target.value)}
-              placeholder="Ej: Luz, alquiler Maria, supermercado..."
-              className="mt-3 w-full rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm text-finance-ink outline-none transition focus:border-finance-purple dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
-            />
-          </label>
-
           {isInternalOperationActive && (
             <div className="mb-4 flex flex-wrap gap-2">
               <button
@@ -532,7 +534,9 @@ export default function TransactionReviewDeck({
               ? (current.internal_operation_target_transaction_id
                 ? (current.internal_operation_kind === "fx_exchange" ? "Confirmar compra de moneda" : "Confirmar transferencia interna")
                 : "Guardar como incompleta")
-              : (current.suggested_category_id ? "Aceptar sugerencia" : "Crear y usar sugerencia")}
+              : selectedCategoryOverridesSuggestion
+                ? "Usar categoria elegida"
+                : (current.suggested_category_id ? "Aceptar sugerencia" : "Crear y usar sugerencia")}
           </button>
         </div>
       </div>

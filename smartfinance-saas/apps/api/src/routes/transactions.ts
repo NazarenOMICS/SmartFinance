@@ -268,7 +268,7 @@ transactionsRouter.post("/batch", async (c) => {
     duplicates_skipped: processed.duplicates_skipped,
     auto_categorized_count: processed.auto_categorized,
     suggested_count: processed.suggested,
-    pending_review_count: processed.pending_review + processed.suggested,
+    pending_review_count: processed.pending_review,
     unmatched_count: 0,
   });
 
@@ -280,7 +280,7 @@ transactionsRouter.post("/batch", async (c) => {
     duplicates_skipped: processed.duplicates_skipped,
     auto_categorized: processed.auto_categorized,
     suggested: processed.suggested,
-    pending_review: processed.pending_review + processed.suggested,
+    pending_review: processed.pending_review,
     errors: 0,
     parser: "csv",
     ai_assisted: false,

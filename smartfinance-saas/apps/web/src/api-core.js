@@ -375,34 +375,15 @@ export const api = {
   getSummary: (month) => sdk.getTransactionSummary(month),
   getTransactions: (month) => getTransactionsRich(month),
   updateTransaction: async (id, body) => {
-    const updated = await sdk.updateTransaction(id, body);
-    let rule = null;
-
-    if (body.category_id !== undefined && body.category_id !== null) {
-      const pattern = deriveMeaningfulPattern(updated.desc_banco);
-      if (pattern) {
-        const createdRule = await api.createRule({
-          pattern,
-          category_id: Number(body.category_id),
-          mode: "auto",
-          confidence: 0.84,
-          account_id: updated.account_id || undefined,
-          currency: updated.moneda || undefined,
-          direction: Number(updated.monto) >= 0 ? "income" : "expense",
-        }).catch(() => null);
-
-        if (createdRule) {
-          rule = {
-            created: !createdRule.duplicate,
-            conflict: Boolean(createdRule.duplicate && Number(createdRule.category_id) !== Number(body.category_id)),
-            candidates_count: createdRule.candidates_count || 0,
-            rule: createdRule,
-          };
-        }
-      }
-    }
-
-    return { ...updated, transaction: updated, rule };
+    const updated = await requestCompat(`/api/transactions/${Number(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+    return {
+      ...updated,
+      transaction: updated.transaction || updated,
+      rule: updated.rule || null,
+    };
   },
   markTransactionMovement: (id, kind) => sdk.markTransactionMovement(id, { kind }),
   createTransaction: async (body) => {

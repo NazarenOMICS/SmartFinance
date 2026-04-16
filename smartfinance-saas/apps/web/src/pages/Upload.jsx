@@ -346,6 +346,11 @@ function buildInitialManualForm(month) {
   };
 }
 
+function getReviewTransactionId(item) {
+  const id = Number(item?.transaction_id ?? item?.id);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
 // ─── Saved bank formats panel ────────────────────────────────────────────────
 
 function SavedFormats({ onDeleted }) {
@@ -578,7 +583,10 @@ export default function Upload({
   function markResolvedTransactions(group) {
     setResolvedReviewTransactionIds((prev) => {
       const next = new Set(prev);
-      (group.transaction_ids || []).forEach((id) => next.add(id));
+      (group.transaction_ids || []).forEach((id) => {
+        const transactionId = Number(id);
+        if (Number.isInteger(transactionId) && transactionId > 0) next.add(transactionId);
+      });
       return [...next];
     });
   }
@@ -713,7 +721,10 @@ export default function Upload({
     (group) => !resolvedGuidedGroupKeys.includes(group.key)
   );
   const displayedTransactionReviewQueue = transactionReviewQueue.filter(
-    (item) => !resolvedReviewTransactionIds.includes(item.transaction_id)
+    (item) => {
+      const transactionId = getReviewTransactionId(item);
+      return transactionId ? !resolvedReviewTransactionIds.includes(transactionId) : false;
+    }
   );
   const displayedRuleReviewGroups = reviewGroups.filter(
     (group) => !resolvedReviewGroupKeys.includes(group.key)
@@ -722,7 +733,7 @@ export default function Upload({
     new Set([
       ...displayedGuidedReviewGroups.flatMap((group) => group.transaction_ids || []),
       ...displayedRuleReviewGroups.flatMap((group) => group.transaction_ids || []),
-      ...displayedTransactionReviewQueue.map((item) => item.transaction_id),
+      ...displayedTransactionReviewQueue.map((item) => getReviewTransactionId(item)),
     ].map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0))
   );
   const pendingReviewSummary = [

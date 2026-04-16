@@ -269,7 +269,7 @@ uploadRouter.post("/", async (c) => {
     duplicates_skipped: processed.duplicates_skipped,
     auto_categorized_count: processed.auto_categorized,
     suggested_count: processed.suggested,
-    pending_review_count: processed.pending_review + processed.suggested,
+    pending_review_count: processed.pending_review,
     unmatched_count: unmatchedCount,
   });
 
@@ -286,7 +286,7 @@ uploadRouter.post("/", async (c) => {
     duplicates_skipped: processed.duplicates_skipped,
     auto_categorized: processed.auto_categorized,
     suggested: processed.suggested,
-    pending_review: processed.pending_review + processed.suggested,
+    pending_review: processed.pending_review,
     unsupported: false,
   });
 
@@ -295,7 +295,7 @@ uploadRouter.post("/", async (c) => {
     new_transactions: processed.created,
     duplicates_skipped: processed.duplicates_skipped,
     auto_categorized: processed.auto_categorized,
-    pending_review: processed.pending_review + processed.suggested,
+    pending_review: processed.pending_review,
     parser,
     detected_format: detectedFormat,
     ai_assisted: aiAssisted,
