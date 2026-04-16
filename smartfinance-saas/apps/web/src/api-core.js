@@ -474,7 +474,7 @@ export const api = {
     });
   },
   updateAccount: (id, body) => sdk.updateAccount(id, body),
-  deleteAccount: (id) => sdk.deleteAccount(id),
+  deleteAccount: (id, force = false) => sdk.deleteAccount(id, force),
   getConsolidatedAccounts: () => sdk.getConsolidatedAccounts(),
   getAccountLinks: () => sdk.getAccountLinks(),
   createAccountLink: (body) => sdk.createAccountLink(body),

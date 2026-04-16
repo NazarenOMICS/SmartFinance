@@ -182,8 +182,9 @@ export function createApiClient(options: { baseUrl: string; getToken?: TokenProv
     getConsolidatedAccounts() {
       return request("/api/accounts/consolidated", { method: "GET" }, consolidatedAccountsSchema);
     },
-    async deleteAccount(id: string) {
-      const response = await fetch(`${baseUrl}/api/accounts/${id}`, {
+    async deleteAccount(id: string, force = false) {
+      const query = force ? "?force=true" : "";
+      const response = await fetch(`${baseUrl}/api/accounts/${id}${query}`, {
         method: "DELETE",
         headers: await buildHeaders({ method: "DELETE" }),
       });

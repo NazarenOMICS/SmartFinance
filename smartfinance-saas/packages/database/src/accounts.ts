@@ -101,6 +101,29 @@ export async function deleteAccount(db: D1DatabaseLike, userId: string, accountI
 export async function deleteAccountCascade(db: D1DatabaseLike, userId: string, accountId: string) {
   await runStatement(
     db,
+    `DELETE FROM rule_match_log
+     WHERE user_id = ?
+       AND transaction_id IN (
+         SELECT id FROM transactions WHERE user_id = ? AND account_id = ?
+       )`,
+    [userId, userId, accountId],
+  );
+  await runStatement(
+    db,
+    `DELETE FROM rule_rejections
+     WHERE user_id = ?
+       AND transaction_id IN (
+         SELECT id FROM transactions WHERE user_id = ? AND account_id = ?
+       )`,
+    [userId, userId, accountId],
+  );
+  await runStatement(
+    db,
+    "DELETE FROM rules WHERE user_id = ? AND account_id = ?",
+    [userId, accountId],
+  );
+  await runStatement(
+    db,
     "DELETE FROM account_links WHERE user_id = ? AND (account_a_id = ? OR account_b_id = ?)",
     [userId, accountId, accountId],
   );
