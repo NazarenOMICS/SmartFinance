@@ -18,25 +18,31 @@ export type SeedRule = {
 };
 
 export const DEFAULT_CATEGORY_SEEDS: SeedCategory[] = [
-  { slug: "comida", name: "Comida", type: "variable", budget: 20000, color: "#534AB7", sortOrder: 10 },
-  { slug: "transporte", name: "Transporte", type: "variable", budget: 6000, color: "#1D9E75", sortOrder: 20 },
-  { slug: "servicios", name: "Servicios", type: "fixed", budget: 30000, color: "#BA7517", sortOrder: 30 },
-  { slug: "streaming", name: "Streaming", type: "fixed", budget: 5000, color: "#D85A30", sortOrder: 40 },
-  { slug: "ocio", name: "Ocio", type: "variable", budget: 10000, color: "#378ADD", sortOrder: 50 }
+  { slug: "comida", name: "Compras Apto", type: "variable", budget: 20000, color: "#534AB7", sortOrder: 10 },
+  { slug: "comer_afuera", name: "Comer Afuera", type: "variable", budget: 8000, color: "#378ADD", sortOrder: 20 },
+  { slug: "transporte", name: "Transporte", type: "variable", budget: 6000, color: "#1D9E75", sortOrder: 30 },
+  { slug: "servicios", name: "Servicios", type: "fixed", budget: 30000, color: "#BA7517", sortOrder: 40 },
+  { slug: "streaming", name: "Streaming", type: "fixed", budget: 5000, color: "#D85A30", sortOrder: 50 },
+  { slug: "ocio", name: "Ocio", type: "variable", budget: 10000, color: "#639922", sortOrder: 60 },
+  { slug: "otros", name: "Otros", type: "variable", budget: 5000, color: "#888780", sortOrder: 70 }
 ];
 
 const DEFAULT_RULE_SEED_INPUT: SeedRule[] = [
-  { pattern: "PEDIDOSYA", slug: "comida", mode: "suggest", confidence: 0.93 },
-  { pattern: "RAPPI", slug: "comida", mode: "suggest", confidence: 0.9 },
-  { pattern: "UBER EATS", slug: "comida", mode: "suggest", confidence: 0.9 },
-  { pattern: "MCDONALD", slug: "comida", mode: "suggest", confidence: 0.9 },
-  { pattern: "BURGER KING", slug: "comida", mode: "suggest", confidence: 0.9 },
-  { pattern: "SUBWAY", slug: "comida", mode: "suggest", confidence: 0.88 },
-  { pattern: "CAFE", slug: "comida", mode: "suggest", confidence: 0.76 },
+  { pattern: "PEDIDOSYA", slug: "comer_afuera", mode: "suggest", confidence: 0.93 },
+  { pattern: "RAPPI", slug: "comer_afuera", mode: "suggest", confidence: 0.9 },
+  { pattern: "UBER EATS", slug: "comer_afuera", mode: "suggest", confidence: 0.9 },
+  { pattern: "MCDONALDS", slug: "comer_afuera", mode: "suggest", confidence: 0.9 },
+  { pattern: "BURGER KING", slug: "comer_afuera", mode: "suggest", confidence: 0.9 },
+  { pattern: "SUBWAY", slug: "comer_afuera", mode: "suggest", confidence: 0.88 },
+  { pattern: "CAFE", slug: "comer_afuera", mode: "suggest", confidence: 0.76 },
+  { pattern: "CAFETERIA", slug: "comer_afuera", mode: "suggest", confidence: 0.8 },
+  { pattern: "CAFE DEL PUERTO", slug: "comer_afuera", mode: "suggest", confidence: 0.82 },
   { pattern: "DISCO", slug: "comida", mode: "suggest", confidence: 0.9 },
   { pattern: "DEVOTO", slug: "comida", mode: "suggest", confidence: 0.9 },
   { pattern: "TA TA", slug: "comida", mode: "suggest", confidence: 0.88 },
   { pattern: "FROG", slug: "comida", mode: "suggest", confidence: 0.88 },
+  { pattern: "TIENDA INGLESA", slug: "comida", mode: "suggest", confidence: 0.88 },
+  { pattern: "GEANT", slug: "comida", mode: "suggest", confidence: 0.86 },
   { pattern: "UBER", slug: "transporte", mode: "suggest", confidence: 0.9 },
   { pattern: "CUTCSA", slug: "transporte", mode: "suggest", confidence: 0.9 },
   { pattern: "CABIFY", slug: "transporte", mode: "suggest", confidence: 0.88 },

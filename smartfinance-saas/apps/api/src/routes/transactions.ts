@@ -54,6 +54,7 @@ import {
   TransactionAccountNotFoundError,
   updateTransaction,
 } from "@smartfinance/database";
+import { log } from "@smartfinance/observability";
 import type { ApiBindings, ApiVariables } from "../env";
 import { jsonError } from "../utils/http";
 
@@ -342,63 +343,69 @@ transactionsRouter.put("/:id", async (c) => {
 
     let rulePayload: Record<string, unknown> | null = null;
     if (parsedBody.data.category_id !== undefined && parsedTransaction.category_id !== null) {
-      const conflictingRule = await findMatchingRule(c.env.DB, auth.userId, {
-        descBanco: parsedTransaction.desc_banco,
-        accountId: parsedTransaction.account_id,
-        currency: parsedTransaction.moneda,
-        direction: parsedTransaction.entry_type === "income" ? "income" : "expense",
-      });
-      if (conflictingRule && conflictingRule.category_id !== parsedTransaction.category_id) {
-        await rejectRuleForDescription(c.env.DB, auth.userId, conflictingRule.id, parsedTransaction.desc_banco);
-        rulePayload = {
-          created: false,
-          conflict: true,
-          candidates_count: 0,
-          rule: conflictingRule,
-        };
-      }
+      const confirmedCategoryId = parsedTransaction.category_id;
+      rulePayload = {
+        pending: true,
+        created: false,
+        conflict: false,
+        candidates_count: 0,
+      };
 
-      const syncResult = await syncRuleFromCategorizedDescription(c.env.DB, auth.userId, {
-        descBanco: parsedTransaction.desc_banco,
-        categoryId: parsedTransaction.category_id,
-        accountId: parsedTransaction.account_id,
-        currency: parsedTransaction.moneda,
-        direction: parsedTransaction.entry_type === "income" ? "income" : "expense",
-        scopePreference: parsedBody.data.rule_scope === "global" ? "global" : parsedBody.data.rule_scope === "account" ? "account" : null,
-      });
+      const learningTask = (async () => {
+        try {
+          let conflict = false;
+          const conflictingRule = await findMatchingRule(c.env.DB, auth.userId, {
+            descBanco: parsedTransaction.desc_banco,
+            accountId: parsedTransaction.account_id,
+            currency: parsedTransaction.moneda,
+            direction: parsedTransaction.entry_type === "income" ? "income" : "expense",
+          });
+          if (conflictingRule && conflictingRule.category_id !== confirmedCategoryId) {
+            await rejectRuleForDescription(c.env.DB, auth.userId, conflictingRule.id, parsedTransaction.desc_banco);
+            conflict = true;
+          }
 
-      if (syncResult?.rule) {
-        rulePayload = {
-          created: syncResult.status === "created",
-          conflict: Boolean(rulePayload?.conflict),
-          candidates_count: 0,
-          rule: syncResult.rule,
-        };
-        await logRuleMatch(c.env.DB, auth.userId, {
-          transactionId,
-          ruleId: Number(syncResult.rule.id),
-          categoryId: parsedTransaction.category_id,
-          layer: "manual",
-          confidence: Number(syncResult.rule.confidence ?? 0.9),
-          reason: syncResult.status === "overrode_conflict" ? "Manual category overrode existing rule scope" : "Manual category confirmed rule",
-        });
-      } else if (syncResult?.status === "skipped") {
-        rulePayload = {
-          created: false,
-          conflict: false,
-          candidates_count: 0,
-          skipped: true,
-          skipped_reason: syncResult.skipped_reason,
-        };
-        await logRuleMatch(c.env.DB, auth.userId, {
-          transactionId,
-          ruleId: null,
-          categoryId: parsedTransaction.category_id,
-          layer: "manual",
-          confidence: null,
-          reason: `Rule skipped: ${syncResult.skipped_reason}`,
-        });
-      }
+          const syncResult = await syncRuleFromCategorizedDescription(c.env.DB, auth.userId, {
+            descBanco: parsedTransaction.desc_banco,
+            categoryId: confirmedCategoryId,
+            accountId: parsedTransaction.account_id,
+            currency: parsedTransaction.moneda,
+            direction: parsedTransaction.entry_type === "income" ? "income" : "expense",
+            scopePreference: parsedBody.data.rule_scope === "global" ? "global" : parsedBody.data.rule_scope === "account" ? "account" : null,
+          });
+
+          if (syncResult?.rule) {
+            await logRuleMatch(c.env.DB, auth.userId, {
+              transactionId,
+              ruleId: Number(syncResult.rule.id),
+              categoryId: confirmedCategoryId,
+              layer: "manual",
+              confidence: Number(syncResult.rule.confidence ?? 0.9),
+              reason: conflict || syncResult.status === "overrode_conflict"
+                ? "Manual category overrode existing rule scope"
+                : "Manual category confirmed rule",
+            });
+          } else if (syncResult?.status === "skipped") {
+            await logRuleMatch(c.env.DB, auth.userId, {
+              transactionId,
+              ruleId: null,
+              categoryId: confirmedCategoryId,
+              layer: "manual",
+              confidence: null,
+              reason: `Rule skipped: ${syncResult.skipped_reason}`,
+            });
+          }
+        } catch (error) {
+          log("error", "categorization.manual_learning_failed", {
+            request_id: requestId,
+            user_id: auth.userId,
+            transaction_id: transactionId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      })();
+
+      c.executionCtx.waitUntil(learningTask);
     }
 
     return c.json({
@@ -528,29 +535,51 @@ transactionsRouter.post("/review/assign-category", async (c) => {
     parsedBody.data.category_id,
   );
 
-  for (const transaction of transactions) {
-    const parsedTransaction = transactionSchema.parse(transaction);
-    if (parsedTransaction.category_id !== null) {
-      const conflictingRule = await findMatchingRule(c.env.DB, auth.userId, {
-        descBanco: parsedTransaction.desc_banco,
-        accountId: parsedTransaction.account_id,
-        currency: parsedTransaction.moneda,
-        direction: parsedTransaction.entry_type === "income" ? "income" : "expense",
-      });
-      if (conflictingRule && conflictingRule.category_id !== parsedTransaction.category_id) {
-        await rejectRuleForDescription(c.env.DB, auth.userId, conflictingRule.id, parsedTransaction.desc_banco);
-      }
+  const learningTask = (async () => {
+    for (const transaction of transactions) {
+      try {
+        const parsedTransaction = transactionSchema.parse(transaction);
+        if (parsedTransaction.category_id === null) continue;
 
-      await syncRuleFromCategorizedDescription(c.env.DB, auth.userId, {
-        descBanco: parsedTransaction.desc_banco,
-        categoryId: parsedTransaction.category_id,
-        accountId: parsedTransaction.account_id,
-        currency: parsedTransaction.moneda,
-        direction: parsedTransaction.entry_type === "income" ? "income" : "expense",
-        scopePreference: parsedBody.data.rule_scope === "global" ? "global" : parsedBody.data.rule_scope === "account" ? "account" : null,
-      });
+        const conflictingRule = await findMatchingRule(c.env.DB, auth.userId, {
+          descBanco: parsedTransaction.desc_banco,
+          accountId: parsedTransaction.account_id,
+          currency: parsedTransaction.moneda,
+          direction: parsedTransaction.entry_type === "income" ? "income" : "expense",
+        });
+        if (conflictingRule && conflictingRule.category_id !== parsedTransaction.category_id) {
+          await rejectRuleForDescription(c.env.DB, auth.userId, conflictingRule.id, parsedTransaction.desc_banco);
+        }
+
+        const syncResult = await syncRuleFromCategorizedDescription(c.env.DB, auth.userId, {
+          descBanco: parsedTransaction.desc_banco,
+          categoryId: parsedTransaction.category_id,
+          accountId: parsedTransaction.account_id,
+          currency: parsedTransaction.moneda,
+          direction: parsedTransaction.entry_type === "income" ? "income" : "expense",
+          scopePreference: parsedBody.data.rule_scope === "global" ? "global" : parsedBody.data.rule_scope === "account" ? "account" : null,
+        });
+
+        if (syncResult?.rule) {
+          await logRuleMatch(c.env.DB, auth.userId, {
+            transactionId: Number(parsedTransaction.id),
+            ruleId: Number(syncResult.rule.id),
+            categoryId: parsedTransaction.category_id,
+            layer: "manual",
+            confidence: Number(syncResult.rule.confidence ?? 0.9),
+            reason: "Manual batch category confirmed rule",
+          });
+        }
+      } catch (error) {
+        log("error", "categorization.batch_learning_failed", {
+          request_id: requestId,
+          user_id: auth.userId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
-  }
+  })();
+  c.executionCtx.waitUntil(learningTask);
 
   return c.json(transactionBatchResultSchema.parse({
     processed: transactions.length,

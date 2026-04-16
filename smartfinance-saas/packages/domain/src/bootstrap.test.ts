@@ -7,10 +7,12 @@ describe("bootstrap categorization seeds", () => {
 
     expect(DEFAULT_CATEGORY_SEEDS.map((category) => category.slug)).toEqual([
       "comida",
+      "comer_afuera",
       "transporte",
       "servicios",
       "streaming",
       "ocio",
+      "otros",
     ]);
     expect(slugs.has("supermercado")).toBe(false);
     expect(slugs.has("restaurantes")).toBe(false);
@@ -23,7 +25,9 @@ describe("bootstrap categorization seeds", () => {
     const byPattern = new Map(DEFAULT_RULE_SEEDS.map((rule) => [rule.pattern, rule.slug]));
 
     expect(byPattern.get("DISCO")).toBe("comida");
-    expect(byPattern.get("PEDIDOSYA")).toBe("comida");
+    expect(byPattern.get("PEDIDOSYA")).toBe("comer_afuera");
+    expect(byPattern.get("SUBWAY")).toBe("comer_afuera");
+    expect(byPattern.get("CAFETERIA")).toBe("comer_afuera");
     expect(byPattern.get("UBER")).toBe("transporte");
     expect(byPattern.get("LUZ")).toBe("servicios");
     expect(byPattern.get("NETFLIX")).toBe("streaming");
