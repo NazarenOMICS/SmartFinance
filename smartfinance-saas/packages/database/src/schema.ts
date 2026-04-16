@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = "2026-04-categorization-canonical-v9";
+export const SCHEMA_VERSION = "2026-04-rule-rejections-transaction-id";
 
 export const DEFAULT_SETTINGS: Record<string, string> = {
   exchange_rate_usd_uyu: "42.5",

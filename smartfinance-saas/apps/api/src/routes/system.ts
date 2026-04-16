@@ -29,7 +29,7 @@ systemRouter.get("/system/schema", async (c) => {
     request_id: c.get("requestId"),
   });
 
-  return c.json(payload, status.ok ? 200 : 503);
+  return c.json(payload);
 });
 
 systemRouter.get("/system/limits", async (c) => {
