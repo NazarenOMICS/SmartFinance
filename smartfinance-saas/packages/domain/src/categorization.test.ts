@@ -83,6 +83,34 @@ describe("categorization pipeline", () => {
     expect(decision.categoryId).toBe(11);
   });
 
+  it("never autoapplies seed rules before the user confirms their taxonomy", () => {
+    const decision = classifyTransaction(
+      { desc_banco: "COMPRA CON TARJETA SUBWAY MONTEVIDEO", monto: -420, moneda: "UYU" },
+      [
+        { id: 4, pattern: "SUBWAY", normalized_pattern: "subway", merchant_key: "subway", merchant_scope: "subway", category_id: 1, mode: "auto", source: "seed", confidence: 0.99 },
+      ],
+      [],
+      { categorizer_auto_threshold: 0.8, categorizer_suggest_threshold: 0.6 },
+    );
+
+    expect(decision.categorizationStatus).toBe("suggested");
+    expect(decision.categoryId).toBe(1);
+  });
+
+  it("autoapplies manual rules after the user teaches that merchant", () => {
+    const decision = classifyTransaction(
+      { desc_banco: "COMPRA CON TARJETA SUBWAY MONTEVIDEO", monto: -420, moneda: "UYU" },
+      [
+        { id: 5, pattern: "SUBWAY", normalized_pattern: "subway", merchant_key: "subway", merchant_scope: "subway", category_id: 22, mode: "auto", source: "manual", confidence: 0.99 },
+      ],
+      [],
+      { categorizer_auto_threshold: 0.8, categorizer_suggest_threshold: 0.6 },
+    );
+
+    expect(decision.categorizationStatus).toBe("categorized");
+    expect(decision.categoryId).toBe(22);
+  });
+
   it("keeps UYU import merchants stable for review clustering", () => {
     const cases = [
       ["DLO.UBER.RIDES 2204", "uber"],

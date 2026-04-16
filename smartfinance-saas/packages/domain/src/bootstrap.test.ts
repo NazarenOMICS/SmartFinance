@@ -29,4 +29,8 @@ describe("bootstrap categorization seeds", () => {
     expect(byPattern.get("NETFLIX")).toBe("streaming");
     expect(byPattern.get("CINE")).toBe("ocio");
   });
+
+  it("keeps seed rules as suggestions until the user teaches personal categories", () => {
+    expect(DEFAULT_RULE_SEEDS.every((rule) => rule.mode === "suggest")).toBe(true);
+  });
 });

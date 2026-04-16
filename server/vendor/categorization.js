@@ -281,7 +281,8 @@ function classifyTransaction(tx, rules = [], ruleRejections = [], settings = {},
             return { categoryId: null, categorizationStatus: "rejected", categorySource: null, categoryConfidence: null, categoryRuleId: null, matchedRule: null, merchantKey: identity.merchant_key, layer: "fallback", reason: "rule_rejected_by_user", explanation: `Regla rechazada por usuario: ${match.rule.pattern}` };
         }
     }
-    const status = match.score >= autoThreshold ? "categorized" : match.score >= suggestThreshold ? "suggested" : "uncategorized";
+    const isSeedRule = String(match.rule.source || "").toLowerCase() === "seed";
+    const status = !isSeedRule && match.score >= autoThreshold ? "categorized" : match.score >= suggestThreshold ? "suggested" : "uncategorized";
     const explanation = explainCategorization({
         categorizationStatus: status,
         categoryConfidence: status === "uncategorized" ? null : match.score,
