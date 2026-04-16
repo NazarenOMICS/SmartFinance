@@ -9,6 +9,7 @@ function formatSuggestionSource(source) {
   if (source === "rule_suggest" || source === "regla") return "Regla";
   if (source === "amount_profile") return "Monto aprendido";
   if (source === "history") return "Historial";
+  if (source === "session_learned") return "Aprendido recien";
   if (source === "heuristica" || source === "keyword") return "Heuristica";
   if (source === "cloudflare-ai") return "Cloudflare AI";
   if (source === "ollama") return "AI local";
@@ -89,18 +90,37 @@ export default function TransactionReviewDeck({
   const [selectedTargetAccountId, setSelectedTargetAccountId] = useState("");
   const [dismissedInternalIds, setDismissedInternalIds] = useState([]);
   const [completedIds, setCompletedIds] = useState(() => new Set());
+  const [sessionLearnedCategories, setSessionLearnedCategories] = useState(() => new Map());
 
   const otherCategory = useMemo(
     () => categories.find((category) => String(category.name || "").toLowerCase() === "otros") || null,
     [categories]
   );
+  const categoryById = useMemo(
+    () => new Map(categories.map((category) => [String(category.id), category])),
+    [categories]
+  );
 
   const reviewItems = useMemo(
-    () => items.filter((item) => {
-      const id = getTransactionId(item);
-      return !id || !completedIds.has(id);
-    }),
-    [items, completedIds]
+    () => items
+      .map((item) => {
+        const merchantKey = getMerchantBatchKey(item);
+        const learned = merchantKey ? sessionLearnedCategories.get(merchantKey) : null;
+        if (!learned || item?.internal_operation_kind) return item;
+        return {
+          ...item,
+          suggested_category_id: learned.categoryId,
+          suggested_category_name: learned.categoryName,
+          suggestion_source: "session_learned",
+          suggestion_reason: `Aprendido en esta revision: ${learned.displayName} va a ${learned.categoryName}.`,
+          category_confidence: Math.max(Number(item.category_confidence || 0), 0.99),
+        };
+      })
+      .filter((item) => {
+        const id = getTransactionId(item);
+        return !id || !completedIds.has(id);
+      }),
+    [items, completedIds, sessionLearnedCategories]
   );
 
   const current = reviewItems[index] || null;
@@ -118,6 +138,7 @@ export default function TransactionReviewDeck({
 
   useEffect(() => {
     setCompletedIds(new Set());
+    setSessionLearnedCategories(new Map());
     setHistory([]);
     setIndex(0);
   }, [items]);
@@ -189,6 +210,25 @@ export default function TransactionReviewDeck({
         result = await api.assignCategoryToTransactions(transactionIds, categoryId, { ruleScope: "account" });
       }
 
+      const category = categoryById.get(String(categoryId));
+      const categoryName = category?.name || "esta categoria";
+      const learnedEntries = targets
+        .map((target) => getMerchantBatchKey(target))
+        .filter(Boolean);
+      if (learnedEntries.length > 0) {
+        setSessionLearnedCategories((prev) => {
+          const nextMap = new Map(prev);
+          learnedEntries.forEach((merchantKey) => {
+            nextMap.set(merchantKey, {
+              categoryId: Number(categoryId),
+              categoryName,
+              displayName: merchantKey.replace(/\b\w/g, (letter) => letter.toUpperCase()),
+            });
+          });
+          return nextMap;
+        });
+      }
+
       setHistory((prev) => [...prev, {
         type: "apply",
         transactionId: transactionIds[0],
@@ -198,6 +238,7 @@ export default function TransactionReviewDeck({
         previousDescription: current.desc_usuario ?? null,
         previousItems: targets,
         previousIndex: index,
+        learnedEntries,
         createdRuleId: result?.rule?.created ? result?.rule?.rule?.id : null,
         createdCategoryId: options.createdCategoryId || null,
       }]);
@@ -340,6 +381,13 @@ export default function TransactionReviewDeck({
           const nextSet = new Set(prev);
           last.transactionIds.forEach((id) => nextSet.delete(id));
           return nextSet;
+        });
+      }
+      if (last.learnedEntries?.length) {
+        setSessionLearnedCategories((prev) => {
+          const nextMap = new Map(prev);
+          last.learnedEntries.forEach((merchantKey) => nextMap.delete(merchantKey));
+          return nextMap;
         });
       }
       setHistory((prev) => prev.slice(0, -1));
