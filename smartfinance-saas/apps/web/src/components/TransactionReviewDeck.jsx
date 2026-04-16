@@ -59,6 +59,20 @@ function getTransactionId(transaction) {
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
+function normalizeBatchKey(value) {
+  return cleanDescription(value).toLowerCase();
+}
+
+function getMerchantBatchKey(transaction) {
+  return normalizeBatchKey(
+    transaction?.merchant_key
+      || transaction?.counterparty_key
+      || transaction?.suggested_rule_pattern
+      || transaction?.rule_pattern
+      || ""
+  );
+}
+
 export default function TransactionReviewDeck({
   items,
   categories,
@@ -74,18 +88,28 @@ export default function TransactionReviewDeck({
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const [selectedTargetAccountId, setSelectedTargetAccountId] = useState("");
   const [dismissedInternalIds, setDismissedInternalIds] = useState([]);
+  const [completedIds, setCompletedIds] = useState(() => new Set());
 
   const otherCategory = useMemo(
     () => categories.find((category) => String(category.name || "").toLowerCase() === "otros") || null,
     [categories]
   );
 
-  const current = items[index] || null;
+  const reviewItems = useMemo(
+    () => items.filter((item) => {
+      const id = getTransactionId(item);
+      return !id || !completedIds.has(id);
+    }),
+    [items, completedIds]
+  );
+
+  const current = reviewItems[index] || null;
   const currentTransactionId = getTransactionId(current);
   const progress = useMemo(() => {
     if (items.length === 0) return 0;
-    return ((index + 1) / items.length) * 100;
-  }, [items.length, index]);
+    const completedCount = Math.max(0, items.length - reviewItems.length);
+    return ((completedCount + (current ? 1 : 0)) / items.length) * 100;
+  }, [current, items.length, reviewItems.length]);
   const isInternalOperationActive = Boolean(current?.internal_operation_kind) && !dismissedInternalIds.includes(currentTransactionId);
   const availableCounterpartyAccounts = useMemo(
     () => accounts.filter((account) => account.id !== current?.internal_operation_from_account_id && account.id !== current?.account_id),
@@ -93,13 +117,19 @@ export default function TransactionReviewDeck({
   );
 
   useEffect(() => {
-    if (index >= items.length && items.length > 0) {
-      setIndex(items.length - 1);
+    setCompletedIds(new Set());
+    setHistory([]);
+    setIndex(0);
+  }, [items]);
+
+  useEffect(() => {
+    if (index >= reviewItems.length && reviewItems.length > 0) {
+      setIndex(reviewItems.length - 1);
     }
-    if (items.length === 0) {
+    if (reviewItems.length === 0) {
       setIndex(0);
     }
-  }, [items.length, index]);
+  }, [reviewItems.length, index]);
 
   useEffect(() => {
     setSelectedCategoryId(current?.suggested_category_id ? String(current.suggested_category_id) : "");
@@ -110,11 +140,30 @@ export default function TransactionReviewDeck({
   }, [currentTransactionId, current?.internal_operation_to_account_id]);
 
   function next() {
-    if (index + 1 >= items.length) {
+    if (index + 1 >= reviewItems.length) {
       onDone?.();
     } else {
       setIndex((prev) => prev + 1);
     }
+  }
+
+  function advanceAfterCompleting(transactionIds) {
+    const completed = new Set(transactionIds);
+    const nextItems = reviewItems.filter((item) => {
+      const id = getTransactionId(item);
+      return !id || !completed.has(id);
+    });
+    setCompletedIds((prev) => {
+      const nextSet = new Set(prev);
+      transactionIds.forEach((id) => nextSet.add(id));
+      return nextSet;
+    });
+
+    if (nextItems.length === 0) {
+      onDone?.();
+      return;
+    }
+    setIndex((prev) => Math.min(prev, nextItems.length - 1));
   }
 
   async function applyCategory(categoryId, options = {}) {
@@ -126,18 +175,36 @@ export default function TransactionReviewDeck({
     }
     setSaving(true);
     try {
-      const payload = { category_id: Number(categoryId) };
-      const result = await api.updateTransaction(transactionId, payload);
+      const targets = options.batch ? batchItems : [current];
+      const transactionIds = Array.from(new Set(targets.map(getTransactionId).filter(Boolean)));
+      if (transactionIds.length === 0) {
+        addToast("error", "No pudimos identificar estos movimientos. Cerra la revision y volve a abrirla.");
+        return;
+      }
+
+      let result = null;
+      if (transactionIds.length === 1) {
+        result = await api.updateTransaction(transactionIds[0], { category_id: Number(categoryId) });
+      } else {
+        result = await api.assignCategoryToTransactions(transactionIds, categoryId, { ruleScope: "account" });
+      }
+
       setHistory((prev) => [...prev, {
         type: "apply",
-        transactionId,
+        transactionId: transactionIds[0],
+        transactionIds,
+        completedIds: transactionIds,
         previousCategoryId: current.category_id ?? null,
         previousDescription: current.desc_usuario ?? null,
+        previousItems: targets,
+        previousIndex: index,
         createdRuleId: result?.rule?.created ? result?.rule?.rule?.id : null,
         createdCategoryId: options.createdCategoryId || null,
       }]);
-      addToast("success", "Categoria aplicada.");
-      next();
+      addToast("success", transactionIds.length > 1
+        ? `${transactionIds.length} movimientos categorizados juntos.`
+        : "Categoria aplicada.");
+      advanceAfterCompleting(transactionIds);
     } catch (error) {
       addToast("error", error.message);
     } finally {
@@ -204,11 +271,11 @@ export default function TransactionReviewDeck({
       return;
     }
     if (selectedCategoryId && String(selectedCategoryId) !== String(current.suggested_category_id || "")) {
-      await applyCategory(selectedCategoryId);
+      await applyCategory(selectedCategoryId, { batch: batchItems.length > 1 });
       return;
     }
     if (current.suggested_category_id) {
-      await applyCategory(current.suggested_category_id);
+      await applyCategory(current.suggested_category_id, { batch: batchItems.length > 1 });
       return;
     }
 
@@ -223,7 +290,7 @@ export default function TransactionReviewDeck({
         });
         onCategoryCreated?.();
         setSaving(false);
-        await applyCategory(created.id, { createdCategoryId: created.id });
+        await applyCategory(created.id, { createdCategoryId: created.id, batch: batchItems.length > 1 });
       } catch (error) {
         setSaving(false);
         addToast("error", error.message);
@@ -236,8 +303,13 @@ export default function TransactionReviewDeck({
 
   function handleSkip() {
     if (!current || saving) return;
-    setHistory((prev) => [...prev, { type: "skip" }]);
-    next();
+    const transactionId = getTransactionId(current);
+    setHistory((prev) => [...prev, { type: "skip", transactionIds: transactionId ? [transactionId] : [], previousIndex: index }]);
+    if (transactionId) {
+      advanceAfterCompleting([transactionId]);
+    } else {
+      next();
+    }
   }
 
   async function handleBack() {
@@ -246,10 +318,15 @@ export default function TransactionReviewDeck({
     setSaving(true);
     try {
       if (last.type === "apply") {
-        await api.updateTransaction(last.transactionId, {
-          category_id: last.previousCategoryId,
-          desc_usuario: last.previousDescription,
-        });
+        await Promise.all(
+          (last.transactionIds || [last.transactionId]).map((transactionId) => {
+            const previousItem = (last.previousItems || []).find((item) => getTransactionId(item) === transactionId) || current || {};
+            return api.updateTransaction(transactionId, {
+              category_id: previousItem.category_id ?? last.previousCategoryId,
+              desc_usuario: previousItem.desc_usuario ?? last.previousDescription,
+            });
+          })
+        );
         if (last.createdRuleId) {
           await api.deleteRule(last.createdRuleId);
         }
@@ -258,8 +335,15 @@ export default function TransactionReviewDeck({
           onCategoryCreated?.();
         }
       }
+      if (last.transactionIds?.length) {
+        setCompletedIds((prev) => {
+          const nextSet = new Set(prev);
+          last.transactionIds.forEach((id) => nextSet.delete(id));
+          return nextSet;
+        });
+      }
       setHistory((prev) => prev.slice(0, -1));
-      setIndex((prev) => Math.max(prev - 1, 0));
+      setIndex(Math.max(last.previousIndex ?? index - 1, 0));
     } catch (error) {
       addToast("error", error.message);
     } finally {
@@ -267,13 +351,30 @@ export default function TransactionReviewDeck({
     }
   }
 
+  const selectedCategoryOverridesSuggestion = Boolean(selectedCategoryId) && String(selectedCategoryId) !== String(current?.suggested_category_id || "");
+  const targetCategoryId = selectedCategoryId || current?.suggested_category_id || "";
+  const currentBatchKey = getMerchantBatchKey(current);
+  const batchItems = useMemo(() => {
+    if (!current || isInternalOperationActive || !currentBatchKey || !targetCategoryId) return current ? [current] : [];
+    const isManualOverride = Boolean(selectedCategoryId) && String(selectedCategoryId) !== String(current.suggested_category_id || "");
+    return reviewItems.filter((item) => {
+      const id = getTransactionId(item);
+      if (!id) return false;
+      if (Boolean(item?.internal_operation_kind)) return false;
+      if (getMerchantBatchKey(item) !== currentBatchKey) return false;
+      if (isManualOverride) return true;
+      return String(item.suggested_category_id || "") === String(targetCategoryId);
+    });
+  }, [current, currentBatchKey, isInternalOperationActive, reviewItems, selectedCategoryId, targetCategoryId]);
+  const batchCount = batchItems.length;
+  const batchLabel = currentBatchKey ? currentBatchKey.replace(/\b\w/g, (letter) => letter.toUpperCase()) : "movimientos parecidos";
+
   if (!current) return null;
 
   const primaryDescription = getPrimaryDescription(current);
   const rawBankDescription = cleanDescription(current.desc_banco);
   const hasWeakBankDescription = isWeakDescription(rawBankDescription);
   const accountLabel = cleanDescription(current.account_name) || cleanDescription(current.account_id) || "Sin cuenta";
-  const selectedCategoryOverridesSuggestion = Boolean(selectedCategoryId) && String(selectedCategoryId) !== String(current.suggested_category_id || "");
 
   return (
     <div
@@ -430,6 +531,11 @@ export default function TransactionReviewDeck({
                   Confianza estimada: {formatConfidence(current.category_confidence)}
                 </p>
               ) : null}
+              {batchCount > 1 ? (
+                <p className="mt-3 rounded-2xl bg-finance-purpleSoft px-3 py-2 text-xs font-semibold text-finance-purple dark:bg-purple-900/30 dark:text-purple-200">
+                  Hay {batchCount} movimientos de {batchLabel}. Podes aprobarlos juntos.
+                </p>
+              ) : null}
             </div>
           )}
         </div>
@@ -473,11 +579,11 @@ export default function TransactionReviewDeck({
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => applyCategory(otherCategory.id)}
+                onClick={() => applyCategory(otherCategory.id, { batch: batchCount > 1 })}
                 disabled={saving}
                 className="rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-600 transition hover:border-finance-purple hover:text-finance-purple dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
               >
-                Mandar a Otros
+                {batchCount > 1 ? `Mandar ${batchCount} a Otros` : "Mandar a Otros"}
               </button>
             </div>
           ) : null}
@@ -492,12 +598,22 @@ export default function TransactionReviewDeck({
             </div>
             <button
               type="button"
-              onClick={() => applyCategory(selectedCategoryId)}
+              onClick={() => applyCategory(selectedCategoryId, { batch: batchCount > 1 })}
               disabled={saving || !selectedCategoryId}
               className="rounded-2xl border border-neutral-200 px-4 py-3 text-sm font-semibold text-finance-ink transition hover:border-finance-purple hover:text-finance-purple disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-100"
             >
-              Usar esta otra
+              {batchCount > 1 ? `Usar en ${batchCount}` : "Usar esta otra"}
             </button>
+            {batchCount > 1 ? (
+              <button
+                type="button"
+                onClick={() => applyCategory(selectedCategoryId)}
+                disabled={saving || !selectedCategoryId}
+                className="rounded-2xl border border-neutral-200 px-4 py-3 text-sm font-semibold text-neutral-500 transition hover:border-neutral-300 hover:text-finance-ink disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-300"
+              >
+                Solo este
+              </button>
+            ) : null}
           </div>
           <p className="mt-2 text-xs leading-6 text-neutral-500 dark:text-neutral-300">
             Si no existe, podes crear una desde el selector.
@@ -535,8 +651,10 @@ export default function TransactionReviewDeck({
                 ? (current.internal_operation_kind === "fx_exchange" ? "Confirmar compra de moneda" : "Confirmar transferencia interna")
                 : "Guardar como incompleta")
               : selectedCategoryOverridesSuggestion
-                ? "Usar categoria elegida"
-                : (current.suggested_category_id ? "Aceptar sugerencia" : "Crear y usar sugerencia")}
+                ? (batchCount > 1 ? `Usar categoria en ${batchCount}` : "Usar categoria elegida")
+                : (current.suggested_category_id
+                  ? (batchCount > 1 ? `Aceptar ${batchCount} de ${batchLabel}` : "Aceptar sugerencia")
+                  : (batchCount > 1 ? `Crear y usar en ${batchCount}` : "Crear y usar sugerencia"))}
           </button>
         </div>
       </div>

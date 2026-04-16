@@ -414,6 +414,13 @@ export const api = {
       category_id: Number(categoryId),
       rule_id: options.ruleId ?? null,
       origin: options.origin ?? "review",
+      rule_scope: options.ruleScope ?? options.rule_scope,
+    }),
+  assignCategoryToTransactions: (transactionIds, categoryId, options = {}) =>
+    sdk.assignCategoryToTransactions({
+      transaction_ids: transactionIds.map((id) => Number(id)),
+      category_id: Number(categoryId),
+      rule_scope: options.ruleScope ?? options.rule_scope,
     }),
   rejectCategory: (transactionId, ruleId, options = {}) =>
     sdk.rejectCategorySelection({
