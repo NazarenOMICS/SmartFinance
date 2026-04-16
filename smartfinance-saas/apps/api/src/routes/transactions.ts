@@ -56,7 +56,6 @@ import {
 } from "@smartfinance/database";
 import type { ApiBindings, ApiVariables } from "../env";
 import { jsonError } from "../utils/http";
-import { allRows } from "@smartfinance/database";
 
 const transactionsRouter = new Hono<{
   Bindings: ApiBindings;
@@ -273,17 +272,6 @@ transactionsRouter.post("/batch", async (c) => {
     unmatched_count: 0,
   });
 
-  const uploadTransactions = await allRows<{ id: number }>(
-    c.env.DB,
-    "SELECT id FROM transactions WHERE user_id = ? AND upload_id = ? ORDER BY id ASC",
-    [auth.userId, upload.id],
-  );
-  const reviewState = await buildImportReviewState(
-    c.env.DB,
-    auth.userId,
-    uploadTransactions.map((row) => Number(row.id)),
-  );
-
   return c.json({
     upload_id: upload.id,
     upload: persistedUpload ? uploadSchema.parse(persistedUpload) : null,
@@ -302,11 +290,11 @@ transactionsRouter.post("/batch", async (c) => {
     unmatched_count: 0,
     guided_onboarding_session: null,
     ...importReviewStateSchema.parse({
-      review_groups: reviewState.review_groups,
-      guided_review_groups: reviewState.guided_review_groups,
-      transaction_review_queue: reviewState.transaction_review_queue,
-      guided_onboarding_required: reviewState.guided_onboarding_required,
-      remaining_transaction_ids: reviewState.remaining_transaction_ids,
+      review_groups: processed.review_groups,
+      guided_review_groups: processed.guided_review_groups,
+      transaction_review_queue: processed.transaction_review_queue,
+      guided_onboarding_required: processed.guided_onboarding_required,
+      remaining_transaction_ids: processed.remaining_transaction_ids,
     }),
   });
 });

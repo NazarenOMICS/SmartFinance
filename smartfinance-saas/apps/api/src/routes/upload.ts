@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { uploadSchema } from "@smartfinance/contracts";
 import { extractTransactionsFromCsv, extractTransactionsFromText } from "@smartfinance/domain";
-import { allRows, firstRow } from "@smartfinance/database";
-import { buildImportReviewState, createUploadIntentRecord, getSettingsObject, getUsageSnapshot, incrementUsageCounter, listUploads, listUploadsByMonth, markUploadStatus, processUploadTransactions } from "@smartfinance/database";
+import { firstRow } from "@smartfinance/database";
+import { createUploadIntentRecord, getSettingsObject, getUsageSnapshot, incrementUsageCounter, listUploads, listUploadsByMonth, markUploadStatus, processUploadTransactions } from "@smartfinance/database";
 import type { ApiBindings, ApiVariables } from "../env";
 import { log } from "@smartfinance/observability";
 import { extractTransactionsFromContentWithAi } from "../services/ai";
@@ -273,17 +273,6 @@ uploadRouter.post("/", async (c) => {
     unmatched_count: unmatchedCount,
   });
 
-  const uploadTransactions = await allRows<{ id: number }>(
-    c.env.DB,
-    "SELECT id FROM transactions WHERE user_id = ? AND upload_id = ? ORDER BY id ASC",
-    [auth.userId, upload.id],
-  );
-  const reviewState = await buildImportReviewState(
-    c.env.DB,
-    auth.userId,
-    uploadTransactions.map((row) => Number(row.id)),
-  );
-
   log("info", "upload.processed", {
     request_id: requestId,
     user_id: auth.userId,
@@ -315,7 +304,11 @@ uploadRouter.post("/", async (c) => {
     extracted_candidates: previewTransactions.length,
     unmatched_count: unmatchedCount,
     upload: persistedUpload ? uploadSchema.parse(persistedUpload) : null,
-    ...reviewState,
+    review_groups: processed.review_groups,
+    guided_review_groups: processed.guided_review_groups,
+    transaction_review_queue: processed.transaction_review_queue,
+    guided_onboarding_required: processed.guided_onboarding_required,
+    remaining_transaction_ids: processed.remaining_transaction_ids,
   });
 });
 
