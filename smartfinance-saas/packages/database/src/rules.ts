@@ -7,6 +7,7 @@ import {
   deriveCounterpartyKey,
   deriveRulePattern,
   deriveRuleIdentity,
+  isGenericRulePattern,
   normalizeRulePattern,
   selectBestRuleMatch,
 } from "@smartfinance/domain";
@@ -106,6 +107,15 @@ type CategoryMatchRow = {
   type: string | null;
   color: string | null;
 };
+
+export class GenericRulePatternError extends Error {
+  code = "GENERIC_RULE_PATTERN" as const;
+
+  constructor(pattern: string) {
+    super(`Rule pattern is too generic: ${pattern}`);
+    this.name = "GenericRulePatternError";
+  }
+}
 
 function normalizeRuleScope(scope: RuleScope = {}) {
   return {
@@ -250,8 +260,13 @@ async function findHistoryCategoryMatch(
     entryType: "expense" | "income";
   },
 ) {
-  const pattern = normalizeRulePattern(deriveRulePattern(input.descBanco) || input.descBanco);
-  if (!pattern) return null;
+  const identity = deriveRuleIdentity(input.descBanco, {
+    accountId: input.accountId,
+    currency: input.currency,
+    direction: input.entryType,
+  });
+  const merchantKey = normalizeRulePattern(String(identity.merchant_key || ""));
+  if (identity.skipped || !merchantKey || isGenericRulePattern(merchantKey)) return null;
 
   const row = await firstRow<{
     category_id: number;
@@ -265,8 +280,10 @@ async function findHistoryCategoryMatch(
       FROM transactions
       WHERE user_id = ?
         AND category_id IS NOT NULL
+        AND categorization_status = 'categorized'
+        AND category_source IN ('manual', 'rule_confirmed', 'rule_auto', 'merchant_exact')
         AND movement_kind = 'normal'
-        AND LOWER(desc_banco) LIKE '%' || ? || '%'
+        AND merchant_key = ?
         AND (? IS NULL OR account_id = ? OR account_id IS NULL)
         AND (? IS NULL OR moneda = ?)
         AND ((? = 'expense' AND monto < 0) OR (? = 'income' AND monto > 0))
@@ -276,7 +293,7 @@ async function findHistoryCategoryMatch(
     `,
     [
       userId,
-      pattern,
+      merchantKey,
       input.accountId ?? null,
       input.accountId ?? null,
       input.currency ?? null,
@@ -1141,15 +1158,18 @@ export async function getRuleByNormalizedScope(
 }
 
 export async function createRule(db: D1DatabaseLike, userId: string, input: CreateRuleInput) {
-  const normalizedPattern = normalizeRulePattern(input.pattern);
   const scope = normalizeRuleScope(input);
   const identity = deriveRuleIdentity(input.pattern, {
     accountId: scope.account_id,
     currency: scope.currency,
     direction: scope.direction,
   });
-  const merchantKey = identity.merchant_key || normalizedPattern;
-  const merchantScope = merchantKey || normalizedPattern;
+  if (identity.skipped || !identity.merchant_key || isGenericRulePattern(identity.merchant_key)) {
+    throw new GenericRulePatternError(input.pattern);
+  }
+  const normalizedPattern = identity.normalized_pattern || normalizeRulePattern(input.pattern);
+  const merchantKey = identity.merchant_key;
+  const merchantScope = identity.merchant_scope || merchantKey;
   const result = await runStatement(
     db,
     `

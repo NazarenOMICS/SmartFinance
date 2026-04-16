@@ -5,7 +5,7 @@ import { allRows, firstRow } from "@smartfinance/database";
 import { buildImportReviewState, createUploadIntentRecord, getSettingsObject, getUsageSnapshot, incrementUsageCounter, listUploads, listUploadsByMonth, markUploadStatus, processUploadTransactions } from "@smartfinance/database";
 import type { ApiBindings, ApiVariables } from "../env";
 import { log } from "@smartfinance/observability";
-import { enhanceReviewStateWithAi, extractTransactionsFromContentWithAi } from "../services/ai";
+import { extractTransactionsFromContentWithAi } from "../services/ai";
 import { storeUploadBinary } from "../services/upload-storage";
 import { jsonError } from "../utils/http";
 
@@ -278,9 +278,10 @@ uploadRouter.post("/", async (c) => {
     "SELECT id FROM transactions WHERE user_id = ? AND upload_id = ? ORDER BY id ASC",
     [auth.userId, upload.id],
   );
-  const reviewState = await enhanceReviewStateWithAi(
-    c.env,
-    await buildImportReviewState(c.env.DB, auth.userId, uploadTransactions.map((row) => Number(row.id))),
+  const reviewState = await buildImportReviewState(
+    c.env.DB,
+    auth.userId,
+    uploadTransactions.map((row) => Number(row.id)),
   );
 
   log("info", "upload.processed", {

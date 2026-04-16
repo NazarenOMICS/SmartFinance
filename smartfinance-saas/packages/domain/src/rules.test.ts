@@ -19,7 +19,14 @@ describe("rule helpers", () => {
   it("derives a stable pattern from noisy bank descriptions", () => {
     expect(deriveRulePattern("PEDIDOSYA *7732 MONTEVIDEO")).toBe("PEDIDOSYA");
     expect(deriveRulePattern("Compra NETFLIX.COM 001")).toBe("NETFLIX");
+    expect(deriveRulePattern("COMPRA CON TARJETA DEBITO REST CAFE DEL PUERTO, COLONIA TARJ: ############1372")).toBe("CAFE");
     expect(deriveRulePattern("1234 5678")).toBeNull();
+  });
+
+  it("does not create rules from pure card channel noise", () => {
+    expect(deriveRulePattern("COMPRA CON TARJETA")).toBeNull();
+    expect(deriveRulePattern("COMPRA CON TARJETA DEBITO TARJ: ############1372")).toBeNull();
+    expect(isGenericRulePattern("CON TARJETA")).toBe(true);
   });
 
   it("matches descriptions case-insensitively after normalization", () => {

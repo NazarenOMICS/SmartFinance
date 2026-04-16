@@ -1,5 +1,5 @@
 import type { CreateTransactionInput, UpdateTransactionInput } from "@smartfinance/contracts";
-import { deriveRuleIdentity, deriveRulePattern, normalizeRulePattern } from "@smartfinance/domain";
+import { deriveRuleIdentity, deriveRulePattern, isGenericRulePattern, normalizeRulePattern } from "@smartfinance/domain";
 import { allRows, firstRow, runStatement, type D1DatabaseLike } from "./client";
 import { filterTransactionsForMetricFlows, getPreferredCurrencyByLinkId, markTransactionsForMetricFlows } from "./metrics";
 import { classifyTransactionByRules, findAmountProfileCategoryMatch, findMatchingRule, getRuleById, incrementRuleMatchCount, listRuleMatchLog, logRuleMatch, rejectAmountProfileForTransaction, rejectRuleForDescription, syncAmountProfileFromCategorizedDescription, syncRuleFromCategorizedDescription } from "./rules";
@@ -1096,12 +1096,18 @@ export async function buildImportReviewState(db: D1DatabaseLike, userId: string,
   enriched
     .filter((transaction) => String(transaction.categorization_status || "") === "suggested" && transaction.category_id != null)
     .forEach((transaction) => {
-      const normalizedPattern = normalizeReviewPattern(String(transaction.desc_banco || ""));
+      const merchantPattern = normalizeRulePattern(String(transaction.merchant_key || ""));
+      const normalizedPattern = merchantPattern && !isGenericRulePattern(merchantPattern)
+        ? merchantPattern
+        : normalizeReviewPattern(String(transaction.desc_banco || ""));
       if (!normalizedPattern) return;
+      if (isGenericRulePattern(normalizedPattern)) return;
       const key = `${normalizedPattern}::${transaction.category_id}`;
       const current = grouped.get(key) || {
         key,
-        pattern: deriveRulePattern(String(transaction.desc_banco || "")) || String(transaction.desc_banco || ""),
+        pattern: merchantPattern && !isGenericRulePattern(merchantPattern)
+          ? merchantPattern.toUpperCase()
+          : deriveRulePattern(String(transaction.desc_banco || "")) || String(transaction.desc_banco || ""),
         category_id: Number(transaction.category_id),
         category_name: String(transaction.category_name || "Sin categoria"),
         suggestion_source: String(transaction.suggestion_source || transaction.category_source || "rule_suggest"),

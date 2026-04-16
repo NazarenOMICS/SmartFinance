@@ -8,6 +8,7 @@ const GENERIC_PREFIXES = new Set([
   "visa",
   "master",
   "pos",
+  "rest",
   "web",
   "app",
 ]);
@@ -52,6 +53,7 @@ const COUNTERPARTY_NOISE_TOKENS = new Set([
 const GENERIC_PATTERN_TOKENS = new Set([
   "con",
   "tarjeta",
+  "tarj",
   "compra",
   "debito",
   "deb",
@@ -87,6 +89,7 @@ const GENERIC_PATTERN_TOKENS = new Set([
   "supernet",
   "sms",
   "comision",
+  "rest",
 ]);
 
 export type RuleMatchCandidate = {
@@ -135,16 +138,18 @@ export function deriveRulePattern(description: string) {
     .split(" ")
     .filter((token) => token.length >= 2 && !/\d/.test(token));
 
-  while (tokens.length > 0 && GENERIC_PREFIXES.has(tokens[0])) {
+  while (tokens.length > 0 && (GENERIC_PREFIXES.has(tokens[0]) || GENERIC_PATTERN_TOKENS.has(tokens[0]))) {
     tokens.shift();
   }
 
   if (tokens.length === 0) return null;
+  if (tokens.length === 1 && isGenericRulePattern(tokens[0])) return null;
   if (tokens[0].length >= 4 || tokens.length === 1) {
     return tokens[0].toUpperCase();
   }
 
-  return tokens.slice(0, 2).join(" ").toUpperCase();
+  const pattern = tokens.slice(0, 2).join(" ");
+  return isGenericRulePattern(pattern) ? null : pattern.toUpperCase();
 }
 
 export function deriveCounterpartyKey(description: string) {

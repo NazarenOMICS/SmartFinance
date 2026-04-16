@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { amountProfileListResponseSchema, amountProfileRebuildResponseSchema, createRuleInputSchema, ruleInsightSchema, ruleMutationResponseSchema, ruleSchema, transactionSchema, updateRuleInputSchema } from "@smartfinance/contracts";
-import { applyRuleRetroactively, applyRuleRetroactivelyJob, buildRuleInsights, createRule, deleteRule, disableAmountProfile, listAmountProfiles, listRuleCandidates, listRules, rebuildAmountProfiles, updateRule } from "@smartfinance/database";
+import { applyRuleRetroactively, applyRuleRetroactivelyJob, buildRuleInsights, createRule, deleteRule, disableAmountProfile, GenericRulePatternError, listAmountProfiles, listRuleCandidates, listRules, rebuildAmountProfiles, updateRule } from "@smartfinance/database";
 import type { ApiBindings, ApiVariables } from "../env";
 import { enhanceRuleInsightsWithAi } from "../services/ai";
 import { jsonError } from "../utils/http";
@@ -61,7 +61,10 @@ rulesRouter.post("/", async (c) => {
       suggested_transactions: 0,
     };
     return c.json(ruleMutationResponseSchema.parse({ rule, application }), 201);
-  } catch {
+  } catch (error) {
+    if (error instanceof GenericRulePatternError) {
+      return jsonError("Rule pattern is too generic", "GENERIC_RULE_PATTERN", requestId, 422);
+    }
     return jsonError("Rule already exists", "RULE_CONFLICT", requestId, 409);
   }
 });

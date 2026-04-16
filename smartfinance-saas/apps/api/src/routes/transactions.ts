@@ -55,7 +55,6 @@ import {
   updateTransaction,
 } from "@smartfinance/database";
 import type { ApiBindings, ApiVariables } from "../env";
-import { enhanceReviewStateWithAi } from "../services/ai";
 import { jsonError } from "../utils/http";
 import { allRows } from "@smartfinance/database";
 
@@ -279,13 +278,11 @@ transactionsRouter.post("/batch", async (c) => {
     "SELECT id FROM transactions WHERE user_id = ? AND upload_id = ? ORDER BY id ASC",
     [auth.userId, upload.id],
   );
-  const reviewState = await enhanceReviewStateWithAi(c.env, {
-    ...(await buildImportReviewState(
-      c.env.DB,
-      auth.userId,
-      uploadTransactions.map((row) => Number(row.id)),
-    )),
-  });
+  const reviewState = await buildImportReviewState(
+    c.env.DB,
+    auth.userId,
+    uploadTransactions.map((row) => Number(row.id)),
+  );
 
   return c.json({
     upload_id: upload.id,
@@ -330,10 +327,7 @@ transactionsRouter.post("/review/pending-guided", async (c) => {
       .map((transaction) => Number(transaction.id));
   }
 
-  const result = await enhanceReviewStateWithAi(
-    c.env,
-    await buildImportReviewState(c.env.DB, auth.userId, transactionIds),
-  );
+  const result = await buildImportReviewState(c.env.DB, auth.userId, transactionIds);
   return c.json(importReviewStateSchema.parse(result));
 });
 

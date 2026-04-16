@@ -66,6 +66,26 @@ function normalizeMatcher(value) {
     .trim();
 }
 
+const GENERIC_REVIEW_TOKENS = new Set([
+  "con",
+  "tarjeta",
+  "compra",
+  "debito",
+  "credito",
+  "visa",
+  "master",
+  "mastercard",
+  "pago",
+  "cuota",
+  "consumo",
+  "pos",
+  "web",
+  "online",
+  "operacion",
+  "supernet",
+  "comision",
+]);
+
 function deriveMeaningfulPattern(value) {
   const cleaned = normalizeMatcher(value)
     .replace(/\b\d+\b/g, " ")
@@ -75,8 +95,11 @@ function deriveMeaningfulPattern(value) {
   const tokens = cleaned
     .split(" ")
     .filter((token) => token.length > 2)
+    .filter((token) => !GENERIC_REVIEW_TOKENS.has(token))
     .slice(0, 3);
-  return tokens.join(" ").trim();
+  const pattern = tokens.join(" ").trim();
+  if (!pattern || pattern.split(" ").every((token) => GENERIC_REVIEW_TOKENS.has(token))) return "";
+  return pattern;
 }
 
 function buildHeaders(options, token) {
@@ -261,7 +284,8 @@ function buildGuidedReviewGroups(transactions, categories) {
   transactions
     .filter((transaction) => transaction.category_id != null)
     .forEach((transaction) => {
-      const pattern = deriveMeaningfulPattern(transaction.desc_banco);
+      const merchantPattern = deriveMeaningfulPattern(transaction.merchant_key || "");
+      const pattern = merchantPattern || deriveMeaningfulPattern(transaction.desc_banco);
       if (!pattern) return;
       const key = `${pattern}::${transaction.category_id}`;
       const category = categories.find((item) => Number(item.id) === Number(transaction.category_id));
