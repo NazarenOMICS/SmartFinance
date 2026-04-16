@@ -2,21 +2,31 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_CATEGORY_SEEDS, DEFAULT_RULE_SEEDS } from "./bootstrap";
 
 describe("bootstrap categorization seeds", () => {
-  it("includes legacy QoL categories needed by automatic review", () => {
+  it("keeps the visible taxonomy intentionally compact", () => {
     const slugs = new Set(DEFAULT_CATEGORY_SEEDS.map((category) => category.slug));
 
-    expect(slugs.has("transferencia")).toBe(true);
-    expect(slugs.has("reintegro")).toBe(true);
-    expect(slugs.has("educacion")).toBe(true);
-    expect(slugs.has("delivery")).toBe(true);
+    expect(DEFAULT_CATEGORY_SEEDS.map((category) => category.slug)).toEqual([
+      "comida",
+      "transporte",
+      "servicios",
+      "streaming",
+      "ocio",
+    ]);
+    expect(slugs.has("supermercado")).toBe(false);
+    expect(slugs.has("restaurantes")).toBe(false);
+    expect(slugs.has("delivery")).toBe(false);
+    expect(slugs.has("suscripciones")).toBe(false);
+    expect(slugs.has("cine")).toBe(false);
   });
 
-  it("includes rules for refunds, FX/internal transfers and education hints", () => {
-    const patterns = new Set(DEFAULT_RULE_SEEDS.map((rule) => rule.pattern));
+  it("maps concrete merchants into broad user-facing categories", () => {
+    const byPattern = new Map(DEFAULT_RULE_SEEDS.map((rule) => [rule.pattern, rule.slug]));
 
-    expect(patterns.has("REINTEGRO")).toBe(true);
-    expect(patterns.has("COMPRA DOLARES")).toBe(true);
-    expect(patterns.has("VENTA DOLARES")).toBe(true);
-    expect(patterns.has("UNIVERSIDAD")).toBe(true);
+    expect(byPattern.get("DISCO")).toBe("comida");
+    expect(byPattern.get("PEDIDOSYA")).toBe("comida");
+    expect(byPattern.get("UBER")).toBe("transporte");
+    expect(byPattern.get("LUZ")).toBe("servicios");
+    expect(byPattern.get("NETFLIX")).toBe("streaming");
+    expect(byPattern.get("CINE")).toBe("ocio");
   });
 });

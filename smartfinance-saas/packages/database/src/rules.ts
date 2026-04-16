@@ -153,15 +153,49 @@ async function getAmountProfileSettings(db: D1DatabaseLike, userId: string) {
 }
 
 const CATEGORY_KEYWORD_ALIASES: Record<string, string[]> = {
-  supermercado: ["supermercado", "devoto", "disco", "tienda inglesa", "geant", "frog", "kinko"],
+  comida: [
+    "supermercado",
+    "devoto",
+    "disco",
+    "tienda inglesa",
+    "geant",
+    "frog",
+    "kinko",
+    "pedidosya",
+    "rappi",
+    "uber eats",
+    "mcdonald",
+    "burger",
+    "subway",
+    "restaurant",
+    "restaurante",
+    "bar",
+    "cafe",
+    "cafeteria",
+    "mostaza",
+    "la pasiva",
+  ],
   transporte: ["uber", "cabify", "bolt", "didi", "taxi", "peaje", "parking", "nafta", "combustible"],
-  suscripciones: ["spotify", "netflix", "openai", "chatgpt", "anthropic", "claude", "youtube", "apple.com/bill"],
-  restaurantes: ["mcdonald", "burger", "restaurant", "restaurante", "bar", "cafe", "cafeteria", "mostaza", "la pasiva"],
-  delivery: ["pedidosya", "rappi", "uber eats"],
-  servicios: ["ute", "ose", "antel", "internet", "energia", "agua", "gas"],
-  alquiler: ["alquiler", "arrendamiento"],
-  salud: ["farmashop", "farmacia", "clinica", "medico", "laboratorio", "hospital"],
-  ingreso: ["sueldo", "nomina", "salary", "haberes", "ingreso"],
+  servicios: [
+    "ute",
+    "ose",
+    "antel",
+    "internet",
+    "energia",
+    "agua",
+    "gas",
+    "luz",
+    "alquiler",
+    "arrendamiento",
+    "farmashop",
+    "farmacia",
+    "clinica",
+    "medico",
+    "laboratorio",
+    "hospital",
+  ],
+  streaming: ["spotify", "netflix", "openai", "chatgpt", "anthropic", "claude", "youtube", "apple.com/bill"],
+  ocio: ["cine", "cines", "cinema", "movie", "teatro", "entrada", "tickantel", "redtickets", "gym", "gimnasio", "universidad", "facultad", "curso"],
 };
 
 const REINTEGRO_KEYWORDS = [
@@ -331,7 +365,7 @@ async function findKeywordCategoryMatch(db: D1DatabaseLike, userId: string, desc
     if (!category) continue;
     return {
       categoryId: Number(category.id),
-      confidence: slug === "delivery" || slug === "suscripciones" ? 0.82 : 0.74,
+      confidence: slug === "streaming" || slug === "comida" ? 0.82 : 0.74,
       source: "keyword",
     };
   }
@@ -815,7 +849,7 @@ function descriptionIncludesAny(descBanco: string, keywords: string[]) {
 
 function hasCommercePurchaseContext(descBanco: string) {
   if (descriptionIncludesAny(descBanco, CARD_PURCHASE_HINTS)) return true;
-  const keywordSlugs = ["supermercado", "transporte", "suscripciones", "restaurantes", "delivery", "servicios", "salud"];
+  const keywordSlugs = ["comida", "transporte", "servicios", "streaming", "ocio"];
   const normalizedDescription = ` ${normalizeMatcher(descBanco)} `;
   return keywordSlugs.some((slug) =>
     (CATEGORY_KEYWORD_ALIASES[slug] || []).some((alias) => normalizedDescription.includes(` ${normalizeMatcher(alias)} `)),
@@ -845,7 +879,7 @@ async function findLegacyHeuristicCategoryMatch(
   }
 
   if (descriptionIncludesAny(descBanco, EDUCATION_HINTS)) {
-    const category = await findCategoryBySlugOrName(db, userId, ["educacion"]);
+    const category = await findCategoryBySlugOrName(db, userId, ["ocio"]);
     if (category) return { categoryId: Number(category.id), confidence: 0.84, source: "education" };
   }
 

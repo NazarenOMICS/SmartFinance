@@ -245,14 +245,11 @@ export async function resetLocalTestDataset(db: D1DatabaseLike, userId = TEST_US
   );
 
   const categoryBySlug = await getCategoryBySlug(db, userId);
-  const ingresoId = categoryBySlug.get("ingreso")?.id ?? null;
-  const alquilerId = categoryBySlug.get("alquiler")?.id ?? null;
   const serviciosId = categoryBySlug.get("servicios")?.id ?? null;
-  const supermercadoId = categoryBySlug.get("supermercado")?.id ?? null;
-  const suscripcionesId = categoryBySlug.get("suscripciones")?.id ?? null;
-  const restaurantesId = categoryBySlug.get("restaurantes")?.id ?? null;
+  const comidaId = categoryBySlug.get("comida")?.id ?? null;
+  const streamingId = categoryBySlug.get("streaming")?.id ?? null;
   const transporteId = categoryBySlug.get("transporte")?.id ?? null;
-  const saludId = categoryBySlug.get("salud")?.id ?? null;
+  const ocioId = categoryBySlug.get("ocio")?.id ?? null;
 
   await runStatement(
     db,
@@ -345,33 +342,34 @@ export async function resetLocalTestDataset(db: D1DatabaseLike, userId = TEST_US
   });
 
   const aprilTransactions = [
-    { fecha: "2026-04-01", desc_banco: "SUELDO EMPRESA SA", monto: 65000, moneda: "UYU", category_id: ingresoId, account_id: "itau_uyu", category_source: "manual" },
-    { fecha: "2026-04-02", desc_banco: "ALQUILER CENTRO", monto: -18000, moneda: "UYU", category_id: alquilerId, account_id: "brou_uyu", category_source: "manual" },
+    { fecha: "2026-04-01", desc_banco: "SUELDO EMPRESA SA", monto: 65000, moneda: "UYU", account_id: "itau_uyu" },
+    { fecha: "2026-04-02", desc_banco: "ALQUILER CENTRO", monto: -18000, moneda: "UYU", category_id: serviciosId, account_id: "brou_uyu", category_source: "manual" },
     { fecha: "2026-04-03", desc_banco: "UTE FACTURA", monto: -3200, moneda: "UYU", category_id: serviciosId, account_id: "brou_uyu", category_source: "rule_auto", category_confidence: 0.9 },
-    { fecha: "2026-04-04", desc_banco: "NETFLIX.COM", monto: -399, moneda: "UYU", category_id: suscripcionesId, account_id: "visa_uyu", category_source: "rule_auto", category_confidence: 0.95, upload_id: seededUpload.id },
-    { fecha: "2026-04-05", desc_banco: "DISCO POCITOS", monto: -5200, moneda: "UYU", category_id: supermercadoId, account_id: "visa_uyu", category_source: "manual", upload_id: seededUpload.id },
+    { fecha: "2026-04-04", desc_banco: "NETFLIX.COM", monto: -399, moneda: "UYU", category_id: streamingId, account_id: "visa_uyu", category_source: "rule_auto", category_confidence: 0.95, upload_id: seededUpload.id },
+    { fecha: "2026-04-05", desc_banco: "DISCO POCITOS", monto: -5200, moneda: "UYU", category_id: comidaId, account_id: "visa_uyu", category_source: "manual", upload_id: seededUpload.id },
     { fecha: "2026-04-06", desc_banco: "UBER TRIP", monto: -430, moneda: "UYU", category_id: transporteId, account_id: "brou_uyu", category_source: "rule_auto", category_confidence: 0.88 },
-    { fecha: "2026-04-06", desc_banco: "FARMASHOP", monto: -890, moneda: "UYU", category_id: saludId, account_id: "brou_uyu", category_source: "keyword", categorization_status: "suggested", category_confidence: 0.8 },
+    { fecha: "2026-04-06", desc_banco: "FARMASHOP", monto: -890, moneda: "UYU", category_id: serviciosId, account_id: "brou_uyu", category_source: "keyword", categorization_status: "suggested", category_confidence: 0.8 },
     { fecha: "2026-04-07", desc_banco: "MERCADOPAGO FERIA", monto: -1234, moneda: "UYU", account_id: "brou_uyu", upload_id: seededUpload.id },
-    { fecha: "2026-04-08", desc_banco: "SUPER FROG EXPRESS", monto: -2100, moneda: "UYU", category_id: supermercadoId, account_id: "brou_uyu", categorization_status: "suggested", category_source: "history", category_confidence: 0.79 },
-    { fecha: "2026-04-09", desc_banco: "PEDIDOSYA *7732", monto: -1450, moneda: "UYU", category_id: restaurantesId, account_id: "visa_uyu", categorization_status: "suggested", category_source: "keyword", category_confidence: 0.76 },
-    { fecha: "2026-04-10", desc_banco: "BONO ABRIL", monto: 5000, moneda: "UYU", category_id: ingresoId, account_id: "itau_uyu", category_source: "manual" },
+    { fecha: "2026-04-08", desc_banco: "SUPER FROG EXPRESS", monto: -2100, moneda: "UYU", category_id: comidaId, account_id: "brou_uyu", categorization_status: "suggested", category_source: "history", category_confidence: 0.79 },
+    { fecha: "2026-04-09", desc_banco: "PEDIDOSYA *7732", monto: -1450, moneda: "UYU", category_id: comidaId, account_id: "visa_uyu", categorization_status: "suggested", category_source: "keyword", category_confidence: 0.76 },
+    { fecha: "2026-04-10", desc_banco: "BONO ABRIL", monto: 5000, moneda: "UYU", account_id: "itau_uyu" },
+    { fecha: "2026-04-12", desc_banco: "CINE MOVIE", monto: -780, moneda: "UYU", category_id: ocioId, account_id: "visa_uyu", category_source: "rule_auto", category_confidence: 0.9 },
   ];
 
   const marchTransactions = [
-    { fecha: "2026-03-01", desc_banco: "SUELDO EMPRESA SA", monto: 64000, moneda: "UYU", category_id: ingresoId, account_id: "itau_uyu", category_source: "manual" },
-    { fecha: "2026-03-02", desc_banco: "ALQUILER CENTRO", monto: -18000, moneda: "UYU", category_id: alquilerId, account_id: "brou_uyu", category_source: "manual" },
+    { fecha: "2026-03-01", desc_banco: "SUELDO EMPRESA SA", monto: 64000, moneda: "UYU", account_id: "itau_uyu" },
+    { fecha: "2026-03-02", desc_banco: "ALQUILER CENTRO", monto: -18000, moneda: "UYU", category_id: serviciosId, account_id: "brou_uyu", category_source: "manual" },
     { fecha: "2026-03-03", desc_banco: "UTE FACTURA", monto: -3100, moneda: "UYU", category_id: serviciosId, account_id: "brou_uyu", category_source: "rule_auto", category_confidence: 0.9 },
-    { fecha: "2026-03-04", desc_banco: "NETFLIX.COM", monto: -380, moneda: "UYU", category_id: suscripcionesId, account_id: "visa_uyu", category_source: "rule_auto", category_confidence: 0.95 },
-    { fecha: "2026-03-08", desc_banco: "DISCO POCITOS", monto: -4800, moneda: "UYU", category_id: supermercadoId, account_id: "visa_uyu", category_source: "manual" },
+    { fecha: "2026-03-04", desc_banco: "NETFLIX.COM", monto: -380, moneda: "UYU", category_id: streamingId, account_id: "visa_uyu", category_source: "rule_auto", category_confidence: 0.95 },
+    { fecha: "2026-03-08", desc_banco: "DISCO POCITOS", monto: -4800, moneda: "UYU", category_id: comidaId, account_id: "visa_uyu", category_source: "manual" },
     { fecha: "2026-03-11", desc_banco: "GYM CLUB", monto: -1600, moneda: "UYU", account_id: "visa_uyu" },
   ];
 
   const februaryTransactions = [
-    { fecha: "2026-02-01", desc_banco: "SUELDO EMPRESA SA", monto: 63500, moneda: "UYU", category_id: ingresoId, account_id: "itau_uyu", category_source: "manual" },
-    { fecha: "2026-02-03", desc_banco: "NETFLIX.COM", monto: -350, moneda: "UYU", category_id: suscripcionesId, account_id: "visa_uyu", category_source: "rule_auto", category_confidence: 0.95 },
+    { fecha: "2026-02-01", desc_banco: "SUELDO EMPRESA SA", monto: 63500, moneda: "UYU", account_id: "itau_uyu" },
+    { fecha: "2026-02-03", desc_banco: "NETFLIX.COM", monto: -350, moneda: "UYU", category_id: streamingId, account_id: "visa_uyu", category_source: "rule_auto", category_confidence: 0.95 },
     { fecha: "2026-02-11", desc_banco: "GYM CLUB", monto: -1600, moneda: "UYU", account_id: "visa_uyu" },
-    { fecha: "2026-02-14", desc_banco: "SPOTIFY", monto: -220, moneda: "UYU", category_id: suscripcionesId, account_id: "visa_uyu", category_source: "rule_auto", category_confidence: 0.95 },
+    { fecha: "2026-02-14", desc_banco: "SPOTIFY", monto: -220, moneda: "UYU", category_id: streamingId, account_id: "visa_uyu", category_source: "rule_auto", category_confidence: 0.95 },
   ];
 
   for (const transaction of [...aprilTransactions, ...marchTransactions, ...februaryTransactions]) {

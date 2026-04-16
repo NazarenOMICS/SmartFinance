@@ -306,14 +306,14 @@ function buildDeterministicRecurringSuggestion(input: {
   categories: Array<{ id: number; name: string; color?: string | null }>;
 }) {
   const aliases = [
-    { patterns: ["spotify", "netflix", "youtube", "openai", "chatgpt", "claude", "apple"], slugs: ["suscripciones"] },
-    { patterns: ["pedidosya", "rappi", "uber eats"], slugs: ["restaurantes", "delivery"] },
-    { patterns: ["mcdonald", "burger", "cafe", "cafeteria", "restaurante", "bar"], slugs: ["restaurantes"] },
+    { patterns: ["spotify", "netflix", "youtube", "openai", "chatgpt", "claude", "apple"], slugs: ["streaming"] },
+    { patterns: ["pedidosya", "rappi", "uber eats"], slugs: ["comida"] },
+    { patterns: ["mcdonald", "burger", "subway", "cafe", "cafeteria", "restaurante", "bar"], slugs: ["comida"] },
     { patterns: ["uber", "cabify", "bolt", "didi", "taxi", "peaje", "combustible", "nafta"], slugs: ["transporte"] },
-    { patterns: ["ute", "ose", "antel", "internet", "energia", "agua", "gas"], slugs: ["servicios"] },
-    { patterns: ["devoto", "disco", "tienda inglesa", "geant", "supermercado", "frog"], slugs: ["supermercado"] },
-    { patterns: ["alquiler", "arrendamiento"], slugs: ["alquiler"] },
-    { patterns: ["farmacia", "farmashop", "clinica", "medico", "hospital"], slugs: ["salud"] },
+    { patterns: ["ute", "ose", "antel", "internet", "energia", "agua", "gas", "luz", "alquiler", "arrendamiento"], slugs: ["servicios"] },
+    { patterns: ["devoto", "disco", "tienda inglesa", "geant", "supermercado", "frog"], slugs: ["comida"] },
+    { patterns: ["farmacia", "farmashop", "clinica", "medico", "hospital"], slugs: ["servicios"] },
+    { patterns: ["cine", "cines", "cinema", "movie", "teatro", "tickantel", "redtickets", "gym", "universidad", "facultad"], slugs: ["ocio"] },
   ];
 
   const categoriesBySlug = new Map(
