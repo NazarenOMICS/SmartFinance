@@ -17,6 +17,8 @@ function useConfirm() {
   return { pending, ask, clear };
 }
 
+const DESTRUCTIVE_ACCOUNT_DELETE_REASONS = new Set(["account_has_transactions", "account_has_uploads"]);
+
 export default function Accounts({ settings, refreshSettings, onAccountDeleted }) {
   const { addToast } = useToast();
   const [state, setState] = useState({ loading: true, error: "", accounts: [], consolidated: null, links: [] });
@@ -170,7 +172,13 @@ export default function Accounts({ settings, refreshSettings, onAccountDeleted }
       onAccountDeleted?.();
     } catch (error) {
       setState((prev) => ({ ...prev, accounts: previousAccounts }));
-      setDeleteError({ id, message: error.message });
+      const isDestructiveConfirmation = !force && DESTRUCTIVE_ACCOUNT_DELETE_REASONS.has(error.code);
+      setDeleteError({
+        id,
+        message: isDestructiveConfirmation
+          ? "Estas seguro? Esto borrara todas tus transacciones de esta cuenta."
+          : error.message,
+      });
     }
   }
 
