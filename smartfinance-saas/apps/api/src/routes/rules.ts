@@ -135,4 +135,17 @@ rulesRouter.delete("/:id", async (c) => {
   return new Response(null, { status: 204 });
 });
 
-rulesRouter.post(
+rulesRouter.post("/reset", async (c) => {
+  const auth = c.get("auth");
+  const rules = await listRules(c.env.DB, auth.userId);
+  const deletableRules = rules.filter((rule) => rule.source !== "seed");
+  await Promise.all(deletableRules.map((rule) => deleteRule(c.env.DB, auth.userId, Number(rule.id))));
+  const remainingRules = await listRules(c.env.DB, auth.userId);
+
+  return c.json({
+    deleted_count: deletableRules.length,
+    rules_count: remainingRules.length,
+  });
+});
+
+export default rulesRouter;

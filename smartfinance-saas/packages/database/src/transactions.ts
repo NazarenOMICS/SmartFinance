@@ -1,5 +1,5 @@
 import type { CreateTransactionInput, UpdateTransactionInput } from "@smartfinance/contracts";
-import { deriveRuleIdentity, deriveRulePattern } from "@smartfinance/domain";
+import { deriveRuleIdentity, deriveRulePattern, normalizeRulePattern } from "@smartfinance/domain";
 import { allRows, firstRow, runStatement, type D1DatabaseLike } from "./client";
 import { filterTransactionsForMetricFlows, getPreferredCurrencyByLinkId, markTransactionsForMetricFlows } from "./metrics";
 import { classifyTransactionByRules, findAmountProfileCategoryMatch, findMatchingRule, getRuleById, incrementRuleMatchCount, listRuleMatchLog, logRuleMatch, rejectAmountProfileForTransaction, rejectRuleForDescription, syncAmountProfileFromCategorizedDescription, syncRuleFromCategorizedDescription } from "./rules";
@@ -1202,7 +1202,7 @@ export async function rejectCategorySelection(db: D1DatabaseLike, userId: string
   if (!current) return null;
 
   if (ruleId) {
-    await rejectRuleForDescription(db, userId, ruleId, String(current.desc_banco));
+    await rejectRuleForDescription(db, userId, ruleId, String(current.desc_banco), transactionId);
   }
   if (current.category_source === "amount_profile") {
     await rejectAmountProfileForTransaction(db, userId, {
@@ -1237,6 +1237,12 @@ export async function undoRejectCategorySelection(db: D1DatabaseLike, userId: st
 
   const rule = await getRuleById(db, userId, ruleId);
   if (!rule || rule.category_id == null) return current;
+
+  await runStatement(
+    db,
+    "DELETE FROM rule_rejections WHERE user_id = ? AND rule_id = ? AND desc_banco_normalized = ?",
+    [userId, ruleId, normalizeRulePattern(String(current.desc_banco))],
+  );
 
   await runStatement(
     db,

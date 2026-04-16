@@ -3,7 +3,7 @@ import { suggestCategoryWithOllama } from "./ollama.js";
 import { findGlobalAliasMatch } from "./global-learning.js";
 import { detectInternalOperation } from "./internal-operations.js";
 import { hasAmbiguousMerchantHint, matchCanonicalCategory, normalizePatternValue, normalizeText } from "./taxonomy.js";
-import { normalizeBankDescription, extractMerchant, classifyTransaction as classifyTxDomain } from "../vendor/categorization.js";
+import { normalizeBankDescription, extractMerchant, buildManualRuleUpsert, classifyTransaction as classifyTxDomain } from "../../vendor/categorization.js";
 
 const CATEGORY_PROPOSAL_COLORS = ["#534AB7", "#1D9E75", "#D85A30", "#378ADD", "#BA7517", "#639922", "#E24B4A", "#888780", "#9B59B6", "#2ECC71"];
 
@@ -13,7 +13,7 @@ async function listRules(db, userId) {
             account_id, currency, direction, merchant_key, last_matched_at, created_at
      FROM rules
      WHERE user_id = ?
-     ORDER BY LENGTH(normalized_pattern) DESC, confidence DESC, match_count DESC, id ASC`
+     ORDER BY merchant_key IS NULL ASC, confidence DESC, match_count DESC, last_matched_at DESC, id ASC`
   ).all(userId);
 }
 
@@ -21,6 +21,26 @@ async function listCategories(db, userId) {
   return db.prepare(
     "SELECT id, name, slug, type, color, origin FROM categories WHERE user_id = ? ORDER BY sort_order ASC, id ASC"
   ).all(userId);
+}
+
+async function listMerchantDictionary(db, userId) {
+  return db.prepare(
+    `SELECT merchant_key, display_name, aliases_json, default_category_id, origin
+     FROM merchant_dictionary
+     WHERE user_id = ? OR user_id IS NULL
+     ORDER BY user_id IS NOT NULL DESC, origin = 'learned' DESC, LENGTH(merchant_key) DESC`
+  ).all(userId);
+}
+
+async function listRuleRejectionsForDescription(db, userId, descBanco) {
+  const normalizedDescription = normalizePatternValue(descBanco);
+  if (!normalizedDescription) return [];
+  return db.prepare(
+    `SELECT rule_id, transaction_id, desc_banco_normalized
+     FROM rule_rejections
+     WHERE user_id = ?
+       AND ? LIKE '%' || desc_banco_normalized || '%'`
+  ).all(userId, normalizedDescription);
 }
 
 function getDirection(monto) {
@@ -62,7 +82,7 @@ export function buildPatternFromDescription(descBanco) {
   return tokens.slice(0, 2).join(" ").trim();
 }
 
-function buildMerchantKey(descBanco) {
+export function buildMerchantKey(descBanco) {
   return buildPatternFromDescription(descBanco) || normalizeText(descBanco).split(" ").slice(0, 3).join(" ").trim();
 }
 
@@ -186,14 +206,28 @@ function pickBestRule(rules, tx) {
 
 export async function findMatchingRule(db, descBanco, userId, tx = {}) {
   const rules = await listRules(db, userId);
-  return pickBestRule(rules, { desc_banco: descBanco, ...tx, monto: tx.monto ?? -1 });
+  const decision = classifyTxDomain(
+    { desc_banco: descBanco, ...tx, monto: tx.monto ?? -1 },
+    rules,
+    await listRuleRejectionsForDescription(db, userId, descBanco),
+    {},
+    await listMerchantDictionary(db, userId)
+  );
+  return decision.matchedRule || null;
 }
 
 export async function bumpRule(db, ruleId, userId) {
   const where = userId ? "WHERE id = ? AND user_id = ?" : "WHERE id = ?";
   const params = userId ? [ruleId, userId] : [ruleId];
   return db.prepare(
-    `UPDATE rules SET match_count = match_count + 1, last_matched_at = datetime('now') ${where}`
+    `UPDATE rules
+     SET match_count = match_count + 1,
+         confidence = CASE
+           WHEN source IN ('manual', 'learned') THEN MIN(0.99, confidence + 0.01)
+           ELSE confidence
+         END,
+         last_matched_at = datetime('now')
+     ${where}`
   ).run(...params);
 }
 
@@ -385,80 +419,94 @@ export async function getCandidatesForPattern(db, pattern, categoryId, userId) {
 }
 
 export async function ensureRuleForManualCategorization(db, transaction, categoryId, userId) {
-  const pattern = buildPatternFromDescription(transaction.desc_banco);
-  if (!pattern || isGenericRulePattern(pattern)) return { created: false, conflict: false, rule: null };
-
-  const normalizedPattern = normalizePatternValue(pattern);
-  const merchantKey = buildMerchantKey(transaction.desc_banco);
-  const direction = getDirection(transaction.monto);
-  const accountId = transaction.account_id || null;
-  const currency = transaction.moneda || null;
-  const rules = await listRules(db, userId);
-
-  const conflicting = pickBestRule(
-    rules.filter((rule) => rule.category_id !== Number(categoryId)),
-    transaction
+  const upsert = buildManualRuleUpsert(
+    transaction,
+    Number(categoryId),
+    transaction.scope_preference || (transaction.account_id ? "account" : "global"),
+    await listMerchantDictionary(db, userId)
   );
-  if (conflicting && conflicting.score >= 0.8) {
-    return { created: false, conflict: true, rule: conflicting };
+  if (upsert.skipped) {
+    return { created: false, conflict: false, rule: null, skipped: true, skipped_reason: upsert.skippedReason };
   }
 
   const existing = await db.prepare(
+    `SELECT id, category_id
+     FROM rules
+     WHERE user_id = ?
+       AND merchant_scope = ?
+       AND account_scope = ?
+       AND currency_scope = ?
+       AND direction = ?
+     LIMIT 1`
+  ).get(userId, upsert.merchant_scope, upsert.account_scope, upsert.currency_scope, upsert.direction);
+
+  await db.prepare(
+    `INSERT INTO rules (
+      user_id, pattern, normalized_pattern, merchant_key, merchant_scope,
+      account_id, account_scope, currency, currency_scope, direction,
+      category_id, match_count, mode, confidence, source, last_matched_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'auto', ?, 'manual', datetime('now'), datetime('now'))
+    ON CONFLICT(user_id, merchant_scope, account_scope, currency_scope, direction)
+    DO UPDATE SET
+      pattern = excluded.pattern,
+      normalized_pattern = excluded.normalized_pattern,
+      merchant_key = excluded.merchant_key,
+      category_id = excluded.category_id,
+      source = 'manual',
+      mode = 'auto',
+      confidence = MAX(rules.confidence, excluded.confidence),
+      match_count = rules.match_count + 1,
+      last_matched_at = datetime('now'),
+      updated_at = datetime('now')`
+  ).run(
+    userId,
+    upsert.pattern,
+    upsert.normalized_pattern,
+    upsert.merchant_key,
+    upsert.merchant_scope,
+    upsert.account_id,
+    upsert.account_scope,
+    upsert.currency,
+    upsert.currency_scope,
+    upsert.direction,
+    Number(categoryId),
+    upsert.confidence
+  );
+
+  await db.prepare(
+    `INSERT INTO merchant_dictionary (user_id, merchant_key, display_name, aliases_json, default_category_id, origin, updated_at)
+     VALUES (?, ?, ?, ?, ?, 'learned', datetime('now'))
+     ON CONFLICT(user_id, merchant_key)
+     DO UPDATE SET
+       display_name = excluded.display_name,
+       aliases_json = excluded.aliases_json,
+       default_category_id = excluded.default_category_id,
+       origin = CASE WHEN merchant_dictionary.origin = 'seed' THEN 'seed' ELSE 'learned' END,
+       updated_at = datetime('now')`
+  ).run(
+    userId,
+    upsert.merchant_key,
+    upsert.pattern,
+    JSON.stringify([...new Set([upsert.merchant_key, normalizePatternValue(transaction.desc_banco)].filter(Boolean))]),
+    Number(categoryId)
+  );
+
+  const rule = await db.prepare(
     `SELECT *
      FROM rules
      WHERE user_id = ?
-       AND normalized_pattern = ?
-       AND category_id = ?
-       AND COALESCE(account_id, '') = COALESCE(?, '')
-       AND COALESCE(currency, '') = COALESCE(?, '')
-       AND direction = ?`
-  ).get(userId, normalizedPattern, Number(categoryId), accountId, currency, direction);
+       AND merchant_scope = ?
+       AND account_scope = ?
+       AND currency_scope = ?
+       AND direction = ?
+     LIMIT 1`
+  ).get(userId, upsert.merchant_scope, upsert.account_scope, upsert.currency_scope, upsert.direction);
 
-  if (existing) {
-    const nextConfidence = Math.min(Number(existing.confidence || 0.72) + 0.06, 0.98);
-    const nextMatchCount = Number(existing.match_count || 0) + 1;
-    const nextMode = nextConfidence >= 0.9 || nextMatchCount >= 4 ? "auto" : existing.mode || "suggest";
-    await db.prepare(
-      `UPDATE rules
-       SET match_count = match_count + 1,
-           confidence = ?,
-           mode = ?,
-           merchant_key = ?,
-           last_matched_at = datetime('now')
-       WHERE id = ? AND user_id = ?`
-    ).run(nextConfidence, nextMode, merchantKey, existing.id, userId);
-    return {
-      created: false,
-      conflict: false,
-      rule: { ...existing, pattern, normalized_pattern: normalizedPattern, confidence: nextConfidence, mode: nextMode, match_count: nextMatchCount },
-      candidates_count: 0
-    };
-  }
-
-  const result = await db.prepare(
-    `INSERT INTO rules (
-      pattern, normalized_pattern, category_id, match_count, user_id, mode, confidence, source,
-      account_id, currency, direction, merchant_key, last_matched_at
-    ) VALUES (?, ?, ?, 1, ?, 'suggest', 0.72, 'manual', ?, ?, ?, ?, datetime('now'))`
-  ).run(pattern, normalizedPattern, Number(categoryId), userId, accountId, currency, direction, merchantKey);
-
-  const candidates = await findCandidatesForRule(db, pattern, categoryId, userId);
+  const candidates = await findCandidatesForRule(db, upsert.normalized_pattern, categoryId, userId);
   return {
-    created: true,
-    conflict: false,
-    rule: {
-      id: result.lastInsertRowid,
-      pattern,
-      normalized_pattern: normalizedPattern,
-      category_id: Number(categoryId),
-      mode: "suggest",
-      confidence: 0.72,
-      source: "manual",
-      account_id: accountId,
-      currency,
-      direction,
-      merchant_key: merchantKey
-    },
+    created: !existing,
+    conflict: Boolean(existing && Number(existing.category_id) !== Number(categoryId)),
+    rule,
     candidates_count: candidates.length
   };
 }
@@ -468,51 +516,55 @@ export async function classifyTransaction(db, env, tx, userId, options = {}) {
   const rules = options.rules || await listRules(db, userId);
   const categories = options.categories || await listCategories(db, userId);
   const thresholds = getThresholds(settings);
-  const bestRule = pickBestRule(rules, tx);
+  const canonicalDecision = classifyTxDomain(
+    tx,
+    rules,
+    await listRuleRejectionsForDescription(db, userId, tx.desc_banco),
+    settings,
+    await listMerchantDictionary(db, userId)
+  );
   const explicitCanonicalMatch = matchCanonicalCategory(tx.desc_banco);
   const ambiguousDescriptorOnly = hasAmbiguousMerchantHint(tx.desc_banco) && !explicitCanonicalMatch;
 
-  if (bestRule) {
-    const category = categories.find((item) => item.id === bestRule.category_id) || null;
-    const shouldAuto = bestRule.mode === "auto" && bestRule.score >= thresholds.autoThreshold;
-    if (shouldAuto) {
+  if (canonicalDecision.matchedRule && canonicalDecision.categorizationStatus !== "uncategorized" && canonicalDecision.categoryId) {
+    const bestRule = { ...canonicalDecision.matchedRule, score: canonicalDecision.categoryConfidence || 0 };
+    const category = categories.find((item) => item.id === canonicalDecision.categoryId) || null;
+    if (canonicalDecision.categorizationStatus === "categorized") {
       return {
-        categoryId: bestRule.category_id,
+        categoryId: canonicalDecision.categoryId,
         action: "auto",
-        confidence: bestRule.score,
-        source: "rule_auto",
+        confidence: canonicalDecision.categoryConfidence,
+        source: canonicalDecision.categorySource || "rule_auto",
         rule: bestRule,
         suggestion: null,
         categorization_status: "categorized",
-        category_source: "rule_auto",
-        category_confidence: bestRule.score,
-        category_rule_id: bestRule.id,
-        reason: `Regla ${bestRule.pattern} (${Math.round(bestRule.score * 100)}%)`,
+        category_source: canonicalDecision.categorySource || "rule_auto",
+        category_confidence: canonicalDecision.categoryConfidence,
+        category_rule_id: canonicalDecision.categoryRuleId,
+        reason: canonicalDecision.explanation || canonicalDecision.reason,
         category,
       };
     }
-    if (bestRule.score >= thresholds.suggestThreshold) {
-      return {
-        categoryId: null,
-        action: "suggest",
-        confidence: bestRule.score,
-        source: "rule_suggest",
-        rule: bestRule,
-        suggestion: buildSuggestion(
-          bestRule,
-          category,
-          bestRule.score,
-          `Coincidencia contextual con ${bestRule.pattern}`,
-          "regla"
-        ),
-        categorization_status: "suggested",
-        category_source: "rule_suggest",
-        category_confidence: bestRule.score,
-        category_rule_id: bestRule.id,
-        reason: `Coincidencia contextual con ${bestRule.pattern}`,
+    return {
+      categoryId: null,
+      action: "suggest",
+      confidence: canonicalDecision.categoryConfidence,
+      source: canonicalDecision.categorySource || "rule_suggest",
+      rule: bestRule,
+      suggestion: buildSuggestion(
+        bestRule,
         category,
-      };
-    }
+        canonicalDecision.categoryConfidence || 0,
+        canonicalDecision.explanation || canonicalDecision.reason,
+        "regla"
+      ),
+      categorization_status: "suggested",
+      category_source: canonicalDecision.categorySource || "rule_suggest",
+      category_confidence: canonicalDecision.categoryConfidence,
+      category_rule_id: canonicalDecision.categoryRuleId,
+      reason: canonicalDecision.explanation || canonicalDecision.reason,
+      category,
+    };
   }
 
   const internalOperation = await detectInternalOperation(db, env, tx, userId, { settings });

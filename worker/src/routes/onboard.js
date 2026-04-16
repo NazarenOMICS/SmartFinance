@@ -39,7 +39,7 @@ const LEGACY_TABLES = [
   "installments",
   "uploads",
   "transactions",
-  "rule_exclusions",
+  "rule_rejections",
   "categorization_events",
 ];
 

@@ -3,6 +3,7 @@ export {
   buildManualRuleUpsert,
   classifyTransaction,
   deriveRuleIdentity,
+  explainCategorization,
   extractMerchant,
   getRuleScopes,
   matchRules,
@@ -14,9 +15,11 @@ export type {
   CategorizationSettings,
   CategorizationStatus,
   MatchDecision,
+  MerchantExtraction,
   MerchantDictionaryEntry,
   RuleCandidate,
   RuleMode,
+  RuleRejection,
   TransactionForCategorization,
 } from "./categorization";
 export * from "./parsing";

@@ -662,15 +662,25 @@ router.post("/reject-category", (req, res) => {
   if (!transaction_id || !rule_id) {
     return res.status(400).json({ error: "transaction_id and rule_id are required" });
   }
-  const tx = db.prepare("SELECT id FROM transactions WHERE id = ?").get(Number(transaction_id));
+  const tx = db.prepare("SELECT id, desc_banco FROM transactions WHERE id = ?").get(Number(transaction_id));
   if (!tx) return res.status(404).json({ error: "transaction not found" });
   const rule = db.prepare("SELECT id FROM rules WHERE id = ?").get(Number(rule_id));
   if (!rule) return res.status(404).json({ error: "rule not found" });
 
   db.prepare(
-    `INSERT OR IGNORE INTO rule_exclusions (rule_id, transaction_id)
-     VALUES (?, ?)`
-  ).run(Number(rule_id), Number(transaction_id));
+    `INSERT INTO rule_rejections (rule_id, transaction_id, desc_banco_normalized)
+     VALUES (?, ?, ?)
+     ON CONFLICT(rule_id, desc_banco_normalized) DO UPDATE SET
+       transaction_id = excluded.transaction_id,
+       created_at = datetime('now')`
+  ).run(Number(rule_id), Number(transaction_id), normalizePatternValue(tx.desc_banco));
+  db.prepare(
+    `UPDATE rules
+     SET confidence = MAX(0.25, confidence - 0.12),
+         mode = CASE WHEN mode = 'auto' THEN 'suggest' ELSE mode END,
+         updated_at = datetime('now')
+     WHERE id = ?`
+  ).run(Number(rule_id));
   clearTransactionCategorization(db, Number(transaction_id));
   logCategorizationEvent(db, Number(transaction_id), {
     ruleId: rule_id,
@@ -685,7 +695,9 @@ router.post("/undo-reject-category", (req, res) => {
   if (!transaction_id || !rule_id) {
     return res.status(400).json({ error: "transaction_id and rule_id are required" });
   }
-  db.prepare("DELETE FROM rule_exclusions WHERE rule_id = ? AND transaction_id = ?").run(Number(rule_id), Number(transaction_id));
+  const tx = db.prepare("SELECT id, desc_banco FROM transactions WHERE id = ?").get(Number(transaction_id));
+  if (!tx) return res.status(404).json({ error: "transaction not found" });
+  db.prepare("DELETE FROM rule_rejections WHERE rule_id = ? AND desc_banco_normalized = ?").run(Number(rule_id), normalizePatternValue(tx.desc_banco));
   markTransactionSuggested(db, Number(transaction_id), {
     source: "rule_suggest",
     confidence: null,
@@ -751,7 +763,7 @@ router.delete("/:id", (req, res) => {
     return res.status(404).json({ error: "transaction not found" });
   }
   db.transaction(() => {
-    db.prepare("DELETE FROM rule_exclusions WHERE transaction_id = ?").run(id);
+    db.prepare("DELETE FROM rule_rejections WHERE transaction_id = ?").run(id);
     if (existing.linked_transaction_id) {
       db.prepare("UPDATE transactions SET linked_transaction_id = NULL, transfer_group_id = NULL WHERE id = ?")
         .run(existing.linked_transaction_id);

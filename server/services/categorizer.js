@@ -114,6 +114,24 @@ function getRules(db) {
   ).all();
 }
 
+function getMerchantDictionary(db) {
+  return db.prepare(
+    `SELECT merchant_key, display_name, aliases_json, default_category_id, origin
+     FROM merchant_dictionary
+     ORDER BY origin = 'learned' DESC, LENGTH(merchant_key) DESC`
+  ).all();
+}
+
+function getRuleRejectionsForDescription(db, descBanco) {
+  const normalizedDescription = normalizePatternValue(descBanco);
+  if (!normalizedDescription) return [];
+  return db.prepare(
+    `SELECT rule_id, transaction_id, desc_banco_normalized
+     FROM rule_rejections
+     WHERE ? LIKE '%' || desc_banco_normalized || '%'`
+  ).all(normalizedDescription);
+}
+
 function matchesRule(descBanco, rule) {
   const normalizedDesc = normalizePatternValue(descBanco);
   const pattern = rule.normalized_pattern || normalizePatternValue(rule.pattern);
@@ -142,6 +160,16 @@ function rejectRuleForDescription(db, ruleId, descBanco) {
   `
   ).run(ruleId, normalizedDescription);
 
+  db.prepare(
+    `
+    UPDATE rules
+    SET confidence = MAX(0.25, confidence - 0.12),
+        mode = CASE WHEN mode = 'auto' THEN 'suggest' ELSE mode END,
+        updated_at = datetime('now')
+    WHERE id = ?
+  `
+  ).run(ruleId);
+
   return { rule_id: Number(ruleId), desc_banco_normalized: normalizedDescription };
 }
 
@@ -167,32 +195,14 @@ function isRuleRejectedForDescription(db, ruleId, descBanco) {
 
 function findMatchingRule(db, descBanco) {
   const rules = getRules(db);
-  const merchantKey = extractMerchantKey(descBanco);
-  let best = null;
-  let suppressedByDisabledRule = false;
-
-  if (merchantKey) {
-    for (const rule of rules) {
-      if ((rule.merchant_key || rule.normalized_pattern) !== merchantKey) continue;
-      if (rule.mode === "disabled") {
-        suppressedByDisabledRule = true;
-        continue;
-      }
-      return rule;
-    }
-  }
-
-  for (const rule of rules) {
-    if (!matchesRule(descBanco, rule)) continue;
-    if (rule.mode === "disabled") {
-      suppressedByDisabledRule = true;
-      continue;
-    }
-    if (!best) best = rule;
-  }
-
-  if (suppressedByDisabledRule && !best) return null;
-  return best;
+  const decision = classifyTxDomain(
+    { desc_banco: descBanco, monto: -1, moneda: null, account_id: null },
+    rules,
+    getRuleRejectionsForDescription(db, descBanco),
+    {},
+    getMerchantDictionary(db)
+  );
+  return decision.matchedRule || null;
 }
 
 function isLikelyReintegro(db, descBanco, monto, moneda) {
@@ -240,7 +250,14 @@ function isLikelyEducation(descBanco) {
 
 function bumpRule(db, ruleId) {
   db.prepare(
-    "UPDATE rules SET match_count = match_count + 1, last_matched_at = datetime('now') WHERE id = ?"
+    `UPDATE rules
+     SET match_count = match_count + 1,
+         confidence = CASE
+           WHEN source IN ('manual', 'learned') THEN MIN(0.99, confidence + 0.01)
+           ELSE confidence
+         END,
+         last_matched_at = datetime('now')
+     WHERE id = ?`
   ).run(ruleId);
 }
 
@@ -331,6 +348,23 @@ function ensureRuleForManualCategorization(db, transactionOrDescription, categor
      WHERE merchant_scope = ? AND account_scope = ? AND currency_scope = ? AND direction = ?
      LIMIT 1`
   ).get(merchantKey, accountId || "", currency || "", direction);
+
+  db.prepare(
+    `INSERT INTO merchant_dictionary (merchant_key, display_name, aliases_json, default_category_id, origin, updated_at)
+     VALUES (?, ?, ?, ?, 'learned', datetime('now'))
+     ON CONFLICT(merchant_key)
+     DO UPDATE SET
+       display_name = excluded.display_name,
+       aliases_json = excluded.aliases_json,
+       default_category_id = excluded.default_category_id,
+       origin = CASE WHEN merchant_dictionary.origin = 'seed' THEN 'seed' ELSE 'learned' END,
+       updated_at = datetime('now')`
+  ).run(
+    merchantKey,
+    normalizedPattern.toUpperCase(),
+    JSON.stringify([...new Set([merchantKey, normalizePatternValue(transaction.desc_banco)].filter(Boolean))]),
+    Number(categoryId)
+  );
 
   const candidates = findCandidatesForRule(db, normalizedPattern);
   return {

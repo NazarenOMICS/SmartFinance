@@ -181,6 +181,7 @@ function migrate() {
     CREATE TABLE IF NOT EXISTS rule_rejections (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       rule_id INTEGER NOT NULL,
+      transaction_id INTEGER,
       desc_banco_normalized TEXT NOT NULL,
       created_at TEXT DEFAULT (datetime('now')),
       UNIQUE(rule_id, desc_banco_normalized),
@@ -354,6 +355,9 @@ function migrate() {
     db.exec("UPDATE rules SET updated_at = COALESCE(updated_at, datetime('now'))");
   }
 
+  const ruleRejectionColumns = new Set(db.prepare("PRAGMA table_info(rule_rejections)").all().map((column) => column.name));
+  if (!ruleRejectionColumns.has("transaction_id")) db.exec("ALTER TABLE rule_rejections ADD COLUMN transaction_id INTEGER");
+
   const txColumns = new Set(db.prepare("PRAGMA table_info(transactions)").all().map((column) => column.name));
   if (!txColumns.has("categorization_status")) db.exec("ALTER TABLE transactions ADD COLUMN categorization_status TEXT NOT NULL DEFAULT 'uncategorized'");
   if (!txColumns.has("category_source")) db.exec("ALTER TABLE transactions ADD COLUMN category_source TEXT");
@@ -422,6 +426,7 @@ function migrate() {
   db.exec("CREATE INDEX IF NOT EXISTS idx_rule_exclusions_tx ON rule_exclusions(transaction_id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_rule_exclusions_rule ON rule_exclusions(rule_id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_rule_rejections_rule ON rule_rejections(rule_id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_rule_rejections_tx ON rule_rejections(transaction_id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_rule_match_log_tx ON rule_match_log(transaction_id, created_at DESC)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_categorization_jobs_created ON categorization_jobs(created_at DESC)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_categorization_events_tx ON categorization_events(transaction_id, created_at DESC)");

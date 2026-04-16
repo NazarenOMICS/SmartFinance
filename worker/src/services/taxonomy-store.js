@@ -208,7 +208,7 @@ export async function resetLearnedCategorization(db, userId) {
   }
 
   await db.prepare("DELETE FROM rules WHERE user_id = ? AND source != 'seed'").run(userId);
-  await db.prepare("DELETE FROM rule_exclusions WHERE user_id = ?").run(userId);
+  await db.prepare("DELETE FROM rule_rejections WHERE user_id = ?").run(userId);
   await db.prepare("DELETE FROM categorization_events WHERE user_id = ?").run(userId);
   await ensureSeedRules(db, userId);
 }

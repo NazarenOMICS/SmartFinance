@@ -16,7 +16,11 @@
     "auth:staging:login": "node ./scripts/save-clerk-storage-state.mjs",
     "auth:staging:token": "node ./scripts/extract-clerk-token.mjs",
     "diagnose-import-parity": "node --experimental-strip-types ./scripts/diagnose-import-parity.mjs",
-    "check": "corepack pnpm typecheck && corepack pnpm test && corepack pnpm build",
+    "fixture:uyu": "node --experimental-strip-types ./scripts/generate-uyu-categorization-fixture.mjs",
+    "build:categorization-vendors": "node ./scripts/build-categorization-vendors.mjs",
+    "check:categorization-vendors": "node ./scripts/check-categorization-vendors.mjs",
+    "check:categorization-parity": "node --experimental-strip-types ./scripts/check-categorization-parity.mjs",
+    "check": "corepack pnpm check:categorization-vendors && corepack pnpm check:categorization-parity && corepack pnpm typecheck && corepack pnpm test && corepack pnpm build",
     "smoke:deploy": "node ./scripts/smoke-deploy.mjs"
   },
   "devDependencies": {

@@ -343,7 +343,7 @@ router.post("/reject-category", async (c) => {
 
   const db = getDb(c.env);
   const tx = await db.prepare(
-    "SELECT id FROM transactions WHERE id = ? AND user_id = ?"
+    "SELECT id, desc_banco FROM transactions WHERE id = ? AND user_id = ?"
   ).get(Number(transaction_id), userId);
   if (!tx) return c.json({ error: "transaction not found" }, 404);
   const rule = await db.prepare(
@@ -352,10 +352,19 @@ router.post("/reject-category", async (c) => {
   if (!rule) return c.json({ error: "rule not found" }, 404);
 
   await c.env.DB.prepare(
-    `INSERT INTO rule_rejections (user_id, rule_id, transaction_id)
-     VALUES (?, ?, ?)
-     ON CONFLICT(user_id, rule_id, transaction_id) DO NOTHING`
-  ).bind(userId, Number(rule_id), Number(transaction_id)).run();
+    `INSERT INTO rule_rejections (user_id, rule_id, transaction_id, desc_banco_normalized)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(user_id, rule_id, desc_banco_normalized) DO UPDATE SET
+       transaction_id = excluded.transaction_id,
+       created_at = datetime('now')`
+  ).bind(userId, Number(rule_id), Number(transaction_id), normalizePatternValue(tx.desc_banco)).run();
+  await c.env.DB.prepare(
+    `UPDATE rules
+     SET confidence = MAX(0.25, confidence - 0.12),
+         mode = CASE WHEN mode = 'auto' THEN 'suggest' ELSE mode END,
+         updated_at = datetime('now')
+     WHERE user_id = ? AND id = ?`
+  ).bind(userId, Number(rule_id)).run();
   await clearTransactionCategorization(db, userId, transaction_id);
   await logCategorizationEvent(db, userId, {
     transactionId: transaction_id,
@@ -376,9 +385,13 @@ router.post("/undo-reject-category", async (c) => {
   }
 
   const db = getDb(c.env);
+  const tx = await db.prepare(
+    "SELECT id, desc_banco FROM transactions WHERE id = ? AND user_id = ?"
+  ).get(Number(transaction_id), userId);
+  if (!tx) return c.json({ error: "transaction not found" }, 404);
   await db.prepare(
-    "DELETE FROM rule_rejections WHERE user_id = ? AND rule_id = ? AND transaction_id = ?"
-  ).run(userId, Number(rule_id), Number(transaction_id));
+    "DELETE FROM rule_rejections WHERE user_id = ? AND rule_id = ? AND desc_banco_normalized = ?"
+  ).run(userId, Number(rule_id), normalizePatternValue(tx.desc_banco));
   await markTransactionSuggested(db, userId, transaction_id, {
     source: "rule_suggest",
     confidence: null,

@@ -1,0 +1,952 @@
+{
+  "id": "uyu-april-2026",
+  "source": "C:/Users/Naza/Downloads/uyu.csv",
+  "generated_at": "2026-04-16T01:19:25.572Z",
+  "parse": {
+    "detected_format": "brou_csv_with_metadata",
+    "transaction_count": 30,
+    "unmatched_count": 0,
+    "unmatched": []
+  },
+  "settings": {
+    "categorizer_auto_threshold": 0.92,
+    "categorizer_suggest_threshold": 0.65
+  },
+  "categories": {
+    "Transporte": 1,
+    "Supermercado": 2,
+    "Comer afuera": 3,
+    "Entretenimiento": 4
+  },
+  "dictionary": [
+    {
+      "merchant_key": "uber",
+      "display_name": "Uber",
+      "aliases": [
+        "dlo uber rides",
+        "uber rides"
+      ]
+    },
+    {
+      "merchant_key": "disco",
+      "display_name": "Disco",
+      "aliases": [
+        "disco"
+      ]
+    },
+    {
+      "merchant_key": "frog",
+      "display_name": "Frog",
+      "aliases": [
+        "frog"
+      ]
+    },
+    {
+      "merchant_key": "subway",
+      "display_name": "Subway",
+      "aliases": [
+        "subway"
+      ]
+    },
+    {
+      "merchant_key": "mcdonalds",
+      "display_name": "McDonald's",
+      "aliases": [
+        "mcdonalds",
+        "mcdonald"
+      ]
+    },
+    {
+      "merchant_key": "burger king",
+      "display_name": "Burger King",
+      "aliases": [
+        "burger king"
+      ]
+    },
+    {
+      "merchant_key": "iberpark",
+      "display_name": "Iberpark",
+      "aliases": [
+        "iberpark"
+      ]
+    },
+    {
+      "merchant_key": "cafeteria infinito",
+      "display_name": "Cafeteria Infinito",
+      "aliases": [
+        "cafeteria infinito"
+      ]
+    },
+    {
+      "merchant_key": "cafe del puerto",
+      "display_name": "Cafe del Puerto",
+      "aliases": [
+        "rest cafe del puerto",
+        "cafe del puerto"
+      ]
+    },
+    {
+      "merchant_key": "cines life",
+      "display_name": "Cines Life",
+      "aliases": [
+        "cines life"
+      ]
+    },
+    {
+      "merchant_key": "cot",
+      "display_name": "COT",
+      "aliases": [
+        "cot trpacot",
+        "cot"
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": 1,
+      "pattern": "UBER",
+      "normalized_pattern": "uber",
+      "merchant_key": "uber",
+      "merchant_scope": "uber",
+      "category_id": 1,
+      "direction": "expense",
+      "mode": "auto",
+      "source": "manual",
+      "confidence": 0.99,
+      "match_count": 30,
+      "last_matched_at": "2026-04-15T00:00:00.000Z"
+    },
+    {
+      "id": 2,
+      "pattern": "DISCO",
+      "normalized_pattern": "disco",
+      "merchant_key": "disco",
+      "merchant_scope": "disco",
+      "category_id": 2,
+      "direction": "expense",
+      "mode": "auto",
+      "source": "manual",
+      "confidence": 0.99,
+      "match_count": 30,
+      "last_matched_at": "2026-04-15T00:00:00.000Z"
+    },
+    {
+      "id": 3,
+      "pattern": "FROG",
+      "normalized_pattern": "frog",
+      "merchant_key": "frog",
+      "merchant_scope": "frog",
+      "category_id": 2,
+      "direction": "expense",
+      "mode": "auto",
+      "source": "manual",
+      "confidence": 0.99,
+      "match_count": 30,
+      "last_matched_at": "2026-04-15T00:00:00.000Z"
+    },
+    {
+      "id": 4,
+      "pattern": "SUBWAY",
+      "normalized_pattern": "subway",
+      "merchant_key": "subway",
+      "merchant_scope": "subway",
+      "category_id": 3,
+      "direction": "expense",
+      "mode": "auto",
+      "source": "manual",
+      "confidence": 0.99,
+      "match_count": 30,
+      "last_matched_at": "2026-04-15T00:00:00.000Z"
+    },
+    {
+      "id": 5,
+      "pattern": "MCDONALDS",
+      "normalized_pattern": "mcdonalds",
+      "merchant_key": "mcdonalds",
+      "merchant_scope": "mcdonalds",
+      "category_id": 3,
+      "direction": "expense",
+      "mode": "auto",
+      "source": "manual",
+      "confidence": 0.99,
+      "match_count": 30,
+      "last_matched_at": "2026-04-15T00:00:00.000Z"
+    },
+    {
+      "id": 6,
+      "pattern": "BURGER KING",
+      "normalized_pattern": "burger king",
+      "merchant_key": "burger king",
+      "merchant_scope": "burger king",
+      "category_id": 3,
+      "direction": "expense",
+      "mode": "auto",
+      "source": "manual",
+      "confidence": 0.99,
+      "match_count": 30,
+      "last_matched_at": "2026-04-15T00:00:00.000Z"
+    },
+    {
+      "id": 7,
+      "pattern": "CAFETERIA INFINITO",
+      "normalized_pattern": "cafeteria infinito",
+      "merchant_key": "cafeteria infinito",
+      "merchant_scope": "cafeteria infinito",
+      "category_id": 3,
+      "direction": "expense",
+      "mode": "auto",
+      "source": "manual",
+      "confidence": 0.99,
+      "match_count": 30,
+      "last_matched_at": "2026-04-15T00:00:00.000Z"
+    },
+    {
+      "id": 8,
+      "pattern": "CAFE DEL PUERTO",
+      "normalized_pattern": "cafe del puerto",
+      "merchant_key": "cafe del puerto",
+      "merchant_scope": "cafe del puerto",
+      "category_id": 3,
+      "direction": "expense",
+      "mode": "auto",
+      "source": "manual",
+      "confidence": 0.99,
+      "match_count": 30,
+      "last_matched_at": "2026-04-15T00:00:00.000Z"
+    },
+    {
+      "id": 9,
+      "pattern": "IBERPARK",
+      "normalized_pattern": "iberpark",
+      "merchant_key": "iberpark",
+      "merchant_scope": "iberpark",
+      "category_id": 1,
+      "direction": "expense",
+      "mode": "auto",
+      "source": "manual",
+      "confidence": 0.99,
+      "match_count": 30,
+      "last_matched_at": "2026-04-15T00:00:00.000Z"
+    },
+    {
+      "id": 10,
+      "pattern": "CINES LIFE",
+      "normalized_pattern": "cines life",
+      "merchant_key": "cines life",
+      "merchant_scope": "cines life",
+      "category_id": 4,
+      "direction": "expense",
+      "mode": "auto",
+      "source": "manual",
+      "confidence": 0.99,
+      "match_count": 30,
+      "last_matched_at": "2026-04-15T00:00:00.000Z"
+    },
+    {
+      "id": 11,
+      "pattern": "COT",
+      "normalized_pattern": "cot",
+      "merchant_key": "cot",
+      "merchant_scope": "cot",
+      "category_id": 1,
+      "direction": "expense",
+      "mode": "auto",
+      "source": "manual",
+      "confidence": 0.99,
+      "match_count": 30,
+      "last_matched_at": "2026-04-15T00:00:00.000Z"
+    }
+  ],
+  "cases": [
+    {
+      "id": "uyu-001",
+      "tx": {
+        "fecha": "2026-04-15",
+        "desc_banco": "DEBITO A CONFIRMAR BANRED COMPRA 938951 - MONTEVIDEO/DISCO NÊ 11          VIS3 -",
+        "monto": -3309.08,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "disco",
+        "merchant_method": "dictionary",
+        "merchant_confidence": 0.98,
+        "status": "categorized",
+        "category_id": 2,
+        "category_source": "merchant_exact",
+        "category_confidence": 0.99,
+        "rule_id": 2,
+        "layer": "merchant_exact",
+        "reason": "merchant_exact: DISCO"
+      },
+      "review_note": ""
+    },
+    {
+      "id": "uyu-002",
+      "tx": {
+        "fecha": "2026-04-14",
+        "desc_banco": "COMPRA CON TARJETA DEBITO CAFETERIA INFINITO C, MONTEVIDEO TARJ: ############1372",
+        "monto": -179.05,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "cafeteria infinito",
+        "merchant_method": "dictionary",
+        "merchant_confidence": 0.98,
+        "status": "categorized",
+        "category_id": 3,
+        "category_source": "merchant_exact",
+        "category_confidence": 0.99,
+        "rule_id": 7,
+        "layer": "merchant_exact",
+        "reason": "merchant_exact: CAFETERIA INFINITO"
+      },
+      "review_note": ""
+    },
+    {
+      "id": "uyu-003",
+      "tx": {
+        "fecha": "2026-04-14",
+        "desc_banco": "COMPRA CON TARJETA DEBITO MOVIL 1411/474/76 CP, MONTEVIDEO TARJ: ############1372",
+        "monto": -199.67,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "movil",
+        "merchant_method": "token",
+        "merchant_confidence": 0.68,
+        "status": "uncategorized",
+        "category_id": null,
+        "category_source": null,
+        "category_confidence": null,
+        "rule_id": null,
+        "layer": "fallback",
+        "reason": "Sin regla suficiente"
+      },
+      "review_note": "merchant_needs_human_confirmation"
+    },
+    {
+      "id": "uyu-004",
+      "tx": {
+        "fecha": "2026-04-14",
+        "desc_banco": "COMPRA CON TARJETA DEBITO SUBWAY, MONTEVIDEO TARJ: ############1372",
+        "monto": -398.28,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "subway",
+        "merchant_method": "dictionary",
+        "merchant_confidence": 0.98,
+        "status": "categorized",
+        "category_id": 3,
+        "category_source": "merchant_exact",
+        "category_confidence": 0.99,
+        "rule_id": 4,
+        "layer": "merchant_exact",
+        "reason": "merchant_exact: SUBWAY"
+      },
+      "review_note": ""
+    },
+    {
+      "id": "uyu-005",
+      "tx": {
+        "fecha": "2026-04-13",
+        "desc_banco": "EXTORNO COMPRA CON VISA DEBITO DEV,DLO.UBER.RIDES, FECHA : 20260411, TARJETA:4303070366471372",
+        "monto": 183.98,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "uber",
+        "merchant_method": "dictionary",
+        "merchant_confidence": 0.98,
+        "status": "uncategorized",
+        "category_id": null,
+        "category_source": null,
+        "category_confidence": null,
+        "rule_id": null,
+        "layer": "fallback",
+        "reason": "Sin regla suficiente"
+      },
+      "review_note": "no_learned_rule_or_income_refund"
+    },
+    {
+      "id": "uyu-006",
+      "tx": {
+        "fecha": "2026-04-13",
+        "desc_banco": "EXTORNO COMPRA CON VISA DEBITO DEV,MERPAGO.MERCADOLIBRE, FECHA : 20260411, TARJETA:4303070366471",
+        "monto": 1381.06,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "mercadolibre",
+        "merchant_method": "known_brand",
+        "merchant_confidence": 0.9,
+        "status": "uncategorized",
+        "category_id": null,
+        "category_source": null,
+        "category_confidence": null,
+        "rule_id": null,
+        "layer": "fallback",
+        "reason": "Sin regla suficiente"
+      },
+      "review_note": "no_learned_rule_or_income_refund"
+    },
+    {
+      "id": "uyu-007",
+      "tx": {
+        "fecha": "2026-04-13",
+        "desc_banco": "COMISION TRANSF INSTANTANEA 578741LE NRR:194942182 MARIA DELACROIX",
+        "monto": -77.81,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": null,
+        "merchant_method": "noise_only",
+        "merchant_confidence": 0,
+        "status": "uncategorized",
+        "category_id": null,
+        "category_source": null,
+        "category_confidence": null,
+        "rule_id": null,
+        "layer": "fallback",
+        "reason": "Sin merchant confiable: channel_or_transfer"
+      },
+      "review_note": "needs_user_context"
+    },
+    {
+      "id": "uyu-008",
+      "tx": {
+        "fecha": "2026-04-13",
+        "desc_banco": "TRANSF INSTANTANEA ENVIADA 578740LE NRR:194942182 MARIA DELACROIX",
+        "monto": -3264,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": null,
+        "merchant_method": "noise_only",
+        "merchant_confidence": 0,
+        "status": "uncategorized",
+        "category_id": null,
+        "category_source": null,
+        "category_confidence": null,
+        "rule_id": null,
+        "layer": "fallback",
+        "reason": "Sin merchant confiable: channel_or_transfer"
+      },
+      "review_note": "needs_user_context"
+    },
+    {
+      "id": "uyu-009",
+      "tx": {
+        "fecha": "2026-04-10",
+        "desc_banco": "COMPRA CON TARJETA DEBITO IBERPARK TRES CRUCES, MONTEVIDEO TARJ: ############1372",
+        "monto": -68.56,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "iberpark",
+        "merchant_method": "dictionary",
+        "merchant_confidence": 0.98,
+        "status": "categorized",
+        "category_id": 1,
+        "category_source": "merchant_exact",
+        "category_confidence": 0.99,
+        "rule_id": 9,
+        "layer": "merchant_exact",
+        "reason": "merchant_exact: IBERPARK"
+      },
+      "review_note": ""
+    },
+    {
+      "id": "uyu-010",
+      "tx": {
+        "fecha": "2026-04-10",
+        "desc_banco": "COMPRA CON TARJETA DEBITO DLO.UBER.RIDES, MONTEVIDEO TARJ: ############1372",
+        "monto": -183.98,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "uber",
+        "merchant_method": "dictionary",
+        "merchant_confidence": 0.98,
+        "status": "categorized",
+        "category_id": 1,
+        "category_source": "merchant_exact",
+        "category_confidence": 0.99,
+        "rule_id": 1,
+        "layer": "merchant_exact",
+        "reason": "merchant_exact: UBER"
+      },
+      "review_note": ""
+    },
+    {
+      "id": "uyu-011",
+      "tx": {
+        "fecha": "2026-04-10",
+        "desc_banco": "COMPRA CON TARJETA DEBITO DLO.UBER.RIDES, MONTEVIDEO TARJ: ############1372",
+        "monto": -198.19,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "uber",
+        "merchant_method": "dictionary",
+        "merchant_confidence": 0.98,
+        "status": "categorized",
+        "category_id": 1,
+        "category_source": "merchant_exact",
+        "category_confidence": 0.99,
+        "rule_id": 1,
+        "layer": "merchant_exact",
+        "reason": "merchant_exact: UBER"
+      },
+      "review_note": ""
+    },
+    {
+      "id": "uyu-012",
+      "tx": {
+        "fecha": "2026-04-10",
+        "desc_banco": "COMPRA CON TARJETA DEBITO REST CAFE DEL PUERTO, COLONIA TARJ: ############1372",
+        "monto": -200,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "cafe del puerto",
+        "merchant_method": "dictionary",
+        "merchant_confidence": 0.98,
+        "status": "categorized",
+        "category_id": 3,
+        "category_source": "merchant_exact",
+        "category_confidence": 0.99,
+        "rule_id": 8,
+        "layer": "merchant_exact",
+        "reason": "merchant_exact: CAFE DEL PUERTO"
+      },
+      "review_note": ""
+    },
+    {
+      "id": "uyu-013",
+      "tx": {
+        "fecha": "2026-04-09",
+        "desc_banco": "COMPRA CON TARJETA DEBITO FROG, MONTEVIDEO TARJ: ############1372",
+        "monto": -515,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "frog",
+        "merchant_method": "dictionary",
+        "merchant_confidence": 0.98,
+        "status": "categorized",
+        "category_id": 2,
+        "category_source": "merchant_exact",
+        "category_confidence": 0.99,
+        "rule_id": 3,
+        "layer": "merchant_exact",
+        "reason": "merchant_exact: FROG"
+      },
+      "review_note": ""
+    },
+    {
+      "id": "uyu-014",
+      "tx": {
+        "fecha": "2026-04-09",
+        "desc_banco": "TRANSF INSTANTANEA ENVIADA 783897LE NRR:194646954 ITALO BRUNO MUNIZ",
+        "monto": -855,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": null,
+        "merchant_method": "noise_only",
+        "merchant_confidence": 0,
+        "status": "uncategorized",
+        "category_id": null,
+        "category_source": null,
+        "category_confidence": null,
+        "rule_id": null,
+        "layer": "fallback",
+        "reason": "Sin merchant confiable: channel_or_transfer"
+      },
+      "review_note": "needs_user_context"
+    },
+    {
+      "id": "uyu-015",
+      "tx": {
+        "fecha": "2026-04-08",
+        "desc_banco": "EXTORNO COMPRA CON VISA DEBITO DEV,DLO.UBER.RIDES, FECHA : 20260407, TARJETA:4303070366471372",
+        "monto": 319.37,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "uber",
+        "merchant_method": "dictionary",
+        "merchant_confidence": 0.98,
+        "status": "uncategorized",
+        "category_id": null,
+        "category_source": null,
+        "category_confidence": null,
+        "rule_id": null,
+        "layer": "fallback",
+        "reason": "Sin regla suficiente"
+      },
+      "review_note": "no_learned_rule_or_income_refund"
+    },
+    {
+      "id": "uyu-016",
+      "tx": {
+        "fecha": "2026-04-07",
+        "desc_banco": "COMPRA CON TARJETA DEBITO FROG, MONTEVIDEO TARJ: ############1372",
+        "monto": -51.69,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "frog",
+        "merchant_method": "dictionary",
+        "merchant_confidence": 0.98,
+        "status": "categorized",
+        "category_id": 2,
+        "category_source": "merchant_exact",
+        "category_confidence": 0.99,
+        "rule_id": 3,
+        "layer": "merchant_exact",
+        "reason": "merchant_exact: FROG"
+      },
+      "review_note": ""
+    },
+    {
+      "id": "uyu-017",
+      "tx": {
+        "fecha": "2026-04-07",
+        "desc_banco": "COMPRA CON TARJETA DEBITO NATURALEZA, MONTEVIDEO TARJ: ############1372",
+        "monto": -77.7,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "naturaleza",
+        "merchant_method": "token",
+        "merchant_confidence": 0.68,
+        "status": "uncategorized",
+        "category_id": null,
+        "category_source": null,
+        "category_confidence": null,
+        "rule_id": null,
+        "layer": "fallback",
+        "reason": "Sin regla suficiente"
+      },
+      "review_note": "merchant_needs_human_confirmation"
+    },
+    {
+      "id": "uyu-018",
+      "tx": {
+        "fecha": "2026-04-07",
+        "desc_banco": "COMPRA CON TARJETA DEBITO SUBWAY, MONTEVIDEO TARJ: ############1372",
+        "monto": -398.28,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "subway",
+        "merchant_method": "dictionary",
+        "merchant_confidence": 0.98,
+        "status": "categorized",
+        "category_id": 3,
+        "category_source": "merchant_exact",
+        "category_confidence": 0.99,
+        "rule_id": 4,
+        "layer": "merchant_exact",
+        "reason": "merchant_exact: SUBWAY"
+      },
+      "review_note": ""
+    },
+    {
+      "id": "uyu-019",
+      "tx": {
+        "fecha": "2026-04-06",
+        "desc_banco": "COMPRA CON TARJETA DEBITO CECILIA CHIODI, MONTEVIDEO TARJ: ############1372",
+        "monto": -295.08,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "cecilia chiodi",
+        "merchant_method": "ngram",
+        "merchant_confidence": 0.86,
+        "status": "uncategorized",
+        "category_id": null,
+        "category_source": null,
+        "category_confidence": null,
+        "rule_id": null,
+        "layer": "fallback",
+        "reason": "Sin regla suficiente"
+      },
+      "review_note": "merchant_needs_human_confirmation"
+    },
+    {
+      "id": "uyu-020",
+      "tx": {
+        "fecha": "2026-04-06",
+        "desc_banco": "COMPRA CON TARJETA DEBITO CINES LIFE, PUNTA DEL EST TARJ: ############1372",
+        "monto": -313.6,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "cines life",
+        "merchant_method": "dictionary",
+        "merchant_confidence": 0.98,
+        "status": "categorized",
+        "category_id": 4,
+        "category_source": "merchant_exact",
+        "category_confidence": 0.99,
+        "rule_id": 10,
+        "layer": "merchant_exact",
+        "reason": "merchant_exact: CINES LIFE"
+      },
+      "review_note": ""
+    },
+    {
+      "id": "uyu-021",
+      "tx": {
+        "fecha": "2026-04-06",
+        "desc_banco": "COMPRA CON TARJETA DEBITO DLO.UBER.RIDES, MONTEVIDEO TARJ: ############1372",
+        "monto": -319.37,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "uber",
+        "merchant_method": "dictionary",
+        "merchant_confidence": 0.98,
+        "status": "categorized",
+        "category_id": 1,
+        "category_source": "merchant_exact",
+        "category_confidence": 0.99,
+        "rule_id": 1,
+        "layer": "merchant_exact",
+        "reason": "merchant_exact: UBER"
+      },
+      "review_note": ""
+    },
+    {
+      "id": "uyu-022",
+      "tx": {
+        "fecha": "2026-04-06",
+        "desc_banco": "COMPRA CON TARJETA DEBITO DLO.UBER.RIDES, MONTEVIDEO TARJ: ############1372",
+        "monto": -320.04,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "uber",
+        "merchant_method": "dictionary",
+        "merchant_confidence": 0.98,
+        "status": "categorized",
+        "category_id": 1,
+        "category_source": "merchant_exact",
+        "category_confidence": 0.99,
+        "rule_id": 1,
+        "layer": "merchant_exact",
+        "reason": "merchant_exact: UBER"
+      },
+      "review_note": ""
+    },
+    {
+      "id": "uyu-023",
+      "tx": {
+        "fecha": "2026-04-06",
+        "desc_banco": "COMPRA CON TARJETA DEBITO MERPAGO.MERCADOLIBRE, MONTEVIDEO TARJ: ############1372",
+        "monto": -2723.5,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "mercadolibre",
+        "merchant_method": "known_brand",
+        "merchant_confidence": 0.9,
+        "status": "uncategorized",
+        "category_id": null,
+        "category_source": null,
+        "category_confidence": null,
+        "rule_id": null,
+        "layer": "fallback",
+        "reason": "Sin regla suficiente"
+      },
+      "review_note": "no_learned_rule_or_income_refund"
+    },
+    {
+      "id": "uyu-024",
+      "tx": {
+        "fecha": "2026-04-06",
+        "desc_banco": "TRANSFERENCIA ENVIADA 658296TT55104841 TRF. PLAZA- MARIA DELACROIX",
+        "monto": -78.6,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": null,
+        "merchant_method": "noise_only",
+        "merchant_confidence": 0,
+        "status": "uncategorized",
+        "category_id": null,
+        "category_source": null,
+        "category_confidence": null,
+        "rule_id": null,
+        "layer": "fallback",
+        "reason": "Sin merchant confiable: channel_or_transfer"
+      },
+      "review_note": "needs_user_context"
+    },
+    {
+      "id": "uyu-025",
+      "tx": {
+        "fecha": "2026-04-06",
+        "desc_banco": "DEBITO OPERACION EN SUPERNET O SMS 658284TT55104841 TRF. PLAZA- MARIA DELACROIX",
+        "monto": -23000,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": null,
+        "merchant_method": "noise_only",
+        "merchant_confidence": 0,
+        "status": "uncategorized",
+        "category_id": null,
+        "category_source": null,
+        "category_confidence": null,
+        "rule_id": null,
+        "layer": "fallback",
+        "reason": "Sin regla suficiente"
+      },
+      "review_note": "needs_user_context"
+    },
+    {
+      "id": "uyu-026",
+      "tx": {
+        "fecha": "2026-04-06",
+        "desc_banco": "CREDITO POR OPERACION EN SUPERNET P--/CABRERA  NAZARENO IVAN",
+        "monto": 39820,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": null,
+        "merchant_method": "noise_only",
+        "merchant_confidence": 0,
+        "status": "uncategorized",
+        "category_id": null,
+        "category_source": null,
+        "category_confidence": null,
+        "rule_id": null,
+        "layer": "fallback",
+        "reason": "Sin regla suficiente"
+      },
+      "review_note": "needs_user_context"
+    },
+    {
+      "id": "uyu-027",
+      "tx": {
+        "fecha": "2026-04-06",
+        "desc_banco": "PAGO CON TOKE 368749ID: 78982 MCDONALD'S",
+        "monto": -200,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "mcdonalds",
+        "merchant_method": "dictionary",
+        "merchant_confidence": 0.98,
+        "status": "categorized",
+        "category_id": 3,
+        "category_source": "merchant_exact",
+        "category_confidence": 0.99,
+        "rule_id": 5,
+        "layer": "merchant_exact",
+        "reason": "merchant_exact: MCDONALDS"
+      },
+      "review_note": ""
+    },
+    {
+      "id": "uyu-028",
+      "tx": {
+        "fecha": "2026-04-01",
+        "desc_banco": "COMPRA CON TARJETA DEBITO IBERPARK TRES CRUCES, MONTEVIDEO TARJ: ############1372",
+        "monto": -144.64,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "iberpark",
+        "merchant_method": "dictionary",
+        "merchant_confidence": 0.98,
+        "status": "categorized",
+        "category_id": 1,
+        "category_source": "merchant_exact",
+        "category_confidence": 0.99,
+        "rule_id": 9,
+        "layer": "merchant_exact",
+        "reason": "merchant_exact: IBERPARK"
+      },
+      "review_note": ""
+    },
+    {
+      "id": "uyu-029",
+      "tx": {
+        "fecha": "2026-04-01",
+        "desc_banco": "COMPRA CON TARJETA DEBITO BURGER KING, MONTEVIDEO TARJ: ############1372",
+        "monto": -555.1,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "burger king",
+        "merchant_method": "dictionary",
+        "merchant_confidence": 0.98,
+        "status": "categorized",
+        "category_id": 3,
+        "category_source": "merchant_exact",
+        "category_confidence": 0.99,
+        "rule_id": 6,
+        "layer": "merchant_exact",
+        "reason": "merchant_exact: BURGER KING"
+      },
+      "review_note": ""
+    },
+    {
+      "id": "uyu-030",
+      "tx": {
+        "fecha": "2026-04-01",
+        "desc_banco": "DEBITO OPERACION EN SUPERNET O SMS COT       TRPACOT",
+        "monto": -459.49,
+        "moneda": "UYU",
+        "account_id": "brou_uyu"
+      },
+      "expected": {
+        "merchant_key": "cot",
+        "merchant_method": "dictionary",
+        "merchant_confidence": 0.98,
+        "status": "categorized",
+        "category_id": 1,
+        "category_source": "merchant_exact",
+        "category_confidence": 0.99,
+        "rule_id": 11,
+        "layer": "merchant_exact",
+        "reason": "merchant_exact: COT"
+      },
+      "review_note": ""
+    }
+  ]
+}

@@ -10,6 +10,7 @@ import {
   normalizeRulePattern,
   selectBestRuleMatch,
 } from "@smartfinance/domain";
+import type { MerchantDictionaryEntry, RuleRejection } from "@smartfinance/domain";
 import { allRows, firstRow, runStatement, type D1DatabaseLike } from "./client";
 import { getSettingsObject } from "./settings";
 
@@ -62,6 +63,13 @@ export type AmountProfileRow = {
   confidence: number;
   status: "active" | "disabled";
   last_seen_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type MerchantDictionaryRow = MerchantDictionaryEntry & {
+  id: number;
+  user_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -917,6 +925,63 @@ export async function listRules(db: D1DatabaseLike, userId: string) {
   );
 }
 
+export async function listMerchantDictionary(db: D1DatabaseLike, userId: string) {
+  return allRows<MerchantDictionaryRow>(
+    db,
+    `
+      SELECT
+        id,
+        user_id,
+        merchant_key,
+        display_name,
+        aliases_json,
+        default_category_id,
+        origin,
+        created_at,
+        updated_at
+      FROM merchant_dictionary
+      WHERE user_id = ? OR user_id IS NULL
+      ORDER BY user_id IS NOT NULL DESC, origin = 'learned' DESC, LENGTH(merchant_key) DESC
+    `,
+    [userId],
+  );
+}
+
+async function upsertLearnedMerchantDictionary(
+  db: D1DatabaseLike,
+  userId: string,
+  input: {
+    merchantKey: string;
+    displayName?: string | null;
+    alias?: string | null;
+    categoryId: number;
+  },
+) {
+  const merchantKey = normalizeRulePattern(input.merchantKey);
+  if (!merchantKey) return;
+  const displayName = input.displayName?.trim() || merchantKey.split(" ").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
+  const alias = input.alias ? normalizeRulePattern(input.alias) : merchantKey;
+  const aliasesJson = JSON.stringify([...new Set([merchantKey, alias].filter(Boolean))]);
+
+  await runStatement(
+    db,
+    `
+      INSERT INTO merchant_dictionary (
+        user_id, merchant_key, display_name, aliases_json, default_category_id, origin, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, 'learned', CURRENT_TIMESTAMP)
+      ON CONFLICT(user_id, merchant_key)
+      DO UPDATE SET
+        display_name = excluded.display_name,
+        aliases_json = excluded.aliases_json,
+        default_category_id = excluded.default_category_id,
+        origin = CASE WHEN merchant_dictionary.origin = 'seed' THEN 'seed' ELSE 'learned' END,
+        updated_at = CURRENT_TIMESTAMP
+    `,
+    [userId, merchantKey, displayName, aliasesJson, input.categoryId],
+  );
+}
+
 export async function buildRuleInsights(db: D1DatabaseLike, userId: string) {
   const rules = await listRules(db, userId);
   const insights: RuleInsightRow[] = [];
@@ -1293,18 +1358,48 @@ export async function listRuleCandidates(db: D1DatabaseLike, userId: string, rul
   );
 }
 
-export async function rejectRuleForDescription(db: D1DatabaseLike, userId: string, ruleId: number, descBanco: string) {
+export async function rejectRuleForDescription(db: D1DatabaseLike, userId: string, ruleId: number, descBanco: string, transactionId?: number | null) {
   const normalizedDescription = normalizeRulePattern(descBanco);
   if (!normalizedDescription) return;
 
   await runStatement(
     db,
     `
-      INSERT INTO rule_rejections (user_id, rule_id, desc_banco_normalized)
-      VALUES (?, ?, ?)
-      ON CONFLICT(user_id, rule_id, desc_banco_normalized) DO NOTHING
+      INSERT INTO rule_rejections (user_id, rule_id, transaction_id, desc_banco_normalized)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(user_id, rule_id, desc_banco_normalized)
+      DO UPDATE SET
+        transaction_id = excluded.transaction_id,
+        created_at = CURRENT_TIMESTAMP
     `,
-    [userId, ruleId, normalizedDescription],
+    [userId, ruleId, transactionId ?? null, normalizedDescription],
+  );
+
+  await runStatement(
+    db,
+    `
+      UPDATE rules
+      SET confidence = MAX(0.25, confidence - 0.12),
+          mode = CASE WHEN mode = 'auto' THEN 'suggest' ELSE mode END,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = ? AND id = ?
+    `,
+    [userId, ruleId],
+  );
+}
+
+async function listRuleRejectionsForDescription(db: D1DatabaseLike, userId: string, descBanco: string) {
+  const normalizedDescription = normalizeRulePattern(descBanco);
+  if (!normalizedDescription) return [];
+  return allRows<RuleRejection>(
+    db,
+    `
+      SELECT rule_id, desc_banco_normalized
+      FROM rule_rejections
+      WHERE user_id = ?
+        AND ? LIKE '%' || desc_banco_normalized || '%'
+    `,
+    [userId, normalizedDescription],
   );
 }
 
@@ -1378,6 +1473,11 @@ export async function classifyTransactionByRules(
 
   const settings = await getSettingsObject(db, userId);
   if (String(settings.categorizer_v2_enabled ?? "1") !== "0") {
+    const [rules, rejections, dictionary] = await Promise.all([
+      listRules(db, userId),
+      listRuleRejectionsForDescription(db, userId, input.descBanco),
+      listMerchantDictionary(db, userId),
+    ]);
     const canonical = classifyTransactionWithCanonicalRules(
       {
         desc_banco: input.descBanco,
@@ -1385,9 +1485,10 @@ export async function classifyTransactionByRules(
         moneda: input.currency,
         account_id: input.accountId ?? null,
       },
-      await listRules(db, userId),
-      [],
+      rules,
+      rejections,
       settings,
+      dictionary,
     );
 
     if (canonical.categorizationStatus !== "uncategorized") {
@@ -1574,12 +1675,13 @@ export async function syncRuleFromCategorizedDescription(
     scopePreference?: "account" | "global" | null;
   },
 ) {
+  const dictionary = await listMerchantDictionary(db, userId);
   const upsert = buildManualRuleUpsert({
     desc_banco: input.descBanco,
     monto: input.direction === "income" ? 1 : -1,
     moneda: input.currency,
     account_id: input.accountId ?? null,
-  }, input.categoryId, input.scopePreference || (input.accountId ? "account" : "global"));
+  }, input.categoryId, input.scopePreference || (input.accountId ? "account" : "global"), dictionary);
 
   if (upsert.skipped) {
     return { status: "skipped" as const, skipped_reason: upsert.skippedReason };
@@ -1674,6 +1776,13 @@ export async function syncRuleFromCategorizedDescription(
     `,
     [userId, upsert.merchant_scope, upsert.account_scope, upsert.currency_scope, upsert.direction],
   );
+
+  await upsertLearnedMerchantDictionary(db, userId, {
+    merchantKey: String(upsert.merchant_key),
+    displayName: upsert.pattern,
+    alias: input.descBanco,
+    categoryId: input.categoryId,
+  });
 
   return {
     status: before ? (before.category_id === input.categoryId ? "updated" as const : "overrode_conflict" as const) : "created" as const,
