@@ -100,6 +100,10 @@ export default function TransactionReviewDeck({
     () => new Map(categories.map((category) => [String(category.id), category])),
     [categories]
   );
+  const itemIdsKey = useMemo(
+    () => items.map((item) => getTransactionId(item) || cleanDescription(item?.desc_banco)).join("|"),
+    [items]
+  );
 
   const reviewItems = useMemo(
     () => items
@@ -141,7 +145,7 @@ export default function TransactionReviewDeck({
     setSessionLearnedCategories(new Map());
     setHistory([]);
     setIndex(0);
-  }, [items]);
+  }, [itemIdsKey]);
 
   useEffect(() => {
     if (index >= reviewItems.length && reviewItems.length > 0) {
@@ -203,13 +207,6 @@ export default function TransactionReviewDeck({
         return;
       }
 
-      let result = null;
-      if (transactionIds.length === 1) {
-        result = await api.updateTransaction(transactionIds[0], { category_id: Number(categoryId) });
-      } else {
-        result = await api.assignCategoryToTransactions(transactionIds, categoryId, { ruleScope: "account" });
-      }
-
       const category = categoryById.get(String(categoryId));
       const categoryName = category?.name || "esta categoria";
       const learnedEntries = targets
@@ -239,13 +236,20 @@ export default function TransactionReviewDeck({
         previousItems: targets,
         previousIndex: index,
         learnedEntries,
-        createdRuleId: result?.rule?.created ? result?.rule?.rule?.id : null,
+        createdRuleId: null,
         createdCategoryId: options.createdCategoryId || null,
       }]);
       addToast("success", transactionIds.length > 1
         ? `${transactionIds.length} movimientos categorizados juntos.`
         : "Categoria aplicada.");
       advanceAfterCompleting(transactionIds);
+
+      const persist = transactionIds.length === 1
+        ? api.updateTransaction(transactionIds[0], { category_id: Number(categoryId) })
+        : api.assignCategoryToTransactions(transactionIds, categoryId, { ruleScope: "account" });
+      persist.catch((error) => {
+        addToast("error", `No se pudo guardar la categoria: ${error.message}`);
+      });
     } catch (error) {
       addToast("error", error.message);
     } finally {
