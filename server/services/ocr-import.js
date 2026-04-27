@@ -1,3 +1,6 @@
+const fs = require("fs");
+const path = require("path");
+
 function joinUrl(baseUrl, path) {
   return `${String(baseUrl || "").replace(/\/+$/, "")}${path}`;
 }
@@ -38,6 +41,25 @@ function parseImageAmount(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function imageMimeType(filePath, fallback = "") {
+  const ext = path.extname(filePath || "").toLowerCase();
+  if (fallback && /^image\//.test(fallback)) return fallback;
+  if (ext === ".png") return "image/png";
+  if (ext === ".webp") return "image/webp";
+  return "image/jpeg";
+}
+
+function normalizeTransactions(rawTransactions, payload) {
+  return (Array.isArray(rawTransactions) ? rawTransactions : [])
+    .map((tx) => ({
+      fecha: parseImageDate(tx?.fecha, payload.period),
+      desc_banco: String(tx?.desc_banco || tx?.descripcion || tx?.merchant || "").trim(),
+      monto: parseImageAmount(tx?.monto ?? tx?.amount ?? tx?.total),
+      moneda: String(tx?.moneda || payload.moneda || "UYU").toUpperCase(),
+    }))
+    .filter((tx) => tx.fecha && tx.desc_banco && Number.isFinite(tx.monto));
+}
+
 async function extractTransactionsFromOcrWithOllama(settings, payload) {
   const enabled = String(settings.categorizer_ollama_enabled || "0") === "1";
   const baseUrl = String(settings.categorizer_ollama_url || "").trim();
@@ -75,14 +97,7 @@ async function extractTransactionsFromOcrWithOllama(settings, payload) {
     const parsed = safeJsonParse(data?.response || "");
     const transactions = Array.isArray(parsed?.transactions) ? parsed.transactions : [];
     return {
-      transactions: transactions
-        .map((tx) => ({
-          fecha: parseImageDate(tx?.fecha, payload.period),
-          desc_banco: String(tx?.desc_banco || "").trim(),
-          monto: parseImageAmount(tx?.monto),
-          moneda: String(tx?.moneda || payload.moneda || "UYU").toUpperCase(),
-        }))
-        .filter((tx) => tx.fecha && tx.desc_banco && Number.isFinite(tx.monto)),
+      transactions: normalizeTransactions(transactions, payload),
       reason: parsed?.reason ? String(parsed.reason) : "",
     };
   } catch {
@@ -90,6 +105,70 @@ async function extractTransactionsFromOcrWithOllama(settings, payload) {
   }
 }
 
+async function extractTransactionsFromImageWithNvidia(payload) {
+  const apiKey = String(process.env.NVIDIA_API_KEY || "").trim();
+  const baseUrl = String(process.env.NVIDIA_BASE_URL || "https://integrate.api.nvidia.com/v1").trim();
+  const model = String(process.env.NVIDIA_VISION_MODEL || process.env.NVIDIA_MODEL || "").trim();
+
+  if (!apiKey || !model) {
+    return { transactions: [], reason: "nvidia_ocr_not_configured" };
+  }
+  if (!payload.filePath || !fs.existsSync(payload.filePath)) {
+    return { transactions: [], reason: "image_file_missing" };
+  }
+
+  const mimeType = imageMimeType(payload.filePath, payload.mimeType);
+  const imageBase64 = fs.readFileSync(payload.filePath).toString("base64");
+  const prompt = [
+    "Extrae movimientos financieros desde esta boleta, ticket, comprobante o captura bancaria.",
+    "Devuelve SOLO JSON valido con esta forma exacta:",
+    "{\"transactions\":[{\"fecha\":\"YYYY-MM-DD\",\"desc_banco\":\"COMERCIO O DESCRIPCION\",\"monto\":-123.45,\"moneda\":\"UYU\"}],\"reason\":\"...\"}",
+    "Usa monto negativo para gastos y positivo para ingresos.",
+    "Si hay un total de compra, prioriza el total final.",
+    "Si no hay fecha exacta, usa el primer dia del periodo de referencia.",
+    `Periodo de referencia: ${payload.period || "desconocido"}`,
+    `Moneda esperada: ${payload.moneda || "UYU"}`,
+  ].join("\n");
+
+  try {
+    const response = await fetch(joinUrl(baseUrl, "/chat/completions"), {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              { type: "image_url", image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
+            ],
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      return { transactions: [], reason: `nvidia_http_${response.status}` };
+    }
+
+    const data = await response.json();
+    const raw = data?.choices?.[0]?.message?.content || "";
+    const parsed = safeJsonParse(raw) || safeJsonParse(String(raw).match(/\{[\s\S]*\}/)?.[0] || "");
+    return {
+      transactions: normalizeTransactions(parsed?.transactions, payload),
+      reason: parsed?.reason ? String(parsed.reason) : "",
+    };
+  } catch {
+    return { transactions: [], reason: "nvidia_ocr_error" };
+  }
+}
+
 module.exports = {
   extractTransactionsFromOcrWithOllama,
+  extractTransactionsFromImageWithNvidia,
 };

@@ -14,7 +14,7 @@ const {
   resolveTransactionClassification,
 } = require("../services/transaction-categorization");
 const { extractMerchantKey } = require("../services/categorizer");
-const { extractTransactionsFromOcrWithOllama } = require("../services/ocr-import");
+const { extractTransactionsFromImageWithNvidia, extractTransactionsFromOcrWithOllama } = require("../services/ocr-import");
 const {
   createReviewGroupTracker,
   ensureSmartCategoriesForTransactions,
@@ -328,11 +328,6 @@ router.post("/", upload.single("file"), async (req, res, next) => {
       cleanupUploadedFile(req.file.path);
       return res.status(400).json({ error: "unsupported file type" });
     }
-    if ((extension === ".pdf" || OCR_IMPORT_EXTENSIONS.has(extension)) && !req.body.extracted_text) {
-      cleanupUploadedFile(req.file.path);
-      return res.status(400).json({ error: "image and pdf uploads require extracted_text" });
-    }
-
     const existingTransactions = db.prepare("SELECT COUNT(*) AS count FROM transactions").get();
     const hadTransactionsBeforeUpload = Number(existingTransactions?.count || 0) > 0;
     const settings = getSettingsObject();
@@ -522,17 +517,31 @@ router.post("/", upload.single("file"), async (req, res, next) => {
         ? fs.readFileSync(req.file.path, "utf-8")
         : req.body.extracted_text
           ? String(req.body.extracted_text)
-          : await parsePdfText(req.file.path);
+          : extension === ".pdf"
+            ? await parsePdfText(req.file.path)
+            : "";
       const patterns = JSON.parse(settings.parsing_patterns || "[]");
       const extracted = extractTransactions(text, patterns, period);
       let extractedTransactions = extracted.transactions;
       if (extractedTransactions.length === 0 && OCR_IMPORT_EXTENSIONS.has(extension)) {
-        const ocrResult = await extractTransactionsFromOcrWithOllama(settings, {
-          text,
-          period,
-          moneda: accountCurrency,
-        });
+        const ocrResult = text
+          ? await extractTransactionsFromOcrWithOllama(settings, { text, period, moneda: accountCurrency })
+          : await extractTransactionsFromImageWithNvidia({
+              filePath: req.file.path,
+              mimeType: req.file.mimetype,
+              period,
+              moneda: accountCurrency,
+            });
         extractedTransactions = ocrResult.transactions || [];
+        if (extractedTransactions.length === 0 && ocrResult.reason === "nvidia_ocr_not_configured") {
+          cleanupUploadedFile(req.file.path);
+          db.prepare("UPDATE uploads SET status='error' WHERE id = ?").run(uploadId);
+          return res.status(422).json({
+            error: "Image OCR is not configured. Set NVIDIA_API_KEY and NVIDIA_VISION_MODEL server-side, or send extracted_text.",
+            code: "ocr_not_configured",
+            parse_quality: "failed",
+          });
+        }
       }
       if (extractedTransactions.length === 0) {
         cleanupUploadedFile(req.file.path);

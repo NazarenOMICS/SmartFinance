@@ -199,7 +199,10 @@ function extractTransactions(text, patterns, period) {
     }
   }
 
-  const activePatterns = (patterns && patterns.length ? patterns : DEFAULT_PATTERNS).map((pattern) => new RegExp(pattern));
+  const configuredPatterns = Array.isArray(patterns) ? patterns : [];
+  const activePatterns = [...new Set([...configuredPatterns, ...DEFAULT_PATTERNS])]
+    .filter(Boolean)
+    .map((pattern) => new RegExp(pattern));
   const lines = String(text || "")
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -252,4 +255,3 @@ function isValidISODate(value) {
     date.getUTCDate() === day
   );
 }
-
