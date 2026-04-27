@@ -1,7 +1,25 @@
 const path = require("path");
+const fs = require("fs");
 
 const DEFAULT_PORT = 3001;
 const DEFAULT_JSON_LIMIT = "1mb";
+
+function loadEnvFile(filePath) {
+  if (!fs.existsSync(filePath)) return;
+  const lines = fs.readFileSync(filePath, "utf-8").split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const index = trimmed.indexOf("=");
+    if (index <= 0) continue;
+    const key = trimmed.slice(0, index).trim();
+    const rawValue = trimmed.slice(index + 1).trim();
+    if (!key || process.env[key] !== undefined) continue;
+    process.env[key] = rawValue.replace(/^["']|["']$/g, "");
+  }
+}
+
+loadEnvFile(path.join(__dirname, ".env"));
 
 function parseInteger(value, fallback) {
   const parsed = Number.parseInt(value, 10);
