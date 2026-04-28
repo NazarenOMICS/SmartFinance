@@ -1,10 +1,17 @@
-# SmartFinance Mobile Placeholder
+# Mobile App Stub
 
-This app is intentionally not implemented in the foundation phase.
+The canonical Genio mobile app does not live in this SaaS workspace.
 
-Its presence in the monorepo exists to keep the backend, contracts, and SDK honest:
+Use the standalone repository instead:
 
-- auth must work with bearer tokens
-- uploads must be transport-neutral
-- contracts must not depend on browser APIs
-- billing and usage must resolve server-side
+```txt
+C:\Users\Naza\Documents\SmartFinance-Mobile
+```
+
+Architecture rule:
+
+- `SmartFinance-Mobile` owns the Expo/React Native app only.
+- `SmartFinance/server` owns the API, SQLite database, imports, OCR, categorization, assistant, and all financial persistence.
+- Mobile must talk to the backend through `EXPO_PUBLIC_API_URL`; it should not duplicate backend services or persist finance data locally in v1.
+
+This directory intentionally remains as documentation only so the SaaS repo does not carry a second active mobile implementation.
