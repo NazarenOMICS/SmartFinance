@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import * as pdfjsLib from "pdfjs-dist";
 import { api } from "../api";
 import { useToast } from "../contexts/ToastContext";
 import CsvImportPanel from "../components/CsvImportPanel";
@@ -13,11 +12,6 @@ import {
   clearPendingGuidedReviewContext,
   writePendingGuidedReviewContext,
 } from "../utils/pendingReviewSession";
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.mjs",
-  import.meta.url
-).href;
 
 // ─── PDF extraction helpers ───────────────────────────────────────────────────
 
@@ -586,6 +580,7 @@ export default function Upload({
     const formData = new FormData();
     formData.append("account_id", selectedAccount);
     formData.append("period", uploadForm.period);
+    formData.append("import_mode", "auto");
     formData.append("statement_currency", selectedAccountData?.currency || "UYU");
 
     const file = uploadForm.file;
@@ -609,17 +604,7 @@ export default function Upload({
         return;
       }
 
-      if (lowerName.endsWith(".pdf")) {
-        const text = await extractPdfText(file);
-        formData.append("extracted_text", text);
-        formData.append("file", file, file.name);
-      } else if (isImageImport(lowerName)) {
-        const text = await extractImageText(file);
-        formData.append("extracted_text", text);
-        formData.append("file", file, file.name);
-      } else {
-        formData.append("file", file);
-      }
+      formData.append("file", file, file.name || "import");
 
       const result = await api.uploadFile(formData);
 
@@ -978,7 +963,7 @@ export default function Upload({
 
           {uploadForm.file?.name.toLowerCase().endsWith(".pdf") && (
             <div className="mt-3 space-y-1">
-              <p className="text-xs text-finance-teal">PDF detectado — el texto se extrae en tu navegador antes de subir.</p>
+              <p className="text-xs text-finance-teal">PDF detectado — Genio lo procesa en el backend y devuelve diagnostico si no encuentra movimientos.</p>
               {selectedAccountData && selectedAccountData.currency !== "UYU" && (
                 <p className="text-xs text-finance-amber">
                   Cuenta en <strong>{selectedAccountData.currency}</strong> — las transacciones se importarán en {selectedAccountData.currency}. Verificá que el PDF corresponda a esta cuenta.
@@ -993,7 +978,7 @@ export default function Upload({
             <p className="mt-3 text-xs text-finance-teal">CSV detectado — se parsea automáticamente. Soporta formato BROU con columnas Débito/Crédito.</p>
           )}
           {isImageImport(uploadForm.file?.name || "") && (
-            <p className="mt-3 text-xs text-finance-teal">Imagen detectada — extraemos texto con OCR en tu navegador y, si hace falta, usamos Ollama para estructurar el movimiento.</p>
+            <p className="mt-3 text-xs text-finance-teal">Imagen detectada — Genio usa OCR en backend, reglas e IA para validar si es un gasto real.</p>
           )}
 
           <div className="mt-4 flex items-center gap-3">

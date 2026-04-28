@@ -14,7 +14,12 @@ const {
   resolveTransactionClassification,
 } = require("../services/transaction-categorization");
 const { extractMerchantKey } = require("../services/categorizer");
-const { extractTransactionsFromImageWithNvidia, extractTransactionsFromOcrWithOllama } = require("../services/ocr-import");
+const { runPaddleOcr } = require("../services/paddle-ocr");
+const {
+  buildTransactionFromVisualCandidate,
+  extractVisualCandidate,
+} = require("../services/visual-parser");
+const { verifyVisualCandidate } = require("../services/visual-ai-verifier");
 const {
   createReviewGroupTracker,
   ensureSmartCategoriesForTransactions,
@@ -28,6 +33,7 @@ const { detectFormat, applyColumnMap } = require("../services/format-detector");
 
 const router = express.Router();
 const uploadsDir = path.join(__dirname, "..", "..", "uploads");
+const receiptLastDir = path.join(uploadsDir, "receipt-last");
 const SUPPORTED_IMPORT_EXTENSIONS = new Set([".pdf", ".csv", ".txt", ".xlsx", ".xls", ".png", ".jpg", ".jpeg", ".webp"]);
 const OCR_IMPORT_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 
@@ -243,6 +249,179 @@ function cleanupUploadedFile(filePath) {
   }
 }
 
+function limitJson(value, maxLength = 12000) {
+  const raw = JSON.stringify(value || {});
+  return raw.length > maxLength ? `${raw.slice(0, maxLength)}...` : raw;
+}
+
+function updateUploadMetadata(uploadId, metadata = {}) {
+  db.prepare(
+    `UPDATE uploads
+     SET import_kind = COALESCE(?, import_kind),
+         source_kind = COALESCE(?, source_kind),
+         parse_quality = COALESCE(?, parse_quality),
+         ocr_confidence = COALESCE(?, ocr_confidence),
+         ai_confidence = COALESCE(?, ai_confidence),
+         ai_reason = COALESCE(?, ai_reason),
+         raw_ocr_json = COALESCE(?, raw_ocr_json)
+     WHERE id = ?`
+  ).run(
+    metadata.import_kind ?? null,
+    metadata.source_kind ?? null,
+    metadata.parse_quality ?? null,
+    metadata.ocr_confidence ?? null,
+    metadata.ai_confidence ?? null,
+    metadata.ai_reason ?? null,
+    metadata.raw_ocr_json ?? null,
+    uploadId
+  );
+}
+
+function keepLastVisualUpload(filePath, originalName) {
+  if (String(process.env.RECEIPT_KEEP_LAST_IMAGE || "1") === "0" || !filePath || !fs.existsSync(filePath)) {
+    return;
+  }
+  fs.mkdirSync(receiptLastDir, { recursive: true });
+  for (const item of fs.readdirSync(receiptLastDir)) {
+    fs.rmSync(path.join(receiptLastDir, item), { force: true, recursive: true });
+  }
+  const ext = path.extname(originalName || filePath).toLowerCase().replace(/[^.a-z0-9]/g, "") || ".bin";
+  fs.copyFileSync(filePath, path.join(receiptLastDir, `last${ext}`));
+}
+
+function looksLikeStatementText(text) {
+  const raw = String(text || "");
+  const normalized = raw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, " ");
+  const dateMatches = raw.match(/\b\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?\b/g) || [];
+  const hasBankTableWords = /(movimientos?|extracto|estado de cuenta|saldo|debito|credito|débito|crédito|referencia|concepto)/.test(normalized);
+  return hasBankTableWords && dateMatches.length >= 2;
+}
+
+async function runVisualImport({ filePath, originalName, clientText, period, accountCurrency, uploadId }) {
+  const clientOcr = String(clientText || "").trim();
+  let ocrResult = null;
+  const provider = String(process.env.RECEIPT_OCR_PROVIDER || "paddleocr").toLowerCase();
+
+  if (provider === "paddleocr") {
+    ocrResult = await runPaddleOcr(filePath, { period, accountCurrency });
+  } else {
+    ocrResult = { ok: false, code: "ocr_engine_unavailable", error: `Unsupported OCR provider: ${provider}` };
+  }
+
+  if ((!ocrResult || ocrResult.ok === false) && clientOcr) {
+    ocrResult = {
+      ok: true,
+      provider: "client_extracted_text",
+      raw_text: clientOcr,
+      blocks: clientOcr.split(/\r?\n/).filter(Boolean).map((text) => ({ text, bbox: null, confidence: 0.5 })),
+      confidence: 0.5,
+    };
+  }
+
+  if (!ocrResult || ocrResult.ok === false) {
+    keepLastVisualUpload(filePath, originalName);
+    updateUploadMetadata(uploadId, {
+      import_kind: "unknown",
+      parse_quality: "failed",
+      ai_reason: ocrResult?.error || "OCR unavailable",
+    });
+    return {
+      ok: false,
+      status: 422,
+      code: ocrResult?.code || "ocr_engine_unavailable",
+      error: ocrResult?.error || "OCR engine unavailable",
+      parse_quality: "failed",
+    };
+  }
+
+  const visual = extractVisualCandidate(ocrResult, { period, accountCurrency });
+  const verification = await verifyVisualCandidate(visual, ocrResult, { period, account_currency: accountCurrency });
+  updateUploadMetadata(uploadId, {
+    import_kind: visual.import_kind,
+    source_kind: visual.source_kind,
+    parse_quality: visual.parse_quality,
+    ocr_confidence: ocrResult.confidence,
+    ai_confidence: verification.confidence,
+    ai_reason: verification.reason,
+    raw_ocr_json: limitJson({ provider: ocrResult.provider, raw_text: ocrResult.raw_text, blocks: ocrResult.blocks?.slice(0, 80) }),
+  });
+
+  if (visual.import_kind === "visual_summary_or_chart" || verification.decision === "reject") {
+    keepLastVisualUpload(filePath, originalName);
+    return {
+      ok: false,
+      status: 422,
+      code: "visual_not_transaction",
+      error: verification.reason || "La imagen parece un resumen o grafico, no un comprobante insertable.",
+      import_kind: visual.import_kind,
+      visual_result: visual,
+      ai_verification: verification,
+      parse_quality: "failed",
+    };
+  }
+
+  const aiUnavailable = verification.provider === "local" && (verification.warnings || []).some((warning) =>
+    /ai_not_configured|ai_verification_failed|nvidia_|invalid_json/.test(String(warning))
+  );
+  if (aiUnavailable && verification.decision === "needs_review") {
+    keepLastVisualUpload(filePath, originalName);
+    return {
+      ok: false,
+      status: 422,
+      code: "ai_verification_unavailable",
+      error: verification.reason || "La IA de verificacion no esta disponible para confirmar este comprobante.",
+      import_kind: visual.import_kind,
+      visual_result: visual,
+      ai_verification: verification,
+      parse_quality: visual.parse_quality,
+    };
+  }
+
+  const aiTx = verification.best_transaction;
+  const aiDate = /^\d{4}-\d{2}-\d{2}$/.test(String(aiTx?.fecha || "")) ? String(aiTx.fecha) : visual.date;
+  const aiAmount = Number(aiTx?.monto || visual.total);
+  const transaction = aiTx && verification.decision === "insert"
+    ? {
+        fecha: aiDate,
+        desc_banco: String(aiTx.desc_banco || visual.merchant_name || "Comprobante").trim(),
+        monto: -Math.abs(aiAmount),
+        moneda: String(aiTx.moneda || visual.currency || accountCurrency).toUpperCase(),
+        parse_quality: visual.parse_quality,
+      }
+    : buildTransactionFromVisualCandidate(visual);
+
+  if (!transaction || !Number.isFinite(Number(transaction.monto))) {
+    keepLastVisualUpload(filePath, originalName);
+    return {
+      ok: false,
+      status: 422,
+      code: "visual_parse_failed",
+      error: "No pudimos encontrar un monto principal confiable en la imagen.",
+      import_kind: visual.import_kind,
+      visual_result: visual,
+      ai_verification: verification,
+      parse_quality: "failed",
+    };
+  }
+
+  return {
+    ok: true,
+    transactions: [transaction],
+    forcePendingReview: verification.decision !== "insert" || visual.parse_quality !== "clean",
+    import_kind: visual.import_kind,
+    receipt: {
+      merchant_name: visual.merchant_name,
+      date: transaction.fecha,
+      total: Math.abs(transaction.monto),
+      currency: transaction.moneda,
+      confidence: visual.confidence,
+      parse_quality: visual.parse_quality,
+    },
+    visual_result: visual,
+    ai_verification: verification,
+  };
+}
+
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
@@ -372,6 +551,12 @@ router.post("/", upload.single("file"), async (req, res, next) => {
     let pendingReview = 0;
     const reviewGroups = createReviewGroupTracker();
     const transactionReviewQueue = [];
+    let importKind = ["csv", "xlsx", "xls"].includes(extension.replace(".", "")) ? "statement" : "auto";
+    let visualResult = null;
+    let receiptResult = null;
+    let aiVerification = null;
+    let parseDiagnostics = null;
+    let forcePendingReviewForBatch = false;
 
     // Resolve the account's currency so PDF transactions are stored correctly.
     // Falls back to UYU if account not found (shouldn't happen in normal flow).
@@ -509,47 +694,84 @@ router.post("/", upload.single("file"), async (req, res, next) => {
 
       runInserts(transactions);
     } else if (extension === ".pdf" || extension === ".txt" || OCR_IMPORT_EXTENSIONS.has(extension)) {
-      // The browser client (PDF.js) extracts text client-side and sends it as
-      // the `extracted_text` form field to avoid a round-trip server PDF parse.
-      // Fall back to server-side pdf-parse only when the field is absent
-      // (e.g. direct API calls that upload the actual PDF bytes).
-      const text = extension === ".txt"
+      const clientExtractedText = String(req.body.client_extracted_text || req.body.extracted_text || "").trim();
+      const serverText = extension === ".txt"
         ? fs.readFileSync(req.file.path, "utf-8")
-        : req.body.extracted_text
-          ? String(req.body.extracted_text)
-          : extension === ".pdf"
-            ? await parsePdfText(req.file.path)
-            : "";
+        : extension === ".pdf"
+          ? await parsePdfText(req.file.path)
+          : "";
+      const text = serverText.trim() || clientExtractedText;
       const patterns = JSON.parse(settings.parsing_patterns || "[]");
       const extracted = extractTransactions(text, patterns, period);
       let extractedTransactions = extracted.transactions;
+
+      parseDiagnostics = {
+        server_text_chars: serverText.trim().length,
+        client_text_chars: clientExtractedText.length,
+        unmatched_rows: extracted.unmatched?.length || 0,
+      };
+
       if (extractedTransactions.length === 0 && OCR_IMPORT_EXTENSIONS.has(extension)) {
-        const ocrResult = text
-          ? await extractTransactionsFromOcrWithOllama(settings, { text, period, moneda: accountCurrency })
-          : await extractTransactionsFromImageWithNvidia({
-              filePath: req.file.path,
-              mimeType: req.file.mimetype,
-              period,
-              moneda: accountCurrency,
-            });
-        extractedTransactions = ocrResult.transactions || [];
-        if (extractedTransactions.length === 0 && ocrResult.reason === "nvidia_ocr_not_configured") {
+        const visualImport = await runVisualImport({
+          filePath: req.file.path,
+          originalName: req.file.originalname,
+          clientText: clientExtractedText,
+          period,
+          accountCurrency,
+          uploadId,
+        });
+        if (!visualImport.ok) {
           cleanupUploadedFile(req.file.path);
           db.prepare("UPDATE uploads SET status='error' WHERE id = ?").run(uploadId);
-          return res.status(422).json({
-            error: "Image OCR is not configured. Set NVIDIA_API_KEY and NVIDIA_VISION_MODEL server-side, or send extracted_text.",
-            code: "ocr_not_configured",
-            parse_quality: "failed",
+          return res.status(visualImport.status || 422).json(visualImport);
+        }
+        importKind = visualImport.import_kind;
+        visualResult = visualImport.visual_result;
+        receiptResult = visualImport.receipt;
+        aiVerification = visualImport.ai_verification;
+        forcePendingReviewForBatch = visualImport.forcePendingReview;
+        extractedTransactions = visualImport.transactions || [];
+      } else if (extractedTransactions.length === 0 && extension === ".pdf" && !looksLikeStatementText(text)) {
+        const visualImport = await runVisualImport({
+          filePath: req.file.path,
+          originalName: req.file.originalname,
+          clientText: text,
+          period,
+          accountCurrency,
+          uploadId,
+        });
+        if (!visualImport.ok) {
+          cleanupUploadedFile(req.file.path);
+          db.prepare("UPDATE uploads SET status='error' WHERE id = ?").run(uploadId);
+          const code = !text.trim() && visualImport.code === "ocr_engine_unavailable" ? "pdf_text_empty" : visualImport.code;
+          return res.status(visualImport.status || 422).json({
+            ...visualImport,
+            code,
+            parse_diagnostics: parseDiagnostics,
           });
         }
+        importKind = visualImport.import_kind;
+        visualResult = visualImport.visual_result;
+        receiptResult = visualImport.receipt;
+        aiVerification = visualImport.ai_verification;
+        forcePendingReviewForBatch = visualImport.forcePendingReview;
+        extractedTransactions = visualImport.transactions || [];
+      } else if (extractedTransactions.length > 0) {
+        importKind = "statement";
       }
+
       if (extractedTransactions.length === 0) {
         cleanupUploadedFile(req.file.path);
         db.prepare("UPDATE uploads SET status='error' WHERE id = ?").run(uploadId);
+        const code = extension === ".pdf"
+          ? (text.trim() ? "statement_parse_failed" : "pdf_text_empty")
+          : "parse_failed";
         return res.status(422).json({
           error: "No transactions could be extracted from this upload",
-          code: "parse_failed",
+          code,
           parse_quality: "failed",
+          import_kind: looksLikeStatementText(text) ? "statement" : "unknown",
+          parse_diagnostics: parseDiagnostics,
         });
       }
       ensureSmartCategoriesForTransactions(db, extractedTransactions);
@@ -580,8 +802,18 @@ router.post("/", upload.single("file"), async (req, res, next) => {
             continue;
           }
 
-          const classification = resolveUploadClassification(transaction.desc_banco, transaction.monto, accountCurrency);
+          const classification = forcePendingReviewForBatch
+            ? {
+                categoryId: null,
+                categoryRuleId: null,
+                categorySource: "visual_ai_review",
+                categoryConfidence: aiVerification?.confidence ?? null,
+                categorizationStatus: "uncategorized",
+                autoCategorized: false,
+              }
+            : resolveUploadClassification(transaction.desc_banco, transaction.monto, accountCurrency);
           const importMeta = buildImportCategorizationMeta(transaction.desc_banco);
+          if (transaction.parse_quality) importMeta.parseQuality = transaction.parse_quality;
           if (classification.autoCategorized) autoCategorized += 1;
           else pendingReview += 1;
 
@@ -757,6 +989,12 @@ router.post("/", upload.single("file"), async (req, res, next) => {
     }
 
     db.prepare("UPDATE uploads SET tx_count = ?, status = 'processed' WHERE id = ?").run(newTransactions, uploadResult.lastInsertRowid);
+    updateUploadMetadata(uploadResult.lastInsertRowid, {
+      import_kind: importKind === "auto" ? "statement" : importKind,
+      parse_quality: newTransactions > 0 ? (forcePendingReviewForBatch ? "partial" : "clean") : "failed",
+      ai_confidence: aiVerification?.confidence ?? null,
+      ai_reason: aiVerification?.reason ?? null,
+    });
     const guidedReviewGroups = listGuidedReviewGroups(reviewGroups, 6);
     const guidedOnboardingRequired = (
       !hadTransactionsBeforeUpload &&
@@ -773,6 +1011,11 @@ router.post("/", upload.single("file"), async (req, res, next) => {
       duplicates_skipped: duplicatesSkipped,
       auto_categorized: autoCategorized,
       pending_review: pendingReview,
+      import_kind: importKind === "auto" ? "statement" : importKind,
+      ...(visualResult ? { visual_result: visualResult } : {}),
+      ...(receiptResult ? { receipt: receiptResult } : {}),
+      ...(aiVerification ? { ai_verification: aiVerification } : {}),
+      ...(parseDiagnostics ? { parse_diagnostics: parseDiagnostics } : {}),
       review_groups: listReviewGroups(reviewGroups),
       transaction_review_queue: transactionReviewQueue,
       guided_review_groups: guidedReviewGroups,

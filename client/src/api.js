@@ -57,6 +57,8 @@ async function request(url, options = {}) {
       message = response.statusText || message;
     }
     const error = new ApiError(message, { status: response.status });
+    if (parsed?.code) error.code = parsed.code;
+    if (parsed) error.payload = parsed;
     if (parsed?.blocking_reason) {
       error.code = "SCHEMA_MISMATCH";
       error.schema = parsed;
@@ -203,7 +205,7 @@ export const api = {
 
   // Upload
   getUploads: (period) => request(period ? `/api/upload?period=${period}` : "/api/upload"),
-  uploadFile: (formData) => request("/api/upload", { method: "POST", body: formData }),
+  uploadFile: (formData) => request("/api/upload", { method: "POST", body: formData, timeoutMs: 90000 }),
   retryCategorizeUpload: (id) => request(`/api/uploads/${id}/retry-categorize`, { method: "POST" }),
   getJob: (id) => request(`/api/jobs/${id}`),
 

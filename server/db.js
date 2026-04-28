@@ -106,6 +106,13 @@ function migrate() {
       tx_count INTEGER DEFAULT 0,
       period TEXT,
       status TEXT DEFAULT 'pending',
+      import_kind TEXT,
+      source_kind TEXT,
+      parse_quality TEXT,
+      ocr_confidence REAL,
+      ai_confidence REAL,
+      ai_reason TEXT,
+      raw_ocr_json TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
 
@@ -369,6 +376,15 @@ function migrate() {
   if (!txColumns.has("merchant_key")) db.exec("ALTER TABLE transactions ADD COLUMN merchant_key TEXT");
   if (!txColumns.has("parse_quality")) db.exec("ALTER TABLE transactions ADD COLUMN parse_quality TEXT NOT NULL DEFAULT 'clean'");
   if (!txColumns.has("rule_skipped_reason")) db.exec("ALTER TABLE transactions ADD COLUMN rule_skipped_reason TEXT");
+
+  const uploadColumns = new Set(db.prepare("PRAGMA table_info(uploads)").all().map((column) => column.name));
+  if (!uploadColumns.has("import_kind")) db.exec("ALTER TABLE uploads ADD COLUMN import_kind TEXT");
+  if (!uploadColumns.has("source_kind")) db.exec("ALTER TABLE uploads ADD COLUMN source_kind TEXT");
+  if (!uploadColumns.has("parse_quality")) db.exec("ALTER TABLE uploads ADD COLUMN parse_quality TEXT");
+  if (!uploadColumns.has("ocr_confidence")) db.exec("ALTER TABLE uploads ADD COLUMN ocr_confidence REAL");
+  if (!uploadColumns.has("ai_confidence")) db.exec("ALTER TABLE uploads ADD COLUMN ai_confidence REAL");
+  if (!uploadColumns.has("ai_reason")) db.exec("ALTER TABLE uploads ADD COLUMN ai_reason TEXT");
+  if (!uploadColumns.has("raw_ocr_json")) db.exec("ALTER TABLE uploads ADD COLUMN raw_ocr_json TEXT");
 
   const linkColumns = new Set(db.prepare("PRAGMA table_info(account_links)").all().map((column) => column.name));
   if (!linkColumns.has("preferred_currency")) db.exec("ALTER TABLE account_links ADD COLUMN preferred_currency TEXT DEFAULT NULL");
